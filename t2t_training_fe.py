@@ -1,0 +1,590 @@
+# t2t_frontend.py
+import os
+import json
+import requests
+from datetime import datetime
+
+import dash
+from dash import Dash, dcc, html, dash_table, Input, Output, State, MATCH, ALL, ctx, no_update
+import dash_bootstrap_components as dbc
+
+# -----------------------
+# Config
+# -----------------------
+API_BASE = os.getenv("T2T_API_BASE", "http://127.0.0.1:5001")
+API_CHOICES = f"{API_BASE}/api/choices"
+API_SAVE = f"{API_BASE}/api/save"
+API_RECENT = f"{API_BASE}/api/recent"
+
+APP_TITLE = "Text2Trait: Training data builder"
+
+# -----------------------
+# Local fallback schema (used if /api/choices is not reachable)
+# -----------------------
+SCHEMA_JSON = {
+    "orl": "opinion role labeling",
+    "span-attribute": {
+        "Gene": "gene",
+        "Regulator": "regulator",
+        "Variant": "variant",
+        "Protein": "protein",
+        "Trait": "phenotype",
+        "Enzyme": "enzyme",
+        "QTL": "qtl",
+        "Coordinates": "coordinates",
+        "Metabolite": "metabolite",
+    },
+    "relation-type": {
+        "is_a": "is_a",
+        "part_of": "part_of",
+        "develops_from": "develops_from",
+        "is_related_to": "is_related_to",
+        "is_not_related_to": "is_not_related_to",
+        "increases": "increases",
+        "decreases": "decreases",
+        "influences": "influences",
+        "does_not_influence": "does_not_influence",
+        "may_influence": "may_influence",
+        "may_not_influence": "may_not_influence",
+        "disrupts": "disrupts",
+        "regulates": "regulates",
+        "contributes_to": "contributes_to",
+        "inhers_in": "inhers_in",
+    },
+}
+
+OTHER_SENTINEL = "__OTHER__"
+
+def build_entity_options(schema_dict):
+    base = [{"label": k, "value": k} for k in schema_dict["span-attribute"].keys()]
+    base.append({"label": "Other…", "value": OTHER_SENTINEL})
+    return base
+
+def build_relation_options(schema_dict):
+    base = [{"label": k, "value": k} for k in schema_dict["relation-type"].keys()]
+    base.append({"label": "Other…", "value": OTHER_SENTINEL})
+    return base
+
+# -----------------------
+# UI Builders
+# -----------------------
+def tuple_row(i, entity_options, relation_options):
+    """
+    Build one tuple row with inputs:
+      - source_entity_name (text)
+      - source_entity_attr (dropdown) + Other text
+      - relation_type (dropdown) + Other text
+      - sink_entity_name (text)
+      - sink_entity_attr (dropdown) + Other text
+    """
+    return dbc.Card(
+        [
+            dbc.Row(
+                [
+                    dbc.Col(
+                        [
+                            dbc.Label("Source Entity Name"),
+                            dbc.Input(
+                                id={"type": "src-name", "index": i},
+                                placeholder="e.g., FLC",
+                                type="text",
+                                debounce=True,
+                            ),
+                            dbc.Label("Source Entity Attr"),
+                            dcc.Dropdown(
+                                id={"type": "src-attr", "index": i},
+                                options=entity_options,
+                                placeholder="Choose type…",
+                                clearable=True,
+                            ),
+                            html.Div(
+                                [
+                                    dbc.Label("Custom Source Attr"),
+                                    dbc.Input(
+                                        id={"type": "src-attr-other", "index": i},
+                                        placeholder="Enter new entity type",
+                                        type="text",
+                                        debounce=True,
+                                    ),
+                                ],
+                                id={"type": "src-attr-other-div", "index": i},
+                                style={"display": "none"},
+                            ),
+                        ],
+                        md=4,
+                    ),
+                    dbc.Col(
+                        [
+                            dbc.Label("Relation Type"),
+                            dcc.Dropdown(
+                                id={"type": "rel-type", "index": i},
+                                options=relation_options,
+                                placeholder="Choose relation…",
+                                clearable=True,
+                            ),
+                            html.Div(
+                                [
+                                    dbc.Label("Custom Relation"),
+                                    dbc.Input(
+                                        id={"type": "rel-type-other", "index": i},
+                                        placeholder="Enter new relation",
+                                        type="text",
+                                        debounce=True,
+                                    ),
+                                ],
+                                id={"type": "rel-type-other-div", "index": i},
+                                style={"display": "none"},
+                            ),
+                        ],
+                        md=4,
+                    ),
+                    dbc.Col(
+                        [
+                            dbc.Label("Sink Entity Name"),
+                            dbc.Input(
+                                id={"type": "sink-name", "index": i},
+                                placeholder='e.g., "flowering time"',
+                                type="text",
+                                debounce=True,
+                            ),
+                            dbc.Label("Sink Entity Attr"),
+                            dcc.Dropdown(
+                                id={"type": "sink-attr", "index": i},
+                                options=entity_options,
+                                placeholder="Choose type…",
+                                clearable=True,
+                            ),
+                            html.Div(
+                                [
+                                    dbc.Label("Custom Sink Attr"),
+                                    dbc.Input(
+                                        id={"type": "sink-attr-other", "index": i},
+                                        placeholder="Enter new entity type",
+                                        type="text",
+                                        debounce=True,
+                                    ),
+                                ],
+                                id={"type": "sink-attr-other-div", "index": i},
+                                style={"display": "none"},
+                            ),
+                        ],
+                        md=4,
+                    ),
+                ],
+                className="g-3",
+            )
+        ],
+        body=True,
+        className="mb-2",
+    )
+
+def sidebar():
+    # Build the Markdown with explicit, balanced code fences
+    schema_json_str = json.dumps(SCHEMA_JSON, indent=2)
+    schema_md_text = (
+        "**Current schema (essential)**\n\n"
+        "```json\n" + schema_json_str + "\n```\n\n"
+        "**Tables**\n\n"
+        "```text\n"
+        "sentences(id, text, literature_link, created_at)\n"
+        "tuples(id, sentence_id, source_entity_name, source_entity_attr, relation_type,\n"
+        "       sink_entity_name, sink_entity_attr, created_at)\n"
+        "entity_types(name, value)\n"
+        "relation_types(name)\n"
+        "```\n"
+    )
+    schema_md = dcc.Markdown(schema_md_text)
+
+    help_md = dcc.Markdown(
+        """
+**How to use**
+
+1. Paste a *Sentence* and (optionally) a DOI/URL in *Literature Link*.
+2. Click **Add tuple** to create one or more (source, relation, sink) tuples.
+3. Use dropdowns for entity types and relation; choose **Other…** if you need a new label.
+4. Click **Save** — the sentence is stored once, and all tuples link to it.
+
+**Notes**
+- One sentence can have multiple tuples.
+- If your backend has different endpoint paths, edit `API_*` constants at the top of the file.
+"""
+    )
+
+    qa_md = dcc.Markdown(
+        """
+**Q&A**
+
+- *Why do I see “Other…” inputs?*  
+  To allow adding new entity types or relations not in the base schema.
+
+- *Where do values come from?*  
+  The app tries `GET /api/choices` on the backend. If that fails, it falls back to the JSON schema embedded in the app.
+
+- *Can I browse saved items?*  
+  Yes — see the **Browse** tab (fetches from `/api/recent`).
+"""
+    )
+
+    return dbc.Card(
+        dbc.Accordion(
+            [
+                dbc.AccordionItem(help_md, title="Help"),
+                dbc.AccordionItem(schema_md, title="Schema"),
+                dbc.AccordionItem(qa_md, title="Q&A"),
+            ],
+            start_collapsed=True,
+            always_open=False,
+        ),
+        body=True,
+        className="mb-3"
+    )
+
+# -----------------------
+# App & Layout
+# -----------------------
+external_stylesheets = [dbc.themes.BOOTSTRAP]
+app: Dash = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+app.title = APP_TITLE
+server = app.server  # for gunicorn, if needed
+
+app.layout = dbc.Container(
+    [
+        dcc.Store(id="choices-store"),
+        dcc.Store(id="tuple-count", data=1),
+        dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
+
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        html.H2(APP_TITLE, className="mt-3 mb-4"),
+
+                        dcc.Tabs(
+                            id="main-tabs",
+                            value="tab-annotate",
+                            children=[
+                                dcc.Tab(
+                                    label="Annotate",
+                                    value="tab-annotate",
+                                    children=[
+                                        dbc.Card(
+                                            [
+                                                dbc.Row(
+                                                    [
+                                                        dbc.Col(
+                                                            [
+                                                                dbc.Label("Manual ID (optional)"),
+                                                                dbc.Input(
+                                                                    id="manual-id",
+                                                                    placeholder="Leave blank to auto-generate",
+                                                                    type="text",
+                                                                    debounce=True,
+                                                                ),
+                                                            ],
+                                                            md=3,
+                                                        ),
+                                                        dbc.Col(
+                                                            [
+                                                                dbc.Label("Literature Link (DOI/URL)"),
+                                                                dbc.Input(
+                                                                    id="literature-link",
+                                                                    placeholder="e.g., https://doi.org/...",
+                                                                    type="text",
+                                                                    debounce=True,
+                                                                ),
+                                                            ],
+                                                            md=9,
+                                                        ),
+                                                    ],
+                                                    className="g-3",
+                                                ),
+                                                html.Hr(),
+                                                dbc.Label("Sentence"),
+                                                dcc.Textarea(
+                                                    id="sentence-text",
+                                                    placeholder='e.g., "gene FLC regulates flowering time".',
+                                                    style={"width": "100%", "height": "100px"},
+                                                ),
+                                                html.Div(className="mt-3"),
+                                                dbc.ButtonGroup(
+                                                    [
+                                                        dbc.Button("Add tuple", id="btn-add-tuple", color="primary"),
+                                                        dbc.Button("Remove last tuple", id="btn-remove-tuple", color="secondary"),
+                                                        dbc.Button("Save", id="btn-save", color="success"),
+                                                        dbc.Button("Reset", id="btn-reset", color="warning"),
+                                                    ],
+                                                    size="sm",
+                                                    className="mb-2",
+                                                ),
+                                                html.Div(id="tuples-container"),
+                                                html.Div(id="save-message", className="mt-2"),
+                                            ],
+                                            body=True,
+                                        )
+                                    ],
+                                ),
+                                dcc.Tab(
+                                    label="Browse",
+                                    value="tab-browse",
+                                    children=[
+                                        dbc.Card(
+                                            [
+                                                dbc.Button("Refresh", id="btn-refresh", color="secondary", className="mb-2"),
+                                                html.Div(id="recent-table"),
+                                            ],
+                                            body=True,
+                                        )
+                                    ],
+                                ),
+                            ],
+                        ),
+                    ],
+                    md=8,
+                ),
+                dbc.Col(
+                    [
+                        sidebar()
+                    ],
+                    md=4,
+                ),
+            ],
+            className="g-4",
+        ),
+        html.Footer(
+            dbc.Row(
+                dbc.Col(
+                    html.Small(f"© {datetime.now().year} Text2Trait"),
+                    className="text-center text-muted my-3",
+                )
+            )
+        ),
+    ],
+    fluid=True,
+)
+
+# -----------------------
+# Callbacks
+# -----------------------
+
+# Load choices once (try backend; fallback to local schema)
+@app.callback(
+    Output("choices-store", "data"),
+    Input("load-trigger", "n_intervals"),
+    prevent_initial_call=False,
+)
+def load_choices(_):
+    try:
+        r = requests.get(API_CHOICES, timeout=5)
+        if r.ok:
+            data = r.json()
+            # Expecting something like:
+            # { "entity_types": ["Gene", ...], "relation_types": ["regulates", ...] }
+            entity_types = data.get("entity_types") or list(SCHEMA_JSON["span-attribute"].keys())
+            relation_types = data.get("relation_types") or list(SCHEMA_JSON["relation-type"].keys())
+        else:
+            entity_types = list(SCHEMA_JSON["span-attribute"].keys())
+            relation_types = list(SCHEMA_JSON["relation-type"].keys())
+    except Exception:
+        entity_types = list(SCHEMA_JSON["span-attribute"].keys())
+        relation_types = list(SCHEMA_JSON["relation-type"].keys())
+
+    return {
+        "entity_options": [{"label": k, "value": k} for k in entity_types] + [{"label": "Other…", "value": OTHER_SENTINEL}],
+        "relation_options": [{"label": k, "value": k} for k in relation_types] + [{"label": "Other…", "value": OTHER_SENTINEL}],
+    }
+
+# Add/remove tuple rows
+@app.callback(
+    Output("tuple-count", "data"),
+    Input("btn-add-tuple", "n_clicks"),
+    Input("btn-remove-tuple", "n_clicks"),
+    Input("btn-reset", "n_clicks"),
+    State("tuple-count", "data"),
+    prevent_initial_call=True,
+)
+def modify_tuple_count(add_clicks, remove_clicks, reset_clicks, current_count):
+    trigger = ctx.triggered_id
+    count = current_count or 1
+    if trigger == "btn-add-tuple":
+        return count + 1
+    elif trigger == "btn-remove-tuple":
+        return max(1, count - 1)
+    elif trigger == "btn-reset":
+        return 1
+    return count
+
+# Render tuple rows whenever count or choices change
+@app.callback(
+    Output("tuples-container", "children"),
+    Input("tuple-count", "data"),
+    Input("choices-store", "data"),
+)
+def render_tuple_rows(count, choices_data):
+    if not choices_data:
+        entity_options = build_entity_options(SCHEMA_JSON)
+        relation_options = build_relation_options(SCHEMA_JSON)
+    else:
+        entity_options = choices_data["entity_options"]
+        relation_options = choices_data["relation_options"]
+
+    rows = [tuple_row(i, entity_options, relation_options) for i in range(count or 1)]
+    return rows
+
+# Show/hide "Other…" inputs for Source Attr
+@app.callback(
+    Output({"type": "src-attr-other-div", "index": ALL}, "style"),
+    Input({"type": "src-attr", "index": ALL}, "value"),
+)
+def toggle_src_other(values):
+    styles = []
+    for v in values:
+        styles.append({"display": "block"} if v == OTHER_SENTINEL else {"display": "none"})
+    return styles
+
+# Show/hide "Other…" inputs for Relation
+@app.callback(
+    Output({"type": "rel-type-other-div", "index": ALL}, "style"),
+    Input({"type": "rel-type", "index": ALL}, "value"),
+)
+def toggle_rel_other(values):
+    styles = []
+    for v in values:
+        styles.append({"display": "block"} if v == OTHER_SENTINEL else {"display": "none"})
+    return styles
+
+# Show/hide "Other…" inputs for Sink Attr
+@app.callback(
+    Output({"type": "sink-attr-other-div", "index": ALL}, "style"),
+    Input({"type": "sink-attr", "index": ALL}, "value"),
+)
+def toggle_sink_other(values):
+    styles = []
+    for v in values:
+        styles.append({"display": "block"} if v == OTHER_SENTINEL else {"display": "none"})
+    return styles
+
+# Save handler
+@app.callback(
+    Output("save-message", "children"),
+    Input("btn-save", "n_clicks"),
+    State("sentence-text", "value"),
+    State("literature-link", "value"),
+    State("manual-id", "value"),
+    State({"type": "src-name", "index": ALL}, "value"),
+    State({"type": "src-attr", "index": ALL}, "value"),
+    State({"type": "src-attr-other", "index": ALL}, "value"),
+    State({"type": "rel-type", "index": ALL}, "value"),
+    State({"type": "rel-type-other", "index": ALL}, "value"),
+    State({"type": "sink-name", "index": ALL}, "value"),
+    State({"type": "sink-attr", "index": ALL}, "value"),
+    State({"type": "sink-attr-other", "index": ALL}, "value"),
+    prevent_initial_call=True,
+)
+def save_tuples(n_clicks, sentence_text, literature_link, manual_id,
+                src_names, src_attrs, src_other,
+                rel_types, rel_other,
+                sink_names, sink_attrs, sink_other):
+    if not sentence_text or not sentence_text.strip():
+        return dbc.Alert("Sentence is required.", color="danger", dismissable=True, duration=4000)
+
+    num_rows = max(
+        len(src_names or []),
+        len(src_attrs or []),
+        len(rel_types or []),
+        len(sink_names or []),
+        len(sink_attrs or []),
+    )
+
+    tuples = []
+    for i in range(num_rows):
+        src_name = (src_names or [""] * num_rows)[i] or ""
+        src_attr_val = (src_attrs or [""] * num_rows)[i] or ""
+        src_attr_final = (src_other or [""] * num_rows)[i] if src_attr_val == OTHER_SENTINEL else src_attr_val
+
+        rel_val = (rel_types or [""] * num_rows)[i] or ""
+        rel_final = (rel_other or [""] * num_rows)[i] if rel_val == OTHER_SENTINEL else rel_val
+
+        sink_name = (sink_names or [""] * num_rows)[i] or ""
+        sink_attr_val = (sink_attrs or [""] * num_rows)[i] or ""
+        sink_attr_final = (sink_other or [""] * num_rows)[i] if sink_attr_val == OTHER_SENTINEL else sink_attr_val
+
+        # Minimal validation: require src_name, relation, sink_name
+        if src_name and rel_final and sink_name:
+            tuples.append(
+                {
+                    "source_entity_name": src_name,
+                    "source_entity_attr": src_attr_final,
+                    "relation_type": rel_final,
+                    "sink_entity_name": sink_name,
+                    "sink_entity_attr": sink_attr_final,
+                }
+            )
+
+    if not tuples:
+        return dbc.Alert("At least one complete tuple is required (source, relation, sink).", color="danger", dismissable=True, duration=4000)
+
+    payload = {
+        "sentence": sentence_text.strip(),
+        "literature_link": (literature_link or "").strip(),
+        "custom_id": (manual_id or "").strip() or None,
+        "tuples": tuples,
+    }
+
+    try:
+        r = requests.post(API_SAVE, json=payload, timeout=10)
+        if r.ok:
+            try:
+                resp = r.json()
+            except Exception:
+                resp = {}
+            new_id = resp.get("sentence_id") or resp.get("id") or "(unknown)"
+            return dbc.Alert(f"Saved. Sentence ID = {new_id}", color="success", dismissable=True, duration=4000)
+        else:
+            return dbc.Alert(f"Save failed: {r.status_code} {r.text}", color="danger", dismissable=True, duration=6000)
+    except Exception as e:
+        return dbc.Alert(f"Save error: {e}", color="danger", dismissable=True, duration=6000)
+
+# Browse recent
+@app.callback(
+    Output("recent-table", "children"),
+    Input("btn-refresh", "n_clicks"),
+    prevent_initial_call=True,
+)
+def refresh_recent(_):
+    try:
+        r = requests.get(API_RECENT, timeout=8)
+        if not r.ok:
+            return dbc.Alert(f"Failed to load recent entries: {r.status_code}", color="danger")
+        data = r.json()
+        # Normalize: expect list of dicts
+        if isinstance(data, dict):
+            rows = data.get("items", [])
+        else:
+            rows = data
+        if not rows:
+            return html.Div("No recent records.")
+        columns = [{"name": k, "id": k} for k in rows[0].keys()]
+        return dash_table.DataTable(
+            data=rows, columns=columns, page_size=10, style_table={"overflowX": "auto"}
+        )
+    except Exception as e:
+        return dbc.Alert(f"Error: {e}", color="danger")
+
+# Reset form
+@app.callback(
+    Output("sentence-text", "value"),
+    Output("literature-link", "value"),
+    Output("manual-id", "value"),
+    Input("btn-reset", "n_clicks"),
+    prevent_initial_call=True,
+)
+def reset_form(_):
+    return "", "", ""
+
+# -----------------------
+# Main
+# -----------------------
+if __name__ == "__main__":
+    # Run:  python t2t_frontend.py
+    # Then open http://127.0.0.1:8050
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8050")), debug=False)
