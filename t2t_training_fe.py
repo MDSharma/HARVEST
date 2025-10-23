@@ -15,6 +15,7 @@ API_BASE = os.getenv("T2T_API_BASE", "http://127.0.0.1:5001")
 API_CHOICES = f"{API_BASE}/api/choices"
 API_SAVE = f"{API_BASE}/api/save"
 API_RECENT = f"{API_BASE}/api/recent"
+API_VALIDATE_DOI = f"{API_BASE}/api/validate-doi"
 
 APP_TITLE = "Text2Trait: Training data builder"
 
@@ -251,6 +252,8 @@ app.layout = dbc.Container(
     [
         dcc.Store(id="choices-store"),
         dcc.Store(id="tuple-count", data=1),
+        dcc.Store(id="email-store", storage_type="session"),
+        dcc.Store(id="doi-metadata-store"),
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
 
         dbc.Row(
@@ -273,30 +276,59 @@ app.layout = dbc.Container(
                                                     [
                                                         dbc.Col(
                                                             [
-                                                                dbc.Label("Manual ID (optional)"),
+                                                                dbc.Label("Your Email (required)", style={"fontWeight": "bold"}),
                                                                 dbc.Input(
-                                                                    id="manual-id",
-                                                                    placeholder="Leave blank to auto-generate",
-                                                                    type="text",
+                                                                    id="contributor-email",
+                                                                    placeholder="email@example.com",
+                                                                    type="email",
                                                                     debounce=True,
+                                                                    required=True,
+                                                                ),
+                                                                html.Small(
+                                                                    id="email-validation",
+                                                                    className="text-muted",
                                                                 ),
                                                             ],
-                                                            md=3,
+                                                            md=12,
                                                         ),
+                                                    ],
+                                                    className="g-3 mb-3",
+                                                ),
+                                                dbc.Row(
+                                                    [
                                                         dbc.Col(
                                                             [
-                                                                dbc.Label("Literature Link (DOI/URL)"),
-                                                                dbc.Input(
-                                                                    id="literature-link",
-                                                                    placeholder="e.g., https://doi.org/...",
-                                                                    type="text",
-                                                                    debounce=True,
+                                                                dbc.Label("DOI or Literature Link"),
+                                                                dbc.InputGroup(
+                                                                    [
+                                                                        dbc.Input(
+                                                                            id="literature-link",
+                                                                            placeholder="e.g., 10.1234/example or https://doi.org/...",
+                                                                            type="text",
+                                                                            debounce=True,
+                                                                        ),
+                                                                        dbc.Button(
+                                                                            "Validate DOI",
+                                                                            id="btn-validate-doi",
+                                                                            color="info",
+                                                                            outline=True,
+                                                                        ),
+                                                                    ],
+                                                                ),
+                                                                html.Small(
+                                                                    id="doi-validation",
+                                                                    className="text-muted",
                                                                 ),
                                                             ],
-                                                            md=9,
+                                                            md=12,
                                                         ),
                                                     ],
                                                     className="g-3",
+                                                ),
+                                                html.Div(
+                                                    id="doi-metadata-display",
+                                                    className="mt-2",
+                                                    style={"display": "none"},
                                                 ),
                                                 html.Hr(),
                                                 dbc.Label("Sentence"),
@@ -366,6 +398,113 @@ app.layout = dbc.Container(
 # Callbacks
 # -----------------------
 
+# Email validation callback
+@app.callback(
+    Output("email-validation", "children"),
+    Output("email-validation", "style"),
+    Output("email-store", "data"),
+    Input("contributor-email", "value"),
+)
+def validate_email(email):
+    if not email or not email.strip():
+        return "Email is required to attribute your contributions", {"color": "red"}, None
+
+    import re
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if re.match(email_pattern, email.strip()):
+        return "Valid email", {"color": "green"}, email.strip()
+    else:
+        return "Please enter a valid email address", {"color": "red"}, None
+
+# Restore email from session on page load
+@app.callback(
+    Output("contributor-email", "value"),
+    Input("email-store", "data"),
+    prevent_initial_call=False,
+)
+def restore_email(stored_email):
+    return stored_email or ""
+
+# DOI validation callback
+@app.callback(
+    Output("doi-validation", "children"),
+    Output("doi-validation", "style"),
+    Output("doi-metadata-display", "children"),
+    Output("doi-metadata-display", "style"),
+    Output("doi-metadata-store", "data"),
+    Input("btn-validate-doi", "n_clicks"),
+    State("literature-link", "value"),
+    prevent_initial_call=True,
+)
+def validate_doi(n_clicks, doi_input):
+    if not doi_input or not doi_input.strip():
+        return (
+            "Please enter a DOI",
+            {"color": "red"},
+            None,
+            {"display": "none"},
+            None
+        )
+
+    try:
+        r = requests.post(API_VALIDATE_DOI, json={"doi": doi_input}, timeout=15)
+        if r.ok:
+            result = r.json()
+            if result.get("valid"):
+                metadata = result.get("metadata", {})
+                doi = result.get("doi", "")
+
+                metadata_card = dbc.Alert(
+                    [
+                        html.H6("Article Metadata Retrieved:", className="alert-heading"),
+                        html.Hr(),
+                        html.P([html.Strong("DOI: "), doi]),
+                        html.P([html.Strong("Title: "), metadata.get("title", "N/A")]),
+                        html.P([html.Strong("Authors: "), metadata.get("authors", "N/A")]),
+                        html.P([html.Strong("Year: "), metadata.get("year", "N/A")], className="mb-0"),
+                    ],
+                    color="success",
+                    className="mb-2",
+                )
+
+                return (
+                    "Valid DOI - metadata retrieved",
+                    {"color": "green"},
+                    metadata_card,
+                    {"display": "block"},
+                    {
+                        "doi": doi,
+                        "title": metadata.get("title", ""),
+                        "authors": metadata.get("authors", ""),
+                        "year": metadata.get("year", ""),
+                    }
+                )
+            else:
+                error_msg = result.get("error", "Invalid DOI")
+                return (
+                    error_msg,
+                    {"color": "red"},
+                    None,
+                    {"display": "none"},
+                    None
+                )
+        else:
+            return (
+                f"Validation failed: {r.status_code}",
+                {"color": "red"},
+                None,
+                {"display": "none"},
+                None
+            )
+    except Exception as e:
+        return (
+            f"Error: {str(e)}",
+            {"color": "red"},
+            None,
+            {"display": "none"},
+            None
+        )
+
 # Load choices once (try backend; fallback to local schema)
 @app.callback(
     Output("choices-store", "data"),
@@ -377,14 +516,13 @@ def load_choices(_):
         r = requests.get(API_CHOICES, timeout=5)
         if r.ok:
             data = r.json()
-            # Expecting something like:
-            # { "entity_types": ["Gene", ...], "relation_types": ["regulates", ...] }
             entity_types = data.get("entity_types") or list(SCHEMA_JSON["span-attribute"].keys())
             relation_types = data.get("relation_types") or list(SCHEMA_JSON["relation-type"].keys())
         else:
             entity_types = list(SCHEMA_JSON["span-attribute"].keys())
             relation_types = list(SCHEMA_JSON["relation-type"].keys())
-    except Exception:
+    except Exception as e:
+        print(f"Failed to load choices from API: {e}")
         entity_types = list(SCHEMA_JSON["span-attribute"].keys())
         relation_types = list(SCHEMA_JSON["relation-type"].keys())
 
@@ -469,7 +607,9 @@ def toggle_sink_other(values):
     Input("btn-save", "n_clicks"),
     State("sentence-text", "value"),
     State("literature-link", "value"),
-    State("manual-id", "value"),
+    State("contributor-email", "value"),
+    State("email-store", "data"),
+    State("doi-metadata-store", "data"),
     State({"type": "src-name", "index": ALL}, "value"),
     State({"type": "src-attr", "index": ALL}, "value"),
     State({"type": "src-attr-other", "index": ALL}, "value"),
@@ -480,12 +620,16 @@ def toggle_sink_other(values):
     State({"type": "sink-attr-other", "index": ALL}, "value"),
     prevent_initial_call=True,
 )
-def save_tuples(n_clicks, sentence_text, literature_link, manual_id,
+def save_tuples(n_clicks, sentence_text, literature_link, contributor_email, email_validated,
+                doi_metadata,
                 src_names, src_attrs, src_other,
                 rel_types, rel_other,
                 sink_names, sink_attrs, sink_other):
     if not sentence_text or not sentence_text.strip():
         return dbc.Alert("Sentence is required.", color="danger", dismissable=True, duration=4000)
+
+    if not email_validated:
+        return dbc.Alert("Please enter a valid email address.", color="danger", dismissable=True, duration=4000)
 
     num_rows = max(
         len(src_names or []),
@@ -526,60 +670,115 @@ def save_tuples(n_clicks, sentence_text, literature_link, manual_id,
     payload = {
         "sentence": sentence_text.strip(),
         "literature_link": (literature_link or "").strip(),
-        "custom_id": (manual_id or "").strip() or None,
+        "contributor_email": email_validated,
         "tuples": tuples,
     }
 
+    if doi_metadata:
+        payload["doi"] = doi_metadata.get("doi", "")
+        payload["article_title"] = doi_metadata.get("title", "")
+        payload["article_authors"] = doi_metadata.get("authors", "")
+        payload["article_year"] = doi_metadata.get("year", "")
+
     try:
+        print(f"Saving payload: {json.dumps(payload, indent=2)}")
         r = requests.post(API_SAVE, json=payload, timeout=10)
+        print(f"Response status: {r.status_code}")
+        print(f"Response text: {r.text}")
         if r.ok:
             try:
                 resp = r.json()
-            except Exception:
+            except Exception as parse_err:
+                print(f"Failed to parse response: {parse_err}")
                 resp = {}
             new_id = resp.get("sentence_id") or resp.get("id") or "(unknown)"
-            return dbc.Alert(f"Saved. Sentence ID = {new_id}", color="success", dismissable=True, duration=4000)
+            num_tuples = len(tuples)
+            return dbc.Alert(
+                f"Saved successfully! Sentence ID: {new_id}, Tuples saved: {num_tuples}",
+                color="success",
+                dismissable=True,
+                duration=4000
+            )
         else:
-            return dbc.Alert(f"Save failed: {r.status_code} {r.text}", color="danger", dismissable=True, duration=6000)
+            error_msg = r.text[:500]
+            return dbc.Alert(f"Save failed: {r.status_code} - {error_msg}", color="danger", dismissable=True, duration=8000)
     except Exception as e:
-        return dbc.Alert(f"Save error: {e}", color="danger", dismissable=True, duration=6000)
+        import traceback
+        traceback.print_exc()
+        return dbc.Alert(f"Save error: {str(e)}", color="danger", dismissable=True, duration=8000)
 
 # Browse recent
 @app.callback(
     Output("recent-table", "children"),
     Input("btn-refresh", "n_clicks"),
-    prevent_initial_call=True,
+    Input("load-trigger", "n_intervals"),
+    prevent_initial_call=False,
 )
-def refresh_recent(_):
+def refresh_recent(btn_clicks, interval_trigger):
     try:
+        print(f"Fetching recent data from {API_RECENT}")
         r = requests.get(API_RECENT, timeout=8)
+        print(f"Response status: {r.status_code}")
         if not r.ok:
-            return dbc.Alert(f"Failed to load recent entries: {r.status_code}", color="danger")
+            error_text = r.text[:500]
+            return dbc.Alert(f"Failed to load recent entries: {r.status_code} - {error_text}", color="danger")
         data = r.json()
-        # Normalize: expect list of dicts
+        print(f"Received {len(data)} rows")
+
         if isinstance(data, dict):
+            if "error" in data:
+                return dbc.Alert(f"API Error: {data['error']}", color="danger")
             rows = data.get("items", [])
         else:
             rows = data
+
         if not rows:
-            return html.Div("No recent records.")
+            return dbc.Alert("No records found. Try adding some data first!", color="info")
+
         columns = [{"name": k, "id": k} for k in rows[0].keys()]
         return dash_table.DataTable(
-            data=rows, columns=columns, page_size=10, style_table={"overflowX": "auto"}
+            data=rows,
+            columns=columns,
+            page_size=20,
+            style_table={"overflowX": "auto"},
+            style_cell={
+                'textAlign': 'left',
+                'padding': '8px',
+                'minWidth': '100px',
+                'maxWidth': '300px',
+                'overflow': 'hidden',
+                'textOverflow': 'ellipsis',
+            },
+            style_header={
+                'backgroundColor': 'rgb(230, 230, 230)',
+                'fontWeight': 'bold'
+            },
+            tooltip_data=[
+                {
+                    column: {'value': str(row[column]), 'type': 'markdown'}
+                    for column in row.keys()
+                } for row in rows
+            ],
+            tooltip_duration=None,
         )
     except Exception as e:
-        return dbc.Alert(f"Error: {e}", color="danger")
+        import traceback
+        traceback.print_exc()
+        return dbc.Alert(f"Error loading data: {str(e)}", color="danger")
 
 # Reset form
 @app.callback(
     Output("sentence-text", "value"),
     Output("literature-link", "value"),
-    Output("manual-id", "value"),
+    Output("doi-metadata-store", "clear_data"),
+    Output("doi-validation", "children", allow_duplicate=True),
+    Output("doi-metadata-display", "children", allow_duplicate=True),
+    Output("doi-metadata-display", "style", allow_duplicate=True),
     Input("btn-reset", "n_clicks"),
     prevent_initial_call=True,
 )
 def reset_form(_):
-    return "", "", ""
+    return "", "", True, "", None, {"display": "none"}
 
 # -----------------------
 # Main
