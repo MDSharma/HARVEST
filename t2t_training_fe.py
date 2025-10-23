@@ -251,6 +251,7 @@ app.layout = dbc.Container(
     [
         dcc.Store(id="choices-store"),
         dcc.Store(id="tuple-count", data=1),
+        dcc.Store(id="email-store", storage_type="session"),
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
 
         dbc.Row(
@@ -269,6 +270,28 @@ app.layout = dbc.Container(
                                     children=[
                                         dbc.Card(
                                             [
+                                                dbc.Row(
+                                                    [
+                                                        dbc.Col(
+                                                            [
+                                                                dbc.Label("Your Email (required)", style={"fontWeight": "bold"}),
+                                                                dbc.Input(
+                                                                    id="contributor-email",
+                                                                    placeholder="email@example.com",
+                                                                    type="email",
+                                                                    debounce=True,
+                                                                    required=True,
+                                                                ),
+                                                                html.Small(
+                                                                    id="email-validation",
+                                                                    className="text-muted",
+                                                                ),
+                                                            ],
+                                                            md=12,
+                                                        ),
+                                                    ],
+                                                    className="g-3 mb-3",
+                                                ),
                                                 dbc.Row(
                                                     [
                                                         dbc.Col(
@@ -365,6 +388,33 @@ app.layout = dbc.Container(
 # -----------------------
 # Callbacks
 # -----------------------
+
+# Email validation callback
+@app.callback(
+    Output("email-validation", "children"),
+    Output("email-validation", "style"),
+    Output("email-store", "data"),
+    Input("contributor-email", "value"),
+)
+def validate_email(email):
+    if not email or not email.strip():
+        return "Email is required to attribute your contributions", {"color": "red"}, None
+
+    import re
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if re.match(email_pattern, email.strip()):
+        return "Valid email", {"color": "green"}, email.strip()
+    else:
+        return "Please enter a valid email address", {"color": "red"}, None
+
+# Restore email from session on page load
+@app.callback(
+    Output("contributor-email", "value"),
+    Input("email-store", "data"),
+    prevent_initial_call=False,
+)
+def restore_email(stored_email):
+    return stored_email or ""
 
 # Load choices once (try backend; fallback to local schema)
 @app.callback(
@@ -470,6 +520,8 @@ def toggle_sink_other(values):
     State("sentence-text", "value"),
     State("literature-link", "value"),
     State("manual-id", "value"),
+    State("contributor-email", "value"),
+    State("email-store", "data"),
     State({"type": "src-name", "index": ALL}, "value"),
     State({"type": "src-attr", "index": ALL}, "value"),
     State({"type": "src-attr-other", "index": ALL}, "value"),
@@ -480,12 +532,15 @@ def toggle_sink_other(values):
     State({"type": "sink-attr-other", "index": ALL}, "value"),
     prevent_initial_call=True,
 )
-def save_tuples(n_clicks, sentence_text, literature_link, manual_id,
+def save_tuples(n_clicks, sentence_text, literature_link, manual_id, contributor_email, email_validated,
                 src_names, src_attrs, src_other,
                 rel_types, rel_other,
                 sink_names, sink_attrs, sink_other):
     if not sentence_text or not sentence_text.strip():
         return dbc.Alert("Sentence is required.", color="danger", dismissable=True, duration=4000)
+
+    if not email_validated:
+        return dbc.Alert("Please enter a valid email address.", color="danger", dismissable=True, duration=4000)
 
     num_rows = max(
         len(src_names or []),
@@ -527,6 +582,7 @@ def save_tuples(n_clicks, sentence_text, literature_link, manual_id,
         "sentence": sentence_text.strip(),
         "literature_link": (literature_link or "").strip(),
         "custom_id": (manual_id or "").strip() or None,
+        "contributor_email": email_validated,
         "tuples": tuples,
     }
 

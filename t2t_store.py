@@ -66,6 +66,7 @@ def init_db(db_path: str) -> None:
             id INTEGER PRIMARY KEY,
             text TEXT NOT NULL,
             literature_link TEXT,
+            contributor_email TEXT,
             created_at TEXT
         );
     """)
@@ -109,13 +110,13 @@ def fetch_relation_dropdown_options(db_path: str):
     opts.append({"label": "other (type below)", "value": "other"})
     return opts
 
-def upsert_sentence(db_path: str, sid, text: str, link: str) -> int:
+def upsert_sentence(db_path: str, sid, text: str, link: str, email: str = None) -> int:
     conn = get_conn(db_path); cur = conn.cursor()
     now = datetime.utcnow().isoformat()
 
     if sid is None or str(sid).strip() == "":
-        cur.execute("INSERT INTO sentences(text, literature_link, created_at) VALUES (?, ?, ?);",
-                    (text, link, now))
+        cur.execute("INSERT INTO sentences(text, literature_link, contributor_email, created_at) VALUES (?, ?, ?, ?);",
+                    (text, link, email, now))
         cur.execute("SELECT last_insert_rowid();")
         new_id = cur.fetchone()[0]
         conn.close()
@@ -124,8 +125,8 @@ def upsert_sentence(db_path: str, sid, text: str, link: str) -> int:
     try:
         sid = int(sid)
     except Exception:
-        cur.execute("INSERT INTO sentences(text, literature_link, created_at) VALUES (?, ?, ?);",
-                    (text, link, now))
+        cur.execute("INSERT INTO sentences(text, literature_link, contributor_email, created_at) VALUES (?, ?, ?, ?);",
+                    (text, link, email, now))
         cur.execute("SELECT last_insert_rowid();")
         new_id = cur.fetchone()[0]
         conn.close()
@@ -134,12 +135,12 @@ def upsert_sentence(db_path: str, sid, text: str, link: str) -> int:
     cur.execute("SELECT COUNT(1) FROM sentences WHERE id=?;", (sid,))
     exists = cur.fetchone()[0] > 0
     if exists:
-        cur.execute("UPDATE sentences SET text=?, literature_link=? WHERE id=?;", (text, link, sid))
+        cur.execute("UPDATE sentences SET text=?, literature_link=?, contributor_email=? WHERE id=?;", (text, link, email, sid))
         conn.close()
         return sid
     else:
-        cur.execute("INSERT INTO sentences(id, text, literature_link, created_at) VALUES (?, ?, ?, ?);",
-                    (sid, text, link, now))
+        cur.execute("INSERT INTO sentences(id, text, literature_link, contributor_email, created_at) VALUES (?, ?, ?, ?, ?);",
+                    (sid, text, link, email, now))
         conn.close()
         return sid
 

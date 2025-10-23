@@ -82,11 +82,14 @@ def save():
 
     sentence = (payload.get("sentence") or "").strip()
     literature_link = (payload.get("literature_link") or "").strip()
+    contributor_email = (payload.get("contributor_email") or "").strip()
     sentence_id = payload.get("sentence_id")  # may be None
     tuples: List[Dict[str, Any]] = payload.get("tuples") or []
 
     if not sentence:
         return jsonify({"error": "Missing 'sentence'"}), 400
+    if not contributor_email:
+        return jsonify({"error": "Missing 'contributor_email'"}), 400
     if not tuples:
         return jsonify({"error": "Missing 'tuples' array"}), 400
 
@@ -121,7 +124,7 @@ def save():
 
     # Upsert the sentence, then insert tuples
     try:
-        sid = upsert_sentence(DB_PATH, sentence_id, sentence, literature_link)
+        sid = upsert_sentence(DB_PATH, sentence_id, sentence, literature_link, contributor_email)
         insert_tuple_rows(DB_PATH, sid, tuples)
         return jsonify({"ok": True, "sentence_id": sid})
     except Exception as e:
@@ -137,7 +140,7 @@ def rows():
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         cur.execute("""
-            SELECT s.id, s.text, s.literature_link, t.id, t.source_entity_name,
+            SELECT s.id, s.text, s.literature_link, s.contributor_email, t.id, t.source_entity_name,
                    t.source_entity_attr, t.relation_type, t.sink_entity_name, t.sink_entity_attr
             FROM sentences s
             LEFT JOIN tuples t ON s.id = t.sentence_id
@@ -146,7 +149,7 @@ def rows():
         """)
         data = cur.fetchall()
         conn.close()
-        cols = ["sentence_id", "sentence", "literature_link", "tuple_id",
+        cols = ["sentence_id", "sentence", "literature_link", "contributor_email", "tuple_id",
                 "source_entity_name", "source_entity_attr", "relation_type",
                 "sink_entity_name", "sink_entity_attr"]
         out = [dict(zip(cols, row)) for row in data]
