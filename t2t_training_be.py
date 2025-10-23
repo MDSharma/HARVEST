@@ -14,9 +14,13 @@ from t2t_store import (
     fetch_entity_dropdown_options,
     fetch_relation_dropdown_options,
     upsert_sentence,
+    upsert_doi_metadata,
     insert_tuple_rows,
     add_relation_type,
     add_entity_type,
+    generate_doi_hash,
+    decode_doi_hash,
+    is_admin_user,
 )
 
 # -----------------------------
@@ -155,7 +159,7 @@ def save():
     article_title = (payload.get("article_title") or "").strip() or None
     article_authors = (payload.get("article_authors") or "").strip() or None
     article_year = (payload.get("article_year") or "").strip() or None
-    sentence_id = payload.get("sentence_id")  # may be None
+    sentence_id = payload.get("sentence_id")
     tuples: List[Dict[str, Any]] = payload.get("tuples") or []
 
     if not sentence:
@@ -194,39 +198,94 @@ def save():
     except Exception as e:
         return jsonify({"error": f"Failed to register new types: {e}"}), 500
 
+    # Upsert DOI metadata if present and get doi_hash
+    doi_hash = None
+    if doi:
+        try:
+            doi_hash = upsert_doi_metadata(DB_PATH, doi, article_title, article_authors, article_year)
+        except Exception as e:
+            return jsonify({"error": f"Failed to save DOI metadata: {e}"}), 500
+
     # Upsert the sentence, then insert tuples
     try:
-        sid = upsert_sentence(DB_PATH, sentence_id, sentence, literature_link, contributor_email,
-                             doi, article_title, article_authors, article_year)
-        insert_tuple_rows(DB_PATH, sid, tuples)
-        return jsonify({"ok": True, "sentence_id": sid})
+        sid = upsert_sentence(DB_PATH, sentence_id, sentence, literature_link, contributor_email, doi_hash)
+        insert_tuple_rows(DB_PATH, sid, tuples, contributor_email)
+        return jsonify({"ok": True, "sentence_id": sid, "doi_hash": doi_hash})
     except Exception as e:
         return jsonify({"error": f"Save failed: {e}"}), 500
 
+@app.delete("/api/tuple/<int:tuple_id>")
+def delete_tuple(tuple_id: int):
+    """
+    Delete a tuple. Only the original contributor or admin can delete.
+    Expected JSON: { "email": "user@example.com", "is_admin": false }
+    """
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    requester_email = (payload.get("email") or "").strip()
+
+    if not requester_email:
+        return jsonify({"error": "Missing 'email'"}), 400
+
+    is_admin = is_admin_user(requester_email)
+
+    import sqlite3
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+
+        cur.execute("SELECT contributor_email FROM tuples WHERE id = ?;", (tuple_id,))
+        result = cur.fetchone()
+
+        if not result:
+            conn.close()
+            return jsonify({"error": "Tuple not found"}), 404
+
+        tuple_owner = result[0]
+
+        if not is_admin and tuple_owner != requester_email:
+            conn.close()
+            return jsonify({"error": "Permission denied. Only the creator or admin can delete this tuple."}), 403
+
+        cur.execute("DELETE FROM tuples WHERE id = ?;", (tuple_id,))
+        conn.close()
+
+        return jsonify({"ok": True, "message": "Tuple deleted successfully"})
+    except Exception as e:
+        return jsonify({"error": f"Delete failed: {e}"}), 500
+
 @app.get("/api/rows")
+@app.get("/api/recent")
 def rows():
     """
-    Optional helper endpoint to list recent rows for debugging.
+    List recent rows with DOI metadata joined.
     """
     import sqlite3
     try:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         cur.execute("""
-            SELECT s.id, s.text, s.literature_link, s.doi, s.article_title, s.article_authors,
-                   s.article_year, s.contributor_email, t.id, t.source_entity_name,
-                   t.source_entity_attr, t.relation_type, t.sink_entity_name, t.sink_entity_attr
+            SELECT s.id, s.text, s.literature_link, s.doi_hash,
+                   dm.doi, dm.article_title, dm.article_authors, dm.article_year,
+                   s.contributor_email, t.id, t.source_entity_name,
+                   t.source_entity_attr, t.relation_type, t.sink_entity_name, t.sink_entity_attr,
+                   t.contributor_email as tuple_contributor
             FROM sentences s
+            LEFT JOIN doi_metadata dm ON s.doi_hash = dm.doi_hash
             LEFT JOIN tuples t ON s.id = t.sentence_id
             ORDER BY s.id DESC, t.id ASC
             LIMIT 200;
         """)
         data = cur.fetchall()
         conn.close()
-        cols = ["sentence_id", "sentence", "literature_link", "doi", "article_title",
-                "article_authors", "article_year", "contributor_email", "tuple_id",
+        cols = ["sentence_id", "sentence", "literature_link", "doi_hash",
+                "doi", "article_title", "article_authors", "article_year",
+                "contributor_email", "tuple_id",
                 "source_entity_name", "source_entity_attr", "relation_type",
-                "sink_entity_name", "sink_entity_attr"]
+                "sink_entity_name", "sink_entity_attr", "tuple_contributor"]
         out = [dict(zip(cols, row)) for row in data]
         return jsonify(out)
     except Exception as e:

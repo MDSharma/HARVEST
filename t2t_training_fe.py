@@ -298,18 +298,6 @@ app.layout = dbc.Container(
                                                     [
                                                         dbc.Col(
                                                             [
-                                                                dbc.Label("Manual ID (optional)"),
-                                                                dbc.Input(
-                                                                    id="manual-id",
-                                                                    placeholder="Leave blank to auto-generate",
-                                                                    type="text",
-                                                                    debounce=True,
-                                                                ),
-                                                            ],
-                                                            md=3,
-                                                        ),
-                                                        dbc.Col(
-                                                            [
                                                                 dbc.Label("DOI or Literature Link"),
                                                                 dbc.InputGroup(
                                                                     [
@@ -332,7 +320,7 @@ app.layout = dbc.Container(
                                                                     className="text-muted",
                                                                 ),
                                                             ],
-                                                            md=9,
+                                                            md=12,
                                                         ),
                                                     ],
                                                     className="g-3",
@@ -528,14 +516,13 @@ def load_choices(_):
         r = requests.get(API_CHOICES, timeout=5)
         if r.ok:
             data = r.json()
-            # Expecting something like:
-            # { "entity_types": ["Gene", ...], "relation_types": ["regulates", ...] }
             entity_types = data.get("entity_types") or list(SCHEMA_JSON["span-attribute"].keys())
             relation_types = data.get("relation_types") or list(SCHEMA_JSON["relation-type"].keys())
         else:
             entity_types = list(SCHEMA_JSON["span-attribute"].keys())
             relation_types = list(SCHEMA_JSON["relation-type"].keys())
-    except Exception:
+    except Exception as e:
+        print(f"Failed to load choices from API: {e}")
         entity_types = list(SCHEMA_JSON["span-attribute"].keys())
         relation_types = list(SCHEMA_JSON["relation-type"].keys())
 
@@ -620,7 +607,6 @@ def toggle_sink_other(values):
     Input("btn-save", "n_clicks"),
     State("sentence-text", "value"),
     State("literature-link", "value"),
-    State("manual-id", "value"),
     State("contributor-email", "value"),
     State("email-store", "data"),
     State("doi-metadata-store", "data"),
@@ -634,7 +620,7 @@ def toggle_sink_other(values):
     State({"type": "sink-attr-other", "index": ALL}, "value"),
     prevent_initial_call=True,
 )
-def save_tuples(n_clicks, sentence_text, literature_link, manual_id, contributor_email, email_validated,
+def save_tuples(n_clicks, sentence_text, literature_link, contributor_email, email_validated,
                 doi_metadata,
                 src_names, src_attrs, src_other,
                 rel_types, rel_other,
@@ -684,7 +670,6 @@ def save_tuples(n_clicks, sentence_text, literature_link, manual_id, contributor
     payload = {
         "sentence": sentence_text.strip(),
         "literature_link": (literature_link or "").strip(),
-        "custom_id": (manual_id or "").strip() or None,
         "contributor_email": email_validated,
         "tuples": tuples,
     }
@@ -696,56 +681,104 @@ def save_tuples(n_clicks, sentence_text, literature_link, manual_id, contributor
         payload["article_year"] = doi_metadata.get("year", "")
 
     try:
+        print(f"Saving payload: {json.dumps(payload, indent=2)}")
         r = requests.post(API_SAVE, json=payload, timeout=10)
+        print(f"Response status: {r.status_code}")
+        print(f"Response text: {r.text}")
         if r.ok:
             try:
                 resp = r.json()
-            except Exception:
+            except Exception as parse_err:
+                print(f"Failed to parse response: {parse_err}")
                 resp = {}
             new_id = resp.get("sentence_id") or resp.get("id") or "(unknown)"
-            return dbc.Alert(f"Saved. Sentence ID = {new_id}", color="success", dismissable=True, duration=4000)
+            num_tuples = len(tuples)
+            return dbc.Alert(
+                f"Saved successfully! Sentence ID: {new_id}, Tuples saved: {num_tuples}",
+                color="success",
+                dismissable=True,
+                duration=4000
+            )
         else:
-            return dbc.Alert(f"Save failed: {r.status_code} {r.text}", color="danger", dismissable=True, duration=6000)
+            error_msg = r.text[:500]
+            return dbc.Alert(f"Save failed: {r.status_code} - {error_msg}", color="danger", dismissable=True, duration=8000)
     except Exception as e:
-        return dbc.Alert(f"Save error: {e}", color="danger", dismissable=True, duration=6000)
+        import traceback
+        traceback.print_exc()
+        return dbc.Alert(f"Save error: {str(e)}", color="danger", dismissable=True, duration=8000)
 
 # Browse recent
 @app.callback(
     Output("recent-table", "children"),
     Input("btn-refresh", "n_clicks"),
-    prevent_initial_call=True,
+    Input("load-trigger", "n_intervals"),
+    prevent_initial_call=False,
 )
-def refresh_recent(_):
+def refresh_recent(btn_clicks, interval_trigger):
     try:
+        print(f"Fetching recent data from {API_RECENT}")
         r = requests.get(API_RECENT, timeout=8)
+        print(f"Response status: {r.status_code}")
         if not r.ok:
-            return dbc.Alert(f"Failed to load recent entries: {r.status_code}", color="danger")
+            error_text = r.text[:500]
+            return dbc.Alert(f"Failed to load recent entries: {r.status_code} - {error_text}", color="danger")
         data = r.json()
-        # Normalize: expect list of dicts
+        print(f"Received {len(data)} rows")
+
         if isinstance(data, dict):
+            if "error" in data:
+                return dbc.Alert(f"API Error: {data['error']}", color="danger")
             rows = data.get("items", [])
         else:
             rows = data
+
         if not rows:
-            return html.Div("No recent records.")
+            return dbc.Alert("No records found. Try adding some data first!", color="info")
+
         columns = [{"name": k, "id": k} for k in rows[0].keys()]
         return dash_table.DataTable(
-            data=rows, columns=columns, page_size=10, style_table={"overflowX": "auto"}
+            data=rows,
+            columns=columns,
+            page_size=20,
+            style_table={"overflowX": "auto"},
+            style_cell={
+                'textAlign': 'left',
+                'padding': '8px',
+                'minWidth': '100px',
+                'maxWidth': '300px',
+                'overflow': 'hidden',
+                'textOverflow': 'ellipsis',
+            },
+            style_header={
+                'backgroundColor': 'rgb(230, 230, 230)',
+                'fontWeight': 'bold'
+            },
+            tooltip_data=[
+                {
+                    column: {'value': str(row[column]), 'type': 'markdown'}
+                    for column in row.keys()
+                } for row in rows
+            ],
+            tooltip_duration=None,
         )
     except Exception as e:
-        return dbc.Alert(f"Error: {e}", color="danger")
+        import traceback
+        traceback.print_exc()
+        return dbc.Alert(f"Error loading data: {str(e)}", color="danger")
 
 # Reset form
 @app.callback(
     Output("sentence-text", "value"),
     Output("literature-link", "value"),
-    Output("manual-id", "value"),
     Output("doi-metadata-store", "clear_data"),
+    Output("doi-validation", "children", allow_duplicate=True),
+    Output("doi-metadata-display", "children", allow_duplicate=True),
+    Output("doi-metadata-display", "style", allow_duplicate=True),
     Input("btn-reset", "n_clicks"),
     prevent_initial_call=True,
 )
 def reset_form(_):
-    return "", "", "", True
+    return "", "", True, "", None, {"display": "none"}
 
 # -----------------------
 # Main
