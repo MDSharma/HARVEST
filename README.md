@@ -6,6 +6,8 @@ A web-based application for annotating biological text with entity relationships
 
 - **Email-based user identification** with validation
 - **DOI validation and metadata fetching** from CrossRef API
+- **PDF viewer with text selection** - automatically fetch and display PDFs from DOI
+- **Copy text from PDF to annotation** - select text in PDF and copy to sentence field
 - **Entity and relationship annotation** with customizable types
 - **Multi-user concurrency protection** with tuple ownership tracking
 - **User-based deletion protection** - only creators and admins can delete tuples
@@ -62,8 +64,21 @@ Admin users can delete any tuple, while regular users can only delete their own.
 ## Usage
 
 1. Enter your email address (required for attribution)
-2. Optionally enter and validate a DOI to fetch article metadata
-3. Enter the sentence to annotate
+2. Enter and validate a DOI to:
+   - Fetch article metadata (title, authors, year)
+   - Automatically load the PDF in the right panel (if available)
+3. In the PDF viewer:
+   - Select text from the PDF document
+   - Click "Copy selected text to sentence" button
+   - The selected text will be added to the sentence field
 4. Add tuples defining relationships between entities
 5. Save your annotations
 6. Browse saved annotations in the Browse tab
+
+## PDF Sources
+
+The application attempts to fetch PDFs from:
+1. **Unpaywall.org** - Open access PDFs
+2. **CrossRef** - Publisher links when available
+
+Note: Only open access and freely available PDFs can be displayed. Paywalled content will show an error message.

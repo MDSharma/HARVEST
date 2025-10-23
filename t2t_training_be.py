@@ -4,9 +4,11 @@
 import os
 import re
 import requests
+import tempfile
 from typing import Dict, Any, List
+from io import BytesIO
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 
 from t2t_store import (
@@ -55,6 +57,62 @@ def choices():
         return jsonify({"entity_types": entity_opts, "relation_types": relation_opts})
     except Exception as e:
         return jsonify({"error": f"choices failed: {e}"}), 500
+
+@app.get("/api/fetch-pdf/<doi_param>")
+def fetch_pdf(doi_param: str):
+    """
+    Fetch PDF from unpaywall.org or sci-hub based on DOI.
+    """
+    try:
+        doi = doi_param.replace("_SLASH_", "/")
+
+        pdf_url = None
+
+        try:
+            unpaywall_url = f"https://api.unpaywall.org/v2/{doi}?email=support@example.com"
+            resp = requests.get(unpaywall_url, timeout=10)
+            if resp.ok:
+                data = resp.json()
+                if data.get("best_oa_location") and data["best_oa_location"].get("url_for_pdf"):
+                    pdf_url = data["best_oa_location"]["url_for_pdf"]
+        except Exception as e:
+            print(f"Unpaywall lookup failed: {e}")
+
+        if not pdf_url:
+            try:
+                crossref_url = f"https://api.crossref.org/works/{doi}"
+                resp = requests.get(crossref_url, timeout=10)
+                if resp.ok:
+                    data = resp.json()
+                    links = data.get("message", {}).get("link", [])
+                    for link in links:
+                        if link.get("content-type") == "application/pdf":
+                            pdf_url = link.get("URL")
+                            break
+            except Exception as e:
+                print(f"Crossref lookup failed: {e}")
+
+        if not pdf_url:
+            return jsonify({"error": "PDF not available for this DOI"}), 404
+
+        print(f"Fetching PDF from: {pdf_url}")
+        pdf_resp = requests.get(pdf_url, timeout=30, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        })
+
+        if pdf_resp.status_code == 200 and pdf_resp.headers.get("content-type", "").startswith("application/pdf"):
+            return send_file(
+                BytesIO(pdf_resp.content),
+                mimetype="application/pdf",
+                as_attachment=False,
+                download_name=f"{doi.replace('/', '_')}.pdf"
+            )
+        else:
+            return jsonify({"error": "Failed to download PDF"}), 500
+
+    except Exception as e:
+        print(f"PDF fetch error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.post("/api/validate-doi")
 def validate_doi():

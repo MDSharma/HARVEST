@@ -248,28 +248,75 @@ app: Dash = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 app.title = APP_TITLE
 server = app.server  # for gunicorn, if needed
 
+# Add custom JavaScript for PDF text selection
+app.index_string = '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <script>
+            var pdfSelectedText = '';
+
+            // Function to get selected text from the page
+            function getSelectedText() {
+                var text = "";
+                if (window.getSelection) {
+                    text = window.getSelection().toString();
+                } else if (document.selection && document.selection.type != "Control") {
+                    text = document.selection.createRange().text;
+                }
+                return text;
+            }
+
+            // Monitor for text selection
+            document.addEventListener('mouseup', function() {
+                setTimeout(function() {
+                    var selectedText = getSelectedText();
+                    if (selectedText.trim().length > 0) {
+                        pdfSelectedText = selectedText.trim();
+                        console.log("Text selected:", pdfSelectedText);
+                    }
+                }, 100);
+            });
+        </script>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+'''
+
 app.layout = dbc.Container(
     [
         dcc.Store(id="choices-store"),
         dcc.Store(id="tuple-count", data=1),
         dcc.Store(id="email-store", storage_type="session"),
         dcc.Store(id="doi-metadata-store"),
+        dcc.Store(id="pdf-url-store"),
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
 
-        dbc.Row(
-            [
-                dbc.Col(
-                    [
-                        html.H2(APP_TITLE, className="mt-3 mb-4"),
+        html.H2(APP_TITLE, className="mt-3 mb-4"),
 
-                        dcc.Tabs(
-                            id="main-tabs",
-                            value="tab-annotate",
-                            children=[
-                                dcc.Tab(
-                                    label="Annotate",
-                                    value="tab-annotate",
-                                    children=[
+        dcc.Tabs(
+            id="main-tabs",
+            value="tab-annotate",
+            children=[
+                dcc.Tab(
+                    label="Annotate",
+                    value="tab-annotate",
+                    children=[
+                        dbc.Row(
+                            [
+                                dbc.Col(
+                                    [
                                         dbc.Card(
                                             [
                                                 dbc.Row(
@@ -354,49 +401,116 @@ app.layout = dbc.Container(
                                             body=True,
                                         )
                                     ],
+                                    md=6,
                                 ),
-                                dcc.Tab(
-                                    label="Browse",
-                                    value="tab-browse",
-                                    children=[
+                                dbc.Col(
+                                    [
                                         dbc.Card(
                                             [
-                                                dbc.Button("Refresh", id="btn-refresh", color="secondary", className="mb-2"),
-                                                html.Div(id="recent-table"),
+                                                html.H5("PDF Viewer", className="mb-3"),
+                                                html.Div(
+                                                    id="pdf-status",
+                                                    className="mb-2",
+                                                    children=html.Small(
+                                                        "Validate a DOI to load the PDF",
+                                                        className="text-muted"
+                                                    )
+                                                ),
+                                                html.Div(
+                                                    [
+                                                        html.Iframe(
+                                                            id="pdf-viewer",
+                                                            style={
+                                                                "width": "100%",
+                                                                "height": "650px",
+                                                                "border": "1px solid #ddd",
+                                                                "display": "none"
+                                                            }
+                                                        ),
+                                                        dbc.Button(
+                                                            "Copy selected text to sentence",
+                                                            id="btn-copy-pdf-text",
+                                                            color="info",
+                                                            size="sm",
+                                                            className="mt-2",
+                                                            style={"display": "none"}
+                                                        ),
+                                                    ]
+                                                ),
                                             ],
                                             body=True,
                                         )
                                     ],
+                                    md=6,
                                 ),
                             ],
+                            className="g-3",
                         ),
                     ],
-                    md=8,
                 ),
-                dbc.Col(
-                    [
-                        sidebar()
+                dcc.Tab(
+                    label="Browse",
+                    value="tab-browse",
+                    children=[
+                        dbc.Card(
+                            [
+                                dbc.Button("Refresh", id="btn-refresh", color="secondary", className="mb-2"),
+                                html.Div(id="recent-table"),
+                            ],
+                            body=True,
+                        )
                     ],
-                    md=4,
                 ),
             ],
-            className="g-4",
-        ),
-        html.Footer(
-            dbc.Row(
-                dbc.Col(
-                    html.Small(f"© {datetime.now().year} Text2Trait"),
-                    className="text-center text-muted my-3",
-                )
-            )
         ),
     ],
     fluid=True,
+    style={"maxWidth": "100%"}
 )
 
 # -----------------------
 # Callbacks
 # -----------------------
+
+# Clientside callback to copy PDF text to sentence field
+app.clientside_callback(
+    """
+    function(n_clicks, current_text) {
+        if (!n_clicks) {
+            return current_text || '';
+        }
+
+        // Get the selected text from the global variable
+        var selectedText = window.pdfSelectedText || '';
+
+        if (selectedText.length > 0) {
+            // Append to existing text or replace if empty
+            if (current_text && current_text.trim().length > 0) {
+                return current_text + ' ' + selectedText;
+            } else {
+                return selectedText;
+            }
+        }
+
+        return current_text || '';
+    }
+    """,
+    Output("sentence-text", "value", allow_duplicate=True),
+    Input("btn-copy-pdf-text", "n_clicks"),
+    State("sentence-text", "value"),
+    prevent_initial_call=True
+)
+
+# Show/hide copy button based on PDF viewer visibility
+@app.callback(
+    Output("btn-copy-pdf-text", "style"),
+    Input("pdf-viewer", "style"),
+    prevent_initial_call=False,
+)
+def toggle_copy_button(pdf_style):
+    if pdf_style and pdf_style.get("display") == "block":
+        return {"display": "block"}
+    return {"display": "none"}
 
 # Email validation callback
 @app.callback(
@@ -432,6 +546,9 @@ def restore_email(stored_email):
     Output("doi-metadata-display", "children"),
     Output("doi-metadata-display", "style"),
     Output("doi-metadata-store", "data"),
+    Output("pdf-viewer", "src"),
+    Output("pdf-viewer", "style"),
+    Output("pdf-status", "children"),
     Input("btn-validate-doi", "n_clicks"),
     State("literature-link", "value"),
     prevent_initial_call=True,
@@ -443,7 +560,10 @@ def validate_doi(n_clicks, doi_input):
             {"color": "red"},
             None,
             {"display": "none"},
-            None
+            None,
+            "",
+            {"width": "100%", "height": "700px", "border": "1px solid #ddd", "display": "none"},
+            html.Small("Validate a DOI to load the PDF", className="text-muted")
         )
 
     try:
@@ -467,6 +587,11 @@ def validate_doi(n_clicks, doi_input):
                     className="mb-2",
                 )
 
+                # Try to load PDF
+                doi_encoded = doi.replace("/", "_SLASH_")
+                pdf_url = f"{API_BASE}/api/fetch-pdf/{doi_encoded}"
+                pdf_status_msg = html.Small("PDF loaded. Select text and click button below to copy to sentence field.", className="text-success")
+
                 return (
                     "Valid DOI - metadata retrieved",
                     {"color": "green"},
@@ -477,7 +602,10 @@ def validate_doi(n_clicks, doi_input):
                         "title": metadata.get("title", ""),
                         "authors": metadata.get("authors", ""),
                         "year": metadata.get("year", ""),
-                    }
+                    },
+                    pdf_url,
+                    {"width": "100%", "height": "650px", "border": "1px solid #ddd", "display": "block"},
+                    pdf_status_msg
                 )
             else:
                 error_msg = result.get("error", "Invalid DOI")
@@ -486,7 +614,10 @@ def validate_doi(n_clicks, doi_input):
                     {"color": "red"},
                     None,
                     {"display": "none"},
-                    None
+                    None,
+                    "",
+                    {"width": "100%", "height": "700px", "border": "1px solid #ddd", "display": "none"},
+                    html.Small("Validate a DOI to load the PDF", className="text-muted")
                 )
         else:
             return (
@@ -494,7 +625,10 @@ def validate_doi(n_clicks, doi_input):
                 {"color": "red"},
                 None,
                 {"display": "none"},
-                None
+                None,
+                "",
+                {"width": "100%", "height": "700px", "border": "1px solid #ddd", "display": "none"},
+                html.Small("Validate a DOI to load the PDF", className="text-muted")
             )
     except Exception as e:
         return (
@@ -502,7 +636,10 @@ def validate_doi(n_clicks, doi_input):
             {"color": "red"},
             None,
             {"display": "none"},
-            None
+            None,
+            "",
+            {"width": "100%", "height": "700px", "border": "1px solid #ddd", "display": "none"},
+            html.Small("Validate a DOI to load the PDF", className="text-muted")
         )
 
 # Load choices once (try backend; fallback to local schema)
