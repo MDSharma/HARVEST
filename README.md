@@ -20,7 +20,13 @@ pip install -r requirements.txt
 poetry install
 ```
 
-2. Configure environment variables in `.env`:
+2. **If upgrading from an older version**, run the migration script:
+```bash
+python3 migrate_db.py
+```
+This will safely update your database schema while preserving existing data.
+
+3. Configure environment variables in `.env`:
 ```
 T2T_ADMIN_EMAILS=admin1@example.com,admin2@example.com
 T2T_DB=t2t.db
@@ -28,17 +34,17 @@ T2T_PORT=5001
 T2T_HOST=0.0.0.0
 ```
 
-3. Run the backend:
+4. Run the backend:
 ```bash
-python t2t_training_be.py
+python3 t2t_training_be.py
 ```
 
-4. Run the frontend (in a separate terminal):
+5. Run the frontend (in a separate terminal):
 ```bash
-python t2t_training_fe.py
+python3 t2t_training_fe.py
 ```
 
-5. Access the application at `http://localhost:8050`
+6. Access the application at `http://localhost:8050`
 
 ## Admin Configuration
 

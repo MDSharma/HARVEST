@@ -79,6 +79,37 @@ def init_db(db_path: str) -> None:
     conn = get_conn(db_path)
     cur = conn.cursor()
 
+    # Check if database already exists with old schema
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sentences';")
+    sentences_exists = cur.fetchone() is not None
+
+    if sentences_exists:
+        # Check if migration is needed
+        cur.execute("PRAGMA table_info(sentences);")
+        columns = [row[1] for row in cur.fetchall()]
+
+        if 'doi_hash' not in columns:
+            print("WARNING: Database schema needs migration. Please run: python3 migrate_db.py")
+            print("Attempting automatic migration...")
+
+            # Try to add missing columns
+            try:
+                if 'doi_hash' not in columns:
+                    cur.execute("ALTER TABLE sentences ADD COLUMN doi_hash TEXT;")
+                    print("Added doi_hash column")
+
+                # Check tuples table
+                cur.execute("PRAGMA table_info(tuples);")
+                tuple_columns = [row[1] for row in cur.fetchall()]
+                if 'contributor_email' not in tuple_columns:
+                    cur.execute("ALTER TABLE tuples ADD COLUMN contributor_email TEXT DEFAULT '';")
+                    print("Added contributor_email column to tuples")
+
+                conn.commit()
+            except Exception as e:
+                print(f"Auto-migration failed: {e}")
+                conn.rollback()
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS entity_types (
             name TEXT PRIMARY KEY,
@@ -95,7 +126,7 @@ def init_db(db_path: str) -> None:
             id INTEGER PRIMARY KEY,
             text TEXT NOT NULL,
             literature_link TEXT,
-            doi_hash TEXT UNIQUE,
+            doi_hash TEXT,
             contributor_email TEXT,
             created_at TEXT
         );
@@ -119,7 +150,7 @@ def init_db(db_path: str) -> None:
             relation_type TEXT NOT NULL,
             sink_entity_name TEXT NOT NULL,
             sink_entity_attr TEXT NOT NULL,
-            contributor_email TEXT NOT NULL,
+            contributor_email TEXT,
             created_at TEXT,
             FOREIGN KEY(sentence_id) REFERENCES sentences(id) ON DELETE CASCADE
         );
@@ -139,6 +170,7 @@ def init_db(db_path: str) -> None:
     for name in SCHEMA_JSON["relation-type"].keys():
         cur.execute("INSERT OR IGNORE INTO relation_types(name) VALUES (?);", (name,))
 
+    conn.commit()
     conn.close()
 
 def fetch_entity_dropdown_options(db_path: str):
