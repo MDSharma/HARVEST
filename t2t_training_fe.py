@@ -15,6 +15,7 @@ API_BASE = os.getenv("T2T_API_BASE", "http://127.0.0.1:5001")
 API_CHOICES = f"{API_BASE}/api/choices"
 API_SAVE = f"{API_BASE}/api/save"
 API_RECENT = f"{API_BASE}/api/recent"
+API_VALIDATE_DOI = f"{API_BASE}/api/validate-doi"
 
 APP_TITLE = "Text2Trait: Training data builder"
 
@@ -252,6 +253,7 @@ app.layout = dbc.Container(
         dcc.Store(id="choices-store"),
         dcc.Store(id="tuple-count", data=1),
         dcc.Store(id="email-store", storage_type="session"),
+        dcc.Store(id="doi-metadata-store"),
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
 
         dbc.Row(
@@ -308,18 +310,37 @@ app.layout = dbc.Container(
                                                         ),
                                                         dbc.Col(
                                                             [
-                                                                dbc.Label("Literature Link (DOI/URL)"),
-                                                                dbc.Input(
-                                                                    id="literature-link",
-                                                                    placeholder="e.g., https://doi.org/...",
-                                                                    type="text",
-                                                                    debounce=True,
+                                                                dbc.Label("DOI or Literature Link"),
+                                                                dbc.InputGroup(
+                                                                    [
+                                                                        dbc.Input(
+                                                                            id="literature-link",
+                                                                            placeholder="e.g., 10.1234/example or https://doi.org/...",
+                                                                            type="text",
+                                                                            debounce=True,
+                                                                        ),
+                                                                        dbc.Button(
+                                                                            "Validate DOI",
+                                                                            id="btn-validate-doi",
+                                                                            color="info",
+                                                                            outline=True,
+                                                                        ),
+                                                                    ],
+                                                                ),
+                                                                html.Small(
+                                                                    id="doi-validation",
+                                                                    className="text-muted",
                                                                 ),
                                                             ],
                                                             md=9,
                                                         ),
                                                     ],
                                                     className="g-3",
+                                                ),
+                                                html.Div(
+                                                    id="doi-metadata-display",
+                                                    className="mt-2",
+                                                    style={"display": "none"},
                                                 ),
                                                 html.Hr(),
                                                 dbc.Label("Sentence"),
@@ -415,6 +436,86 @@ def validate_email(email):
 )
 def restore_email(stored_email):
     return stored_email or ""
+
+# DOI validation callback
+@app.callback(
+    Output("doi-validation", "children"),
+    Output("doi-validation", "style"),
+    Output("doi-metadata-display", "children"),
+    Output("doi-metadata-display", "style"),
+    Output("doi-metadata-store", "data"),
+    Input("btn-validate-doi", "n_clicks"),
+    State("literature-link", "value"),
+    prevent_initial_call=True,
+)
+def validate_doi(n_clicks, doi_input):
+    if not doi_input or not doi_input.strip():
+        return (
+            "Please enter a DOI",
+            {"color": "red"},
+            None,
+            {"display": "none"},
+            None
+        )
+
+    try:
+        r = requests.post(API_VALIDATE_DOI, json={"doi": doi_input}, timeout=15)
+        if r.ok:
+            result = r.json()
+            if result.get("valid"):
+                metadata = result.get("metadata", {})
+                doi = result.get("doi", "")
+
+                metadata_card = dbc.Alert(
+                    [
+                        html.H6("Article Metadata Retrieved:", className="alert-heading"),
+                        html.Hr(),
+                        html.P([html.Strong("DOI: "), doi]),
+                        html.P([html.Strong("Title: "), metadata.get("title", "N/A")]),
+                        html.P([html.Strong("Authors: "), metadata.get("authors", "N/A")]),
+                        html.P([html.Strong("Year: "), metadata.get("year", "N/A")], className="mb-0"),
+                    ],
+                    color="success",
+                    className="mb-2",
+                )
+
+                return (
+                    "Valid DOI - metadata retrieved",
+                    {"color": "green"},
+                    metadata_card,
+                    {"display": "block"},
+                    {
+                        "doi": doi,
+                        "title": metadata.get("title", ""),
+                        "authors": metadata.get("authors", ""),
+                        "year": metadata.get("year", ""),
+                    }
+                )
+            else:
+                error_msg = result.get("error", "Invalid DOI")
+                return (
+                    error_msg,
+                    {"color": "red"},
+                    None,
+                    {"display": "none"},
+                    None
+                )
+        else:
+            return (
+                f"Validation failed: {r.status_code}",
+                {"color": "red"},
+                None,
+                {"display": "none"},
+                None
+            )
+    except Exception as e:
+        return (
+            f"Error: {str(e)}",
+            {"color": "red"},
+            None,
+            {"display": "none"},
+            None
+        )
 
 # Load choices once (try backend; fallback to local schema)
 @app.callback(
@@ -522,6 +623,7 @@ def toggle_sink_other(values):
     State("manual-id", "value"),
     State("contributor-email", "value"),
     State("email-store", "data"),
+    State("doi-metadata-store", "data"),
     State({"type": "src-name", "index": ALL}, "value"),
     State({"type": "src-attr", "index": ALL}, "value"),
     State({"type": "src-attr-other", "index": ALL}, "value"),
@@ -533,6 +635,7 @@ def toggle_sink_other(values):
     prevent_initial_call=True,
 )
 def save_tuples(n_clicks, sentence_text, literature_link, manual_id, contributor_email, email_validated,
+                doi_metadata,
                 src_names, src_attrs, src_other,
                 rel_types, rel_other,
                 sink_names, sink_attrs, sink_other):
@@ -586,6 +689,12 @@ def save_tuples(n_clicks, sentence_text, literature_link, manual_id, contributor
         "tuples": tuples,
     }
 
+    if doi_metadata:
+        payload["doi"] = doi_metadata.get("doi", "")
+        payload["article_title"] = doi_metadata.get("title", "")
+        payload["article_authors"] = doi_metadata.get("authors", "")
+        payload["article_year"] = doi_metadata.get("year", "")
+
     try:
         r = requests.post(API_SAVE, json=payload, timeout=10)
         if r.ok:
@@ -631,11 +740,12 @@ def refresh_recent(_):
     Output("sentence-text", "value"),
     Output("literature-link", "value"),
     Output("manual-id", "value"),
+    Output("doi-metadata-store", "clear_data"),
     Input("btn-reset", "n_clicks"),
     prevent_initial_call=True,
 )
 def reset_form(_):
-    return "", "", ""
+    return "", "", "", True
 
 # -----------------------
 # Main

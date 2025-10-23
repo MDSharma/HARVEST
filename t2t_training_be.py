@@ -3,6 +3,7 @@
 
 import os
 import re
+import requests
 from typing import Dict, Any, List
 
 from flask import Flask, request, jsonify
@@ -51,6 +52,73 @@ def choices():
     except Exception as e:
         return jsonify({"error": f"choices failed: {e}"}), 500
 
+@app.post("/api/validate-doi")
+def validate_doi():
+    """
+    Validate a DOI and fetch metadata from CrossRef API.
+    Expected JSON: { "doi": "10.1234/example" }
+    Returns: { "valid": true/false, "metadata": {...} }
+    """
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    doi = (payload.get("doi") or "").strip()
+    if not doi:
+        return jsonify({"error": "Missing 'doi'"}), 400
+
+    doi = doi.replace("https://doi.org/", "").replace("http://doi.org/", "")
+
+    doi_pattern = r'^10\.\d{4,9}/[-._;()/:A-Za-z0-9]+$'
+    if not re.match(doi_pattern, doi):
+        return jsonify({"valid": False, "error": "Invalid DOI format"}), 200
+
+    try:
+        headers = {"Accept": "application/json"}
+        response = requests.get(f"https://api.crossref.org/works/{doi}", headers=headers, timeout=10)
+
+        if response.status_code == 200:
+            data = response.json()
+            message = data.get("message", {})
+
+            title = message.get("title", [""])[0] if message.get("title") else ""
+
+            authors = []
+            for author in message.get("author", []):
+                given = author.get("given", "")
+                family = author.get("family", "")
+                if given and family:
+                    authors.append(f"{given} {family}")
+                elif family:
+                    authors.append(family)
+            authors_str = ", ".join(authors) if authors else ""
+
+            year = ""
+            if message.get("published-print"):
+                date_parts = message["published-print"].get("date-parts", [[]])
+                if date_parts and date_parts[0]:
+                    year = str(date_parts[0][0])
+            elif message.get("published-online"):
+                date_parts = message["published-online"].get("date-parts", [[]])
+                if date_parts and date_parts[0]:
+                    year = str(date_parts[0][0])
+
+            return jsonify({
+                "valid": True,
+                "doi": doi,
+                "metadata": {
+                    "title": title,
+                    "authors": authors_str,
+                    "year": year,
+                }
+            })
+        else:
+            return jsonify({"valid": False, "error": "DOI not found in CrossRef"}), 200
+
+    except Exception as e:
+        return jsonify({"valid": False, "error": f"Failed to fetch DOI metadata: {str(e)}"}), 200
+
 @app.post("/api/save")
 def save():
     """
@@ -83,6 +151,10 @@ def save():
     sentence = (payload.get("sentence") or "").strip()
     literature_link = (payload.get("literature_link") or "").strip()
     contributor_email = (payload.get("contributor_email") or "").strip()
+    doi = (payload.get("doi") or "").strip() or None
+    article_title = (payload.get("article_title") or "").strip() or None
+    article_authors = (payload.get("article_authors") or "").strip() or None
+    article_year = (payload.get("article_year") or "").strip() or None
     sentence_id = payload.get("sentence_id")  # may be None
     tuples: List[Dict[str, Any]] = payload.get("tuples") or []
 
@@ -124,7 +196,8 @@ def save():
 
     # Upsert the sentence, then insert tuples
     try:
-        sid = upsert_sentence(DB_PATH, sentence_id, sentence, literature_link, contributor_email)
+        sid = upsert_sentence(DB_PATH, sentence_id, sentence, literature_link, contributor_email,
+                             doi, article_title, article_authors, article_year)
         insert_tuple_rows(DB_PATH, sid, tuples)
         return jsonify({"ok": True, "sentence_id": sid})
     except Exception as e:
@@ -140,7 +213,8 @@ def rows():
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         cur.execute("""
-            SELECT s.id, s.text, s.literature_link, s.contributor_email, t.id, t.source_entity_name,
+            SELECT s.id, s.text, s.literature_link, s.doi, s.article_title, s.article_authors,
+                   s.article_year, s.contributor_email, t.id, t.source_entity_name,
                    t.source_entity_attr, t.relation_type, t.sink_entity_name, t.sink_entity_attr
             FROM sentences s
             LEFT JOIN tuples t ON s.id = t.sentence_id
@@ -149,7 +223,8 @@ def rows():
         """)
         data = cur.fetchall()
         conn.close()
-        cols = ["sentence_id", "sentence", "literature_link", "contributor_email", "tuple_id",
+        cols = ["sentence_id", "sentence", "literature_link", "doi", "article_title",
+                "article_authors", "article_year", "contributor_email", "tuple_id",
                 "source_entity_name", "source_entity_attr", "relation_type",
                 "sink_entity_name", "sink_entity_attr"]
         out = [dict(zip(cols, row)) for row in data]

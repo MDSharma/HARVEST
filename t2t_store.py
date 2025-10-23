@@ -66,6 +66,10 @@ def init_db(db_path: str) -> None:
             id INTEGER PRIMARY KEY,
             text TEXT NOT NULL,
             literature_link TEXT,
+            doi TEXT,
+            article_title TEXT,
+            article_authors TEXT,
+            article_year TEXT,
             contributor_email TEXT,
             created_at TEXT
         );
@@ -110,13 +114,17 @@ def fetch_relation_dropdown_options(db_path: str):
     opts.append({"label": "other (type below)", "value": "other"})
     return opts
 
-def upsert_sentence(db_path: str, sid, text: str, link: str, email: str = None) -> int:
+def upsert_sentence(db_path: str, sid, text: str, link: str, email: str = None,
+                    doi: str = None, article_title: str = None,
+                    article_authors: str = None, article_year: str = None) -> int:
     conn = get_conn(db_path); cur = conn.cursor()
     now = datetime.utcnow().isoformat()
 
     if sid is None or str(sid).strip() == "":
-        cur.execute("INSERT INTO sentences(text, literature_link, contributor_email, created_at) VALUES (?, ?, ?, ?);",
-                    (text, link, email, now))
+        cur.execute("""INSERT INTO sentences(text, literature_link, doi, article_title,
+                       article_authors, article_year, contributor_email, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?);""",
+                    (text, link, doi, article_title, article_authors, article_year, email, now))
         cur.execute("SELECT last_insert_rowid();")
         new_id = cur.fetchone()[0]
         conn.close()
@@ -125,8 +133,10 @@ def upsert_sentence(db_path: str, sid, text: str, link: str, email: str = None) 
     try:
         sid = int(sid)
     except Exception:
-        cur.execute("INSERT INTO sentences(text, literature_link, contributor_email, created_at) VALUES (?, ?, ?, ?);",
-                    (text, link, email, now))
+        cur.execute("""INSERT INTO sentences(text, literature_link, doi, article_title,
+                       article_authors, article_year, contributor_email, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?);""",
+                    (text, link, doi, article_title, article_authors, article_year, email, now))
         cur.execute("SELECT last_insert_rowid();")
         new_id = cur.fetchone()[0]
         conn.close()
@@ -135,12 +145,16 @@ def upsert_sentence(db_path: str, sid, text: str, link: str, email: str = None) 
     cur.execute("SELECT COUNT(1) FROM sentences WHERE id=?;", (sid,))
     exists = cur.fetchone()[0] > 0
     if exists:
-        cur.execute("UPDATE sentences SET text=?, literature_link=?, contributor_email=? WHERE id=?;", (text, link, email, sid))
+        cur.execute("""UPDATE sentences SET text=?, literature_link=?, doi=?, article_title=?,
+                       article_authors=?, article_year=?, contributor_email=? WHERE id=?;""",
+                    (text, link, doi, article_title, article_authors, article_year, email, sid))
         conn.close()
         return sid
     else:
-        cur.execute("INSERT INTO sentences(id, text, literature_link, contributor_email, created_at) VALUES (?, ?, ?, ?, ?);",
-                    (sid, text, link, email, now))
+        cur.execute("""INSERT INTO sentences(id, text, literature_link, doi, article_title,
+                       article_authors, article_year, contributor_email, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);""",
+                    (sid, text, link, doi, article_title, article_authors, article_year, email, now))
         conn.close()
         return sid
 
