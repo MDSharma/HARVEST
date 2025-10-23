@@ -13,7 +13,9 @@ A web-based application for annotating biological text with entity relationships
 - **User-based deletion protection** - only creators and admins can delete tuples
 - **Efficient DOI storage** using reversible base64 hashing
 
-## Setup
+## Quick Start
+
+### Development Mode
 
 1. Install dependencies:
 ```bash
@@ -32,21 +34,28 @@ This will safely update your database schema while preserving existing data.
 ```
 T2T_ADMIN_EMAILS=admin1@example.com,admin2@example.com
 T2T_DB=t2t.db
-T2T_PORT=5001
+T2T_BACKEND_PORT=5001
+T2T_FRONTEND_PORT=8050
 T2T_HOST=0.0.0.0
 ```
 
-4. Run the backend:
+4. Run the unified application:
 ```bash
-python3 t2t_training_be.py
+python3 app.py
 ```
 
-5. Run the frontend (in a separate terminal):
-```bash
-python3 t2t_training_fe.py
-```
+This single command starts both the backend API and frontend application.
 
-6. Access the application at `http://localhost:8050`
+5. Access the application at `http://localhost:8050`
+
+### Production Deployment
+
+For production deployment with nginx reverse proxy, see **[DEPLOYMENT.md](DEPLOYMENT.md)** for detailed instructions including:
+- systemd service configuration
+- nginx reverse proxy setup
+- SSL certificate configuration
+- Performance tuning
+- Monitoring and maintenance
 
 ## Admin Configuration
 

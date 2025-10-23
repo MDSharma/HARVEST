@@ -36,7 +36,25 @@ HOST = os.environ.get("T2T_HOST", "0.0.0.0")
 init_db(DB_PATH)
 
 app = Flask(__name__)
-CORS(app)  # allow cross-origin requests from your Dash UI
+
+# CORS configuration for reverse proxy
+CORS(app, resources={
+    r"/api/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "expose_headers": ["Content-Type"],
+        "supports_credentials": False
+    }
+})
+
+# Security headers for production
+@app.after_request
+def add_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    return response
 
 def slugify(s: str) -> str:
     """Simple slug for entity type 'value' column (lowercase, underscores)."""
