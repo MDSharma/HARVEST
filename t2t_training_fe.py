@@ -12,6 +12,7 @@ import dash_bootstrap_components as dbc
 # Config
 # -----------------------
 API_BASE = os.getenv("T2T_API_BASE", "http://127.0.0.1:5001")
+ADMIN_API_BASE = os.getenv("T2T_ADMIN_API_BASE", "http://127.0.0.1:5002")
 API_CHOICES = f"{API_BASE}/api/choices"
 API_SAVE = f"{API_BASE}/api/save"
 API_RECENT = f"{API_BASE}/api/recent"
@@ -301,6 +302,8 @@ app.layout = dbc.Container(
         dcc.Store(id="email-store", storage_type="session"),
         dcc.Store(id="doi-metadata-store"),
         dcc.Store(id="pdf-url-store"),
+        dcc.Store(id="projects-store"),
+        dcc.Store(id="selected-paper-store"),
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
 
         html.H2(APP_TITLE, className="mt-3 mb-4"),
@@ -345,7 +348,35 @@ app.layout = dbc.Container(
                                                     [
                                                         dbc.Col(
                                                             [
-                                                                dbc.Label("DOI or Literature Link"),
+                                                                dbc.Label("Select Project"),
+                                                                dcc.Dropdown(
+                                                                    id="project-dropdown",
+                                                                    placeholder="Choose a project...",
+                                                                    clearable=True,
+                                                                ),
+                                                            ],
+                                                            md=6,
+                                                        ),
+                                                        dbc.Col(
+                                                            [
+                                                                dbc.Label("Select Paper"),
+                                                                dcc.Dropdown(
+                                                                    id="paper-dropdown",
+                                                                    placeholder="Choose a paper...",
+                                                                    clearable=True,
+                                                                    disabled=True,
+                                                                ),
+                                                            ],
+                                                            md=6,
+                                                        ),
+                                                    ],
+                                                    className="g-3 mb-3",
+                                                ),
+                                                dbc.Row(
+                                                    [
+                                                        dbc.Col(
+                                                            [
+                                                                dbc.Label("Or Enter DOI/Literature Link Manually"),
                                                                 dbc.InputGroup(
                                                                     [
                                                                         dbc.Input(
@@ -936,6 +967,100 @@ def refresh_recent(btn_clicks, interval_trigger):
 )
 def reset_form(_):
     return "", "", True, "", None, {"display": "none"}
+
+# Load projects dropdown
+@app.callback(
+    Output("project-dropdown", "options"),
+    Output("projects-store", "data"),
+    Input("load-trigger", "n_intervals"),
+    prevent_initial_call=False,
+)
+def load_projects(_):
+    """Load projects from admin API."""
+    try:
+        resp = requests.get(f"{ADMIN_API_BASE}/api/admin/projects", timeout=10)
+        if resp.ok:
+            projects = resp.json()
+            options = [{"label": p["name"], "value": p["id"]} for p in projects]
+            return options, projects
+        return [], []
+    except Exception as e:
+        print(f"Error loading projects: {e}")
+        return [], []
+
+# Load papers when project is selected
+@app.callback(
+    Output("paper-dropdown", "options"),
+    Output("paper-dropdown", "disabled"),
+    Input("project-dropdown", "value"),
+    prevent_initial_call=False,
+)
+def load_papers_for_project(project_id):
+    """Load papers when a project is selected."""
+    if not project_id:
+        return [], True
+
+    try:
+        resp = requests.get(f"{ADMIN_API_BASE}/api/admin/projects/{project_id}/papers", timeout=10)
+        if resp.ok:
+            papers = resp.json()
+            # Only show successfully fetched papers
+            available_papers = [p for p in papers if p["fetch_status"] == "success"]
+            options = []
+            for p in available_papers:
+                label = f"{p['title'][:80]}..." if len(p['title']) > 80 else p['title']
+                label += f" ({p['year']})" if p.get('year') else ""
+                options.append({"label": label, "value": p["id"]})
+            return options, False
+        return [], True
+    except Exception as e:
+        print(f"Error loading papers: {e}")
+        return [], True
+
+# Load PDF when paper is selected
+@app.callback(
+    Output("pdf-viewer", "src"),
+    Output("pdf-viewer", "style", allow_duplicate=True),
+    Output("btn-copy-pdf-text", "style", allow_duplicate=True),
+    Output("pdf-status", "children", allow_duplicate=True),
+    Output("literature-link", "value", allow_duplicate=True),
+    Output("selected-paper-store", "data"),
+    Input("paper-dropdown", "value"),
+    State("project-dropdown", "value"),
+    prevent_initial_call=True,
+)
+def load_paper_pdf(paper_id, project_id):
+    """Load PDF when a paper is selected from dropdown."""
+    if not paper_id or not project_id:
+        return "", {"display": "none"}, {"display": "none"}, html.Small("Select a paper to load PDF", className="text-muted"), no_update, None
+
+    try:
+        # Get paper details
+        resp = requests.get(f"{ADMIN_API_BASE}/api/admin/projects/{project_id}/papers", timeout=10)
+        if resp.ok:
+            papers = resp.json()
+            paper = next((p for p in papers if p["id"] == paper_id), None)
+
+            if paper and paper.get("pdf_path"):
+                # Construct PDF URL
+                pdf_url = f"{ADMIN_API_BASE}/api/pdfs/{project_id}/{paper_id}"
+
+                # Also populate the DOI field
+                doi = paper.get("doi", "")
+
+                return (
+                    pdf_url,
+                    {"width": "100%", "height": "650px", "border": "1px solid #ddd", "display": "block"},
+                    {"display": "block"},
+                    html.Small("PDF loaded successfully. Select text to copy to sentence.", className="text-success"),
+                    doi,
+                    paper
+                )
+
+        return "", {"display": "none"}, {"display": "none"}, html.Small("PDF not available", className="text-danger"), no_update, None
+    except Exception as e:
+        print(f"Error loading PDF: {e}")
+        return "", {"display": "none"}, {"display": "none"}, html.Small(f"Error: {e}", className="text-danger"), no_update, None
 
 # -----------------------
 # Main
