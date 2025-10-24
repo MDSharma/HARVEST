@@ -86,8 +86,10 @@ Admin users can delete any tuple, while regular users can only delete their own.
 
 ## PDF Sources
 
-The application attempts to fetch PDFs from:
-1. **Unpaywall.org** - Open access PDFs
-2. **CrossRef** - Publisher links when available
+The application finds PDF URLs from:
+1. **Unpaywall.org** - Open access PDFs (primary source)
+2. **CrossRef** - Publisher links when available (fallback)
 
-Note: Only open access and freely available PDFs can be displayed. Paywalled content will show an error message.
+The PDF is loaded directly in your browser from the publisher's server, not proxied through the application. This ensures better performance and reduces server load.
+
+**Note:** Only open access and freely available PDFs can be displayed. Paywalled content will show an appropriate message.

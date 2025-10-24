@@ -587,10 +587,30 @@ def validate_doi(n_clicks, doi_input):
                     className="mb-2",
                 )
 
-                # Try to load PDF
+                # Try to get PDF URL from backend
                 doi_encoded = doi.replace("/", "_SLASH_")
-                pdf_url = f"{API_BASE}/api/fetch-pdf/{doi_encoded}"
-                pdf_status_msg = html.Small("PDF loaded. Select text and click button below to copy to sentence field.", className="text-success")
+                pdf_url = None
+                pdf_status_msg = html.Small("Looking for PDF...", className="text-info")
+                pdf_style = {"width": "100%", "height": "650px", "border": "1px solid #ddd", "display": "none"}
+
+                try:
+                    pdf_resp = requests.get(f"{API_BASE}/api/get-pdf-url/{doi_encoded}", timeout=15)
+                    if pdf_resp.ok:
+                        pdf_data = pdf_resp.json()
+                        if pdf_data.get("success") and pdf_data.get("pdf_url"):
+                            pdf_url = pdf_data["pdf_url"]
+                            pdf_status_msg = html.Small("PDF loaded. Select text and click button below to copy to sentence field.", className="text-success")
+                            pdf_style = {"width": "100%", "height": "650px", "border": "1px solid #ddd", "display": "block"}
+                        else:
+                            pdf_status_msg = html.Small(
+                                pdf_data.get("error", "PDF not available for this DOI"),
+                                className="text-warning"
+                            )
+                    else:
+                        pdf_status_msg = html.Small("PDF not available for this DOI", className="text-warning")
+                except Exception as e:
+                    print(f"PDF lookup error: {e}")
+                    pdf_status_msg = html.Small("Could not retrieve PDF", className="text-warning")
 
                 return (
                     "Valid DOI - metadata retrieved",
@@ -603,8 +623,8 @@ def validate_doi(n_clicks, doi_input):
                         "authors": metadata.get("authors", ""),
                         "year": metadata.get("year", ""),
                     },
-                    pdf_url,
-                    {"width": "100%", "height": "650px", "border": "1px solid #ddd", "display": "block"},
+                    pdf_url or "",
+                    pdf_style,
                     pdf_status_msg
                 )
             else:

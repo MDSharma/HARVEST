@@ -2,6 +2,15 @@
 
 This guide covers deploying the Text2Trait Training Data Builder in production with nginx as a reverse proxy.
 
+## Architecture Notes
+
+The application uses a client-side PDF loading architecture:
+- Backend API discovers PDF URLs from open access sources (Unpaywall, CrossRef)
+- Frontend receives the PDF URL and loads it directly in the browser
+- PDFs are NOT proxied through the application server
+- This reduces server bandwidth and improves performance
+- Users' browsers load PDFs directly from publisher servers
+
 ## Quick Start (Development)
 
 ```bash
