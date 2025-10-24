@@ -127,7 +127,6 @@ def init_db(db_path: str) -> None:
             text TEXT NOT NULL,
             literature_link TEXT,
             doi_hash TEXT,
-            contributor_email TEXT,
             created_at TEXT
         );
     """)
@@ -135,9 +134,6 @@ def init_db(db_path: str) -> None:
         CREATE TABLE IF NOT EXISTS doi_metadata (
             doi_hash TEXT PRIMARY KEY,
             doi TEXT NOT NULL,
-            article_title TEXT,
-            article_authors TEXT,
-            article_year TEXT,
             created_at TEXT
         );
     """)
@@ -191,15 +187,14 @@ def fetch_relation_dropdown_options(db_path: str):
 
 def upsert_doi_metadata(db_path: str, doi: str, title: str = None,
                         authors: str = None, year: str = None) -> str:
-    """Store DOI metadata and return the doi_hash."""
+    """Store DOI (only) and return the doi_hash. Title, authors, year are ignored (fetched from DOI when needed)."""
     conn = get_conn(db_path); cur = conn.cursor()
     now = datetime.utcnow().isoformat()
 
     doi_hash = generate_doi_hash(doi)
-    cur.execute("""INSERT OR REPLACE INTO doi_metadata(doi_hash, doi, article_title,
-                   article_authors, article_year, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?);""",
-                (doi_hash, doi, title, authors, year, now))
+    cur.execute("""INSERT OR REPLACE INTO doi_metadata(doi_hash, doi, created_at)
+                   VALUES (?, ?, ?);""",
+                (doi_hash, doi, now))
     conn.close()
     return doi_hash
 
@@ -209,10 +204,9 @@ def upsert_sentence(db_path: str, sid, text: str, link: str, email: str = None,
     now = datetime.utcnow().isoformat()
 
     if sid is None or str(sid).strip() == "":
-        cur.execute("""INSERT INTO sentences(text, literature_link, doi_hash,
-                       contributor_email, created_at)
-                       VALUES (?, ?, ?, ?, ?);""",
-                    (text, link, doi_hash, email, now))
+        cur.execute("""INSERT INTO sentences(text, literature_link, doi_hash, created_at)
+                       VALUES (?, ?, ?, ?);""",
+                    (text, link, doi_hash, now))
         cur.execute("SELECT last_insert_rowid();")
         new_id = cur.fetchone()[0]
         conn.close()
@@ -221,10 +215,9 @@ def upsert_sentence(db_path: str, sid, text: str, link: str, email: str = None,
     try:
         sid = int(sid)
     except Exception:
-        cur.execute("""INSERT INTO sentences(text, literature_link, doi_hash,
-                       contributor_email, created_at)
-                       VALUES (?, ?, ?, ?, ?);""",
-                    (text, link, doi_hash, email, now))
+        cur.execute("""INSERT INTO sentences(text, literature_link, doi_hash, created_at)
+                       VALUES (?, ?, ?, ?);""",
+                    (text, link, doi_hash, now))
         cur.execute("SELECT last_insert_rowid();")
         new_id = cur.fetchone()[0]
         conn.close()
@@ -233,16 +226,14 @@ def upsert_sentence(db_path: str, sid, text: str, link: str, email: str = None,
     cur.execute("SELECT COUNT(1) FROM sentences WHERE id=?;", (sid,))
     exists = cur.fetchone()[0] > 0
     if exists:
-        cur.execute("""UPDATE sentences SET text=?, literature_link=?, doi_hash=?,
-                       contributor_email=? WHERE id=?;""",
-                    (text, link, doi_hash, email, sid))
+        cur.execute("""UPDATE sentences SET text=?, literature_link=?, doi_hash=? WHERE id=?;""",
+                    (text, link, doi_hash, sid))
         conn.close()
         return sid
     else:
-        cur.execute("""INSERT INTO sentences(id, text, literature_link, doi_hash,
-                       contributor_email, created_at)
+        cur.execute("""INSERT INTO sentences(id, text, literature_link, doi_hash, created_at)
                        VALUES (?, ?, ?, ?, ?);""",
-                    (sid, text, link, doi_hash, email, now))
+                    (sid, text, link, doi_hash, now))
         conn.close()
         return sid
 

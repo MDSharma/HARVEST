@@ -60,6 +60,49 @@ def slugify(s: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "_", s)
     return re.sub(r"_+", "_", s).strip("_")
 
+def fetch_doi_metadata_from_api(doi: str) -> dict:
+    """Fetch article metadata from CrossRef API given a DOI."""
+    try:
+        crossref_url = f"https://api.crossref.org/works/{doi}"
+        resp = requests.get(crossref_url, timeout=10)
+        if resp.ok:
+            data = resp.json()
+            message = data.get("message", {})
+
+            # Extract title
+            title_list = message.get("title", [])
+            title = title_list[0] if title_list else "N/A"
+
+            # Extract authors
+            authors_list = message.get("author", [])
+            if authors_list:
+                author_names = []
+                for author in authors_list[:5]:  # Limit to first 5 authors
+                    given = author.get("given", "")
+                    family = author.get("family", "")
+                    if family:
+                        author_names.append(f"{given} {family}".strip())
+                authors = ", ".join(author_names)
+                if len(authors_list) > 5:
+                    authors += " et al."
+            else:
+                authors = "N/A"
+
+            # Extract year
+            published = message.get("published", {}) or message.get("published-print", {}) or message.get("published-online", {})
+            date_parts = published.get("date-parts", [[]])
+            year = str(date_parts[0][0]) if date_parts and date_parts[0] else "N/A"
+
+            return {
+                "title": title,
+                "authors": authors,
+                "year": year
+            }
+    except Exception as e:
+        print(f"Failed to fetch metadata for DOI {doi}: {e}")
+
+    return {"title": "N/A", "authors": "N/A", "year": "N/A"}
+
 @app.get("/api/health")
 def health():
     return jsonify({"ok": True, "db": DB_PATH})
@@ -231,9 +274,6 @@ def save():
     literature_link = (payload.get("literature_link") or "").strip()
     contributor_email = (payload.get("contributor_email") or "").strip()
     doi = (payload.get("doi") or "").strip() or None
-    article_title = (payload.get("article_title") or "").strip() or None
-    article_authors = (payload.get("article_authors") or "").strip() or None
-    article_year = (payload.get("article_year") or "").strip() or None
     sentence_id = payload.get("sentence_id")
     tuples: List[Dict[str, Any]] = payload.get("tuples") or []
 
@@ -277,13 +317,13 @@ def save():
     doi_hash = None
     if doi:
         try:
-            doi_hash = upsert_doi_metadata(DB_PATH, doi, article_title, article_authors, article_year)
+            doi_hash = upsert_doi_metadata(DB_PATH, doi)
         except Exception as e:
             return jsonify({"error": f"Failed to save DOI metadata: {e}"}), 500
 
     # Upsert the sentence, then insert tuples
     try:
-        sid = upsert_sentence(DB_PATH, sentence_id, sentence, literature_link, contributor_email, doi_hash)
+        sid = upsert_sentence(DB_PATH, sentence_id, sentence, literature_link, None, doi_hash)
         insert_tuple_rows(DB_PATH, sid, tuples, contributor_email)
         return jsonify({"ok": True, "sentence_id": sid, "doi_hash": doi_hash})
     except Exception as e:
@@ -336,7 +376,7 @@ def delete_tuple(tuple_id: int):
 @app.get("/api/recent")
 def rows():
     """
-    List recent rows with DOI metadata joined.
+    List recent rows with DOI metadata. Article metadata is fetched from CrossRef API on demand.
     """
     import sqlite3
     try:
@@ -344,8 +384,7 @@ def rows():
         cur = conn.cursor()
         cur.execute("""
             SELECT s.id, s.text, s.literature_link, s.doi_hash,
-                   dm.doi, dm.article_title, dm.article_authors, dm.article_year,
-                   s.contributor_email, t.id, t.source_entity_name,
+                   dm.doi, t.id, t.source_entity_name,
                    t.source_entity_attr, t.relation_type, t.sink_entity_name, t.sink_entity_attr,
                    t.contributor_email as tuple_contributor
             FROM sentences s
@@ -356,12 +395,47 @@ def rows():
         """)
         data = cur.fetchall()
         conn.close()
-        cols = ["sentence_id", "sentence", "literature_link", "doi_hash",
-                "doi", "article_title", "article_authors", "article_year",
-                "contributor_email", "tuple_id",
-                "source_entity_name", "source_entity_attr", "relation_type",
-                "sink_entity_name", "sink_entity_attr", "tuple_contributor"]
-        out = [dict(zip(cols, row)) for row in data]
+
+        # Cache for fetched DOI metadata to avoid repeated API calls
+        doi_cache = {}
+
+        out = []
+        for row in data:
+            (sentence_id, sentence, literature_link, doi_hash, doi, tuple_id,
+             source_entity_name, source_entity_attr, relation_type,
+             sink_entity_name, sink_entity_attr, tuple_contributor) = row
+
+            # Fetch article metadata from DOI if available
+            article_title = "N/A"
+            article_authors = "N/A"
+            article_year = "N/A"
+
+            if doi:
+                if doi not in doi_cache:
+                    doi_cache[doi] = fetch_doi_metadata_from_api(doi)
+                metadata = doi_cache[doi]
+                article_title = metadata["title"]
+                article_authors = metadata["authors"]
+                article_year = metadata["year"]
+
+            out.append({
+                "sentence_id": sentence_id,
+                "sentence": sentence,
+                "literature_link": literature_link,
+                "doi_hash": doi_hash,
+                "doi": doi,
+                "article_title": article_title,
+                "article_authors": article_authors,
+                "article_year": article_year,
+                "tuple_id": tuple_id,
+                "source_entity_name": source_entity_name,
+                "source_entity_attr": source_entity_attr,
+                "relation_type": relation_type,
+                "sink_entity_name": sink_entity_name,
+                "sink_entity_attr": sink_entity_attr,
+                "tuple_contributor": tuple_contributor
+            })
+
         return jsonify(out)
     except Exception as e:
         return jsonify({"error": f"rows failed: {e}"}), 500

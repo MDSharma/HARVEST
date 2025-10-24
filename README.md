@@ -93,3 +93,31 @@ The application finds PDF URLs from:
 The PDF is loaded directly in your browser from the publisher's server, not proxied through the application. This ensures better performance and reduces server load.
 
 **Note:** Only open access and freely available PDFs can be displayed. Paywalled content will show an appropriate message.
+
+## Database Schema
+
+The application uses an efficient schema that avoids redundant data:
+
+### Key Tables
+
+- **`sentences`**: Stores sentence text, literature link, and DOI hash
+- **`doi_metadata`**: Stores only DOI (article metadata fetched from CrossRef API when needed)
+- **`tuples`**: Stores entity relationships with contributor email
+- **`entity_types`** and **`relation_types`**: Configurable entity and relation taxonomies
+
+### Design Principles
+
+1. **No Redundant Article Metadata**: Title, authors, and year are fetched from CrossRef API during export rather than stored in the database
+2. **Single Contributor Tracking**: Contributor email is stored only in the `tuples` table (not duplicated in `sentences`)
+3. **Efficient DOI Storage**: DOIs are hashed using base64 encoding for compact storage and fast lookups
+4. **On-Demand Metadata**: Article metadata is cached during export operations to minimize API calls
+
+### Migration
+
+If you have an existing database with the old schema, run the migration script:
+
+```bash
+python3 migrate_schema_cleanup.py
+```
+
+This will safely remove redundant fields while preserving all your data.
