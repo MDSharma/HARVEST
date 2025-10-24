@@ -67,12 +67,11 @@ def run_frontend():
         frontend_app.server.config['SEND_FILE_MAX_AGE_DEFAULT'] = 300
         frontend_app.server.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
 
-    frontend_app.run_server(
+    frontend_app.run(
         host=HOST,
         port=FRONTEND_PORT,
         debug=DEBUG,
-        use_reloader=False,
-        threaded=True
+        use_reloader=False
     )
 
 def main():
