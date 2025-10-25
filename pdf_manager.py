@@ -12,20 +12,29 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 import time
 
+# Import config and set NCBI_API_KEY environment variable before importing metapub
 try:
-    from config import UNPAYWALL_EMAIL, ENABLE_METAPUB_FALLBACK, ENABLE_HABANERO_DOWNLOAD, HABANERO_PROXY_URL
+    from config import UNPAYWALL_EMAIL, ENABLE_METAPUB_FALLBACK, ENABLE_HABANERO_DOWNLOAD, HABANERO_PROXY_URL, NCBI_API_KEY
+    # Set NCBI_API_KEY as environment variable if provided in config
+    # This must be done before importing metapub
+    if NCBI_API_KEY and not os.getenv('NCBI_API_KEY'):
+        os.environ['NCBI_API_KEY'] = NCBI_API_KEY
 except ImportError:
     UNPAYWALL_EMAIL = "research@example.com"
     ENABLE_METAPUB_FALLBACK = False
     ENABLE_HABANERO_DOWNLOAD = True
     HABANERO_PROXY_URL = ""
+    NCBI_API_KEY = ""
 
 # Try importing optional libraries
 try:
     from metapub import PubMedFetcher
+    from metapub.findit import FindIt
     METAPUB_AVAILABLE = True
+    FINDIT_AVAILABLE = True
 except ImportError:
     METAPUB_AVAILABLE = False
+    FINDIT_AVAILABLE = False
     print("[PDF] Warning: metapub not installed. Fallback downloads disabled.")
 
 try:
@@ -103,9 +112,42 @@ def check_open_access(doi: str, email: str = None) -> Tuple[bool, str]:
                 print(f"[PDF] Unpywall library also failed: {lib_error}")
         return False, f"Error checking open access: {str(e)}"
 
+def _get_pdf_filename_from_doi(doi: str) -> Optional[str]:
+    """
+    Extract PDF filename from DOI for known journal patterns.
+    
+    Args:
+        doi: Digital Object Identifier
+    
+    Returns:
+        PDF filename if pattern is recognized, None otherwise
+    
+    Examples:
+        10.1371/journal.pone.0229615 -> pone.0229615.pdf
+        10.1371/journal.pcbi.1008279 -> pcbi.1008279.pdf
+    """
+    # Handle PLOS journals (PLoS ONE, PLoS Computational Biology, etc.)
+    # DOI pattern: 10.1371/journal.{journal_code}.{article_id}
+    if "/journal." in doi:
+        parts = doi.split('/')
+        if len(parts) >= 2:
+            journal_part = parts[-1]  # e.g., "journal.pone.0229615"
+            if journal_part.startswith("journal."):
+                # Remove "journal." prefix to get filename
+                filename = journal_part.replace("journal.", "") + ".pdf"
+                return filename
+    
+    # Add more patterns here for other journals as needed
+    # For now, return None for unrecognized patterns
+    return None
+
 def try_metapub_download(doi: str) -> Tuple[bool, str]:
     """
     Try to find PDF using metapub (PubMed Central, arXiv, etc.)
+    Uses multiple approaches:
+    1. Direct PMC/arXiv lookup via PubMedFetcher
+    2. FindIt module for publisher-specific PDF access
+    
     Returns: (success, pdf_url or error_message)
     """
     if not METAPUB_AVAILABLE or not ENABLE_METAPUB_FALLBACK:
@@ -121,8 +163,20 @@ def try_metapub_download(doi: str) -> Tuple[bool, str]:
             if article:
                 # Check for PMC ID (PubMed Central)
                 if article.pmc:
-                    pmc_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/PMC{article.pmc}/pdf/"
-                    print(f"[PDF] Found PMC article: {pmc_url}")
+                    # Use correct PMC domain (pmc.ncbi.nlm.nih.gov instead of www.ncbi.nlm.nih.gov)
+                    pmc_base_url = f"https://pmc.ncbi.nlm.nih.gov/articles/PMC{article.pmc}/pdf/"
+                    
+                    # Try to construct PDF filename from DOI for known journal patterns
+                    pdf_filename = _get_pdf_filename_from_doi(doi)
+                    
+                    if pdf_filename:
+                        pmc_url = pmc_base_url + pdf_filename
+                        print(f"[PDF] Found PMC article with filename: {pmc_url}")
+                    else:
+                        # Fallback to directory URL (server may redirect to correct PDF)
+                        pmc_url = pmc_base_url
+                        print(f"[PDF] Found PMC article (directory URL): {pmc_url}")
+                    
                     return True, pmc_url
                 
                 # Check if it's an arXiv paper
@@ -131,6 +185,20 @@ def try_metapub_download(doi: str) -> Tuple[bool, str]:
                     arxiv_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
                     print(f"[PDF] Found arXiv paper: {arxiv_url}")
                     return True, arxiv_url
+                
+                # If we have a PMID but no PMC, try FindIt for publisher-specific access
+                if article.pmid and FINDIT_AVAILABLE:
+                    print(f"[PDF] Trying FindIt for publisher-specific access (PMID: {article.pmid})...")
+                    try:
+                        findit = FindIt(pmid=article.pmid, verify=False)
+                        if findit.url:
+                            print(f"[PDF] FindIt found PDF: {findit.url}")
+                            return True, findit.url
+                        else:
+                            print(f"[PDF] FindIt: {findit.reason}")
+                    except Exception as findit_error:
+                        print(f"[PDF] FindIt lookup failed: {findit_error}")
+                
         except Exception as e:
             print(f"[PDF] Metapub lookup failed: {e}")
         
@@ -194,8 +262,13 @@ def download_pdf(doi: str, pdf_url: str, save_dir: str, use_proxy: bool = False)
                 return True, f"File already exists: {filename} ({file_size} bytes)"
         
         # Download with proper headers
+        # PMC and other publishers may require more realistic browser headers
         headers = {
-            'User-Agent': 'Mozilla/5.0 (compatible; ResearchBot/1.0)',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/pdf,application/octet-stream,*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
         }
         
         # Use proxy if enabled and URL provided
@@ -207,13 +280,29 @@ def download_pdf(doi: str, pdf_url: str, save_dir: str, use_proxy: bool = False)
             }
             print(f"[PDF] Using proxy: {HABANERO_PROXY_URL}")
         
-        response = requests.get(pdf_url, headers=headers, proxies=proxies, timeout=30, stream=True)
+        response = requests.get(pdf_url, headers=headers, proxies=proxies, timeout=30, stream=True, allow_redirects=True)
         
         if response.ok:
+            # Log final URL after redirects
+            if response.url != pdf_url:
+                print(f"[PDF] Redirected to: {response.url}")
+            
             # Check if response is actually a PDF
             content_type = response.headers.get('content-type', '').lower()
             if 'pdf' not in content_type and 'application/octet-stream' not in content_type:
-                return False, f"Response is not a PDF (content-type: {content_type})"
+                # For PMC URLs, sometimes the content-type might be missing or incorrect
+                # Check if URL looks like a PDF URL and content starts with PDF magic bytes
+                if pdf_url.endswith('.pdf') or '/pdf/' in pdf_url:
+                    # Peek at first few bytes to check for PDF signature (%PDF)
+                    first_chunk = next(response.iter_content(chunk_size=4), b'')
+                    if first_chunk.startswith(b'%PDF'):
+                        print(f"[PDF] Content-type is '{content_type}' but content is PDF (verified by signature)")
+                        # Reset the response by making a new request
+                        response = requests.get(pdf_url, headers=headers, proxies=proxies, timeout=30, stream=True, allow_redirects=True)
+                    else:
+                        return False, f"Response is not a PDF (content-type: {content_type})"
+                else:
+                    return False, f"Response is not a PDF (content-type: {content_type})"
             
             # Save file
             with open(filepath, 'wb') as f:

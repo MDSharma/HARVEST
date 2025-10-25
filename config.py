@@ -18,6 +18,11 @@ DB_PATH = "t2t_training.db"  # Path to SQLite database file
 # Please update this to your email address
 UNPAYWALL_EMAIL = "your-email@example.com"  # CHANGE THIS to your email
 
+# NCBI API Key for PubMed/PMC access (optional, improves rate limits)
+# Register for a free key at: https://www.ncbi.nlm.nih.gov/account/settings/
+# Leave as empty string if you don't have one (metapub will still work but with lower rate limits)
+NCBI_API_KEY = ""  # Example: "27992b64b7fd3c29d74dc4e0ba49bd504e09"
+
 # Admin Configuration
 # Optional: Comma-separated list of admin email addresses
 # These emails will have admin access in addition to database admin_users
@@ -31,6 +36,6 @@ ENABLE_PDF_DOWNLOAD = True  # Enable automatic PDF downloading
 ENABLE_PDF_VIEWER = True  # Enable embedded PDF viewer on Annotate tab
 
 # PDF Download Options
-ENABLE_METAPUB_FALLBACK = False  # Try metapub if Unpaywall fails (requires NCBI_API_KEY environment variable)
+ENABLE_METAPUB_FALLBACK = False  # Try metapub if Unpaywall fails (PubMed Central, arXiv)
 ENABLE_HABANERO_DOWNLOAD = True  # Try habanero/institutional access (works within institutional networks)
 HABANERO_PROXY_URL = ""  # Optional: Proxy URL for institutional access (e.g., "http://proxy.university.edu:8080")
