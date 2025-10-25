@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Cleanup script to remove orphaned sentences (sentences without any associated tuples).
+Cleanup script to remove orphaned sentences (sentences without any associated triples).
 """
 
 import sqlite3
@@ -17,7 +17,7 @@ except ImportError:
 
 def cleanup_orphaned_sentences(dry_run=True):
     """
-    Remove sentences that have no associated tuples.
+    Remove sentences that have no associated triples.
     
     Args:
         dry_run: If True, only report what would be deleted without actually deleting.
@@ -32,11 +32,11 @@ def cleanup_orphaned_sentences(dry_run=True):
     cur = conn.cursor()
     
     try:
-        # Find sentences without tuples
+        # Find sentences without triples
         cur.execute("""
             SELECT s.id, s.text, s.literature_link, s.created_at
             FROM sentences s
-            LEFT JOIN tuples t ON s.id = t.sentence_id
+            LEFT JOIN triples t ON s.id = t.sentence_id
             WHERE t.id IS NULL;
         """)
         
@@ -61,7 +61,7 @@ def cleanup_orphaned_sentences(dry_run=True):
                 WHERE id IN (
                     SELECT s.id
                     FROM sentences s
-                    LEFT JOIN tuples t ON s.id = t.sentence_id
+                    LEFT JOIN triples t ON s.id = t.sentence_id
                     WHERE t.id IS NULL
                 );
             """)
@@ -79,29 +79,29 @@ def cleanup_orphaned_sentences(dry_run=True):
     finally:
         conn.close()
 
-def add_default_project_to_null_tuples(project_name="Uncategorized", dry_run=True):
+def add_default_project_to_null_triples(project_name="Uncategorized", dry_run=True):
     """
-    Create a default project and assign all tuples with NULL project_id to it.
+    Create a default project and assign all triples with NULL project_id to it.
     
     Args:
         project_name: Name for the default project
         dry_run: If True, only report what would be changed without actually changing.
     """
-    print(f"\n{'DRY RUN: ' if dry_run else ''}Adding default project to tuples with NULL project_id")
+    print(f"\n{'DRY RUN: ' if dry_run else ''}Adding default project to triples with NULL project_id")
     
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     
     try:
-        # Count tuples with NULL project_id
-        cur.execute("SELECT COUNT(*) FROM tuples WHERE project_id IS NULL;")
+        # Count triples with NULL project_id
+        cur.execute("SELECT COUNT(*) FROM triples WHERE project_id IS NULL;")
         null_count = cur.fetchone()[0]
         
         if null_count == 0:
-            print("✓ All tuples already have a project_id.")
+            print("✓ All triples already have a project_id.")
             return
         
-        print(f"Found {null_count} tuple(s) without a project_id.")
+        print(f"Found {null_count} triple(s) without a project_id.")
         
         if not dry_run:
             # Check if default project exists
@@ -127,17 +127,17 @@ def add_default_project_to_null_tuples(project_name="Uncategorized", dry_run=Tru
                 default_project_id = cur.lastrowid
                 print(f"Created default project (ID: {default_project_id})")
             
-            # Update tuples
+            # Update triples
             cur.execute("""
-                UPDATE tuples
+                UPDATE triples
                 SET project_id = ?
                 WHERE project_id IS NULL;
             """, (default_project_id,))
             
             conn.commit()
-            print(f"✅ Updated {null_count} tuple(s) with default project.")
+            print(f"✅ Updated {null_count} triple(s) with default project.")
         else:
-            print(f"DRY RUN: Would assign {null_count} tuple(s) to default project '{project_name}'.")
+            print(f"DRY RUN: Would assign {null_count} triple(s) to default project '{project_name}'.")
             print("Run with --execute flag to actually update.")
         
     except Exception as e:
@@ -165,8 +165,8 @@ if __name__ == "__main__":
     # Step 1: Clean up orphaned sentences
     cleanup_orphaned_sentences(dry_run=dry_run)
     
-    # Step 2: Add default project to tuples with NULL project_id
-    add_default_project_to_null_tuples(project_name=args.default_project, dry_run=dry_run)
+    # Step 2: Add default project to triples with NULL project_id
+    add_default_project_to_null_triples(project_name=args.default_project, dry_run=dry_run)
     
     print("\n" + "=" * 70)
     if dry_run:

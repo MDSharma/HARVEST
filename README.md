@@ -39,8 +39,8 @@ This will safely update your database schema while preserving existing data.
 
 **Note**: The migration will:
 - Remove redundant article metadata fields (title, authors, year) from the doi_metadata table
-- Remove contributor_email from sentences table (tracked at tuple level)
-- Add `project_id` column to tuples table for project association
+- Remove contributor_email from sentences table (tracked at triple level)
+- Add `project_id` column to triples table for project association
 - Add new tables for projects and admin authentication
 
 **Important**: After upgrading, make sure to run the migration script before starting the application to avoid database errors.
@@ -111,14 +111,14 @@ export T2T_ADMIN_EMAILS="admin1@example.com,admin2@example.com"
 The Admin panel (accessible from the Admin tab) allows you to:
 
 1. **Manage Projects**: Create projects with lists of DOIs for organized annotation campaigns
-2. **Edit Tuples**: Update any tuple's entity names or relationships
-3. **Delete Tuples**: Remove incorrect or duplicate tuples
+2. **Edit Triples**: Update any triple's entity names or relationships
+3. **Delete Triples**: Remove incorrect or duplicate triples
 
 ## Database Schema
 
 - **sentences**: Stores annotated sentences with DOI hash reference
 - **doi_metadata**: Stores DOI and hash (article metadata fetched on-demand from CrossRef)
-- **tuples**: Stores entity relationships with contributor email tracking
+- **triples**: Stores entity relationships with contributor email tracking
 - **entity_types**: Entity type definitions
 - **relation_types**: Relationship type definitions
 - **user_sessions**: Session tracking for multi-user support
@@ -133,7 +133,7 @@ The Admin panel (accessible from the Admin tab) allows you to:
 2. (Optional) Select a project to work on from the dropdown
 3. (Optional) Enter and validate a DOI to link your annotation
 4. Enter the sentence to annotate
-5. Add tuples defining relationships between entities
+5. Add triples defining relationships between entities
 6. Save your annotations
 7. Browse saved annotations in the Browse tab
 
@@ -145,12 +145,12 @@ The Admin panel (accessible from the Admin tab) allows you to:
 4. View and manage existing projects
 5. Download PDFs for project DOIs (where available)
 6. Upload PDFs for paywalled articles
-7. Delete projects with options for handling associated tuples:
-   - Keep tuples as uncategorized (recommended)
-   - Reassign tuples to another project
-   - Delete all associated tuples
-8. Edit or delete tuples as needed for quality control
-9. Filter tuples by project when searching for specific entries
+7. Delete projects with options for handling associated triples:
+   - Keep triples as uncategorized (recommended)
+   - Reassign triples to another project
+   - Delete all associated triples
+8. Edit or delete triples as needed for quality control
+9. Filter triples by project when searching for specific entries
 
 ## PDF Management
 
@@ -201,7 +201,7 @@ For paywalled articles or failed downloads:
 
 ### Cleanup Orphaned Sentences
 
-Over time, you may accumulate sentences without associated tuples (incomplete entries). Use the cleanup script to identify and remove them:
+Over time, you may accumulate sentences without associated triples (incomplete entries). Use the cleanup script to identify and remove them:
 
 ```bash
 # Dry run (shows what would be deleted without deleting)
@@ -215,15 +215,15 @@ python3 cleanup_orphaned_sentences.py --execute --default-project "General Annot
 ```
 
 The cleanup script will:
-1. Find and optionally delete sentences without any tuples
-2. Assign tuples with NULL project_id to a default "Uncategorized" project
+1. Find and optionally delete sentences without any triples
+2. Assign triples with NULL project_id to a default "Uncategorized" project
 
 **Note**: Always run the dry-run first to see what will be affected!
 
 ### Cascade Deletion
 
-When you delete a tuple through the admin panel:
-- If it's the last tuple for a sentence, the sentence is automatically deleted as well
+When you delete a triple through the admin panel:
+- If it's the last triple for a sentence, the sentence is automatically deleted as well
 - This prevents orphaned sentences and maintains database integrity
 
 ## Project-Based Annotation

@@ -3,7 +3,7 @@
 """
 Database migration script v2 to optimize schema:
 1. Remove article_title, article_authors, article_year from doi_metadata (can be fetched on-demand)
-2. Remove contributor_email from sentences table (tracked at tuple level)
+2. Remove contributor_email from sentences table (tracked at triple level)
 3. Add projects table for project-based annotation
 4. Add admin password hash table
 """
@@ -156,30 +156,30 @@ def migrate_database_v2():
             else:
                 print("   ✓ sentences already optimized")
 
-        # 3. Ensure tuples table has contributor_email and project_id
-        print("\n3. Checking tuples table...")
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tuples';")
-        tuples_exists = cur.fetchone() is not None
+        # 3. Ensure triples table has contributor_email and project_id
+        print("\n3. Checking triples table...")
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='triples';")
+        triples_exists = cur.fetchone() is not None
         
-        if not tuples_exists:
-            print("   ✓ tuples table doesn't exist yet (will be created)")
+        if not triples_exists:
+            print("   ✓ triples table doesn't exist yet (will be created)")
         else:
-            cur.execute("PRAGMA table_info(tuples);")
-            tuple_columns = [row[1] for row in cur.fetchall()]
+            cur.execute("PRAGMA table_info(triples);")
+            triple_columns = [row[1] for row in cur.fetchall()]
             
-            if 'contributor_email' not in tuple_columns:
-                print("   Adding contributor_email to tuples...")
-                cur.execute("ALTER TABLE tuples ADD COLUMN contributor_email TEXT DEFAULT '';")
+            if 'contributor_email' not in triple_columns:
+                print("   Adding contributor_email to triples...")
+                cur.execute("ALTER TABLE triples ADD COLUMN contributor_email TEXT DEFAULT '';")
                 print("   ✓ Added contributor_email column")
             else:
-                print("   ✓ tuples already has contributor_email")
+                print("   ✓ triples already has contributor_email")
             
-            if 'project_id' not in tuple_columns:
-                print("   Adding project_id to tuples...")
-                cur.execute("ALTER TABLE tuples ADD COLUMN project_id INTEGER;")
+            if 'project_id' not in triple_columns:
+                print("   Adding project_id to triples...")
+                cur.execute("ALTER TABLE triples ADD COLUMN project_id INTEGER;")
                 print("   ✓ Added project_id column")
             else:
-                print("   ✓ tuples already has project_id")
+                print("   ✓ triples already has project_id")
 
         # 4. Create projects table
         print("\n4. Creating projects table...")

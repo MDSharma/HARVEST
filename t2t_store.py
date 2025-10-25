@@ -110,15 +110,15 @@ def init_db(db_path: str) -> None:
                     cur.execute("ALTER TABLE sentences ADD COLUMN doi_hash TEXT;")
                     print("Added doi_hash column")
 
-                # Check tuples table
-                cur.execute("PRAGMA table_info(tuples);")
-                tuple_columns = [row[1] for row in cur.fetchall()]
-                if 'contributor_email' not in tuple_columns:
-                    cur.execute("ALTER TABLE tuples ADD COLUMN contributor_email TEXT DEFAULT '';")
-                    print("Added contributor_email column to tuples")
-                if 'project_id' not in tuple_columns:
-                    cur.execute("ALTER TABLE tuples ADD COLUMN project_id INTEGER;")
-                    print("Added project_id column to tuples")
+                # Check triples table
+                cur.execute("PRAGMA table_info(triples);")
+                triple_columns = [row[1] for row in cur.fetchall()]
+                if 'contributor_email' not in triple_columns:
+                    cur.execute("ALTER TABLE triples ADD COLUMN contributor_email TEXT DEFAULT '';")
+                    print("Added contributor_email column to triples")
+                if 'project_id' not in triple_columns:
+                    cur.execute("ALTER TABLE triples ADD COLUMN project_id INTEGER;")
+                    print("Added project_id column to triples")
 
                 conn.commit()
             except Exception as e:
@@ -153,7 +153,7 @@ def init_db(db_path: str) -> None:
         );
     """)
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS tuples (
+        CREATE TABLE IF NOT EXISTS triples (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             sentence_id INTEGER NOT NULL,
             source_entity_name TEXT NOT NULL,
@@ -271,10 +271,10 @@ def upsert_sentence(db_path: str, sid, text: str, link: str,
         conn.close()
         return sid
 
-def insert_tuple_rows(db_path: str, sentence_id: int, rows: list[dict], contributor_email: str, project_id: int = None) -> None:
+def insert_triple_rows(db_path: str, sentence_id: int, rows: list[dict], contributor_email: str, project_id: int = None) -> None:
     conn = get_conn(db_path); cur = conn.cursor()
     now = datetime.utcnow().isoformat()
-    q = """INSERT INTO tuples(
+    q = """INSERT INTO triples(
         sentence_id, source_entity_name, source_entity_attr,
         relation_type, sink_entity_name, sink_entity_attr, contributor_email, project_id, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);"""
@@ -467,16 +467,16 @@ def delete_project(db_path: str, project_id: int) -> bool:
         conn.close()
         return False
 
-def update_tuple(db_path: str, tuple_id: int, source_entity_name: str = None, 
+def update_triple(db_path: str, triple_id: int, source_entity_name: str = None, 
                 source_entity_attr: str = None, relation_type: str = None,
                 sink_entity_name: str = None, sink_entity_attr: str = None) -> bool:
-    """Update a tuple's fields."""
+    """Update a triple's fields."""
     conn = get_conn(db_path); cur = conn.cursor()
     
     try:
-        # Get current tuple
+        # Get current triple
         cur.execute("""SELECT source_entity_name, source_entity_attr, relation_type, 
-                       sink_entity_name, sink_entity_attr FROM tuples WHERE id = ?;""", (tuple_id,))
+                       sink_entity_name, sink_entity_attr FROM triples WHERE id = ?;""", (triple_id,))
         row = cur.fetchone()
         if not row:
             conn.close()
@@ -489,13 +489,13 @@ def update_tuple(db_path: str, tuple_id: int, source_entity_name: str = None,
         new_sink_name = sink_entity_name if sink_entity_name is not None else row[3]
         new_sink_attr = sink_entity_attr if sink_entity_attr is not None else row[4]
         
-        cur.execute("""UPDATE tuples SET source_entity_name = ?, source_entity_attr = ?,
+        cur.execute("""UPDATE triples SET source_entity_name = ?, source_entity_attr = ?,
                        relation_type = ?, sink_entity_name = ?, sink_entity_attr = ?
                        WHERE id = ?;""",
-                    (new_src_name, new_src_attr, new_rel_type, new_sink_name, new_sink_attr, tuple_id))
+                    (new_src_name, new_src_attr, new_rel_type, new_sink_name, new_sink_attr, triple_id))
         conn.close()
         return True
     except Exception as e:
-        print(f"Failed to update tuple: {e}")
+        print(f"Failed to update triple: {e}")
         conn.close()
         return False

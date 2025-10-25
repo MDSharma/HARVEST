@@ -15,7 +15,7 @@ from t2t_store import (
     fetch_relation_dropdown_options,
     upsert_sentence,
     upsert_doi_metadata,
-    insert_tuple_rows,
+    insert_triple_rows,
     add_relation_type,
     add_entity_type,
     generate_doi_hash,
@@ -28,7 +28,7 @@ from t2t_store import (
     get_project_by_id,
     update_project,
     delete_project,
-    update_tuple,
+    update_triple,
     check_admin_status,
 )
 
@@ -142,7 +142,7 @@ def save():
       "sentence": "gene FLC regulates flowering time",
       "literature_link": "doi_or_url",
       "sentence_id": null | number (optional),
-      "tuples": [
+      "triples": [
         {
           "source_entity_name": "FLC",
           "source_entity_attr": "Gene" | "other",
@@ -169,18 +169,18 @@ def save():
     doi = (payload.get("doi") or "").strip() or None
     sentence_id = payload.get("sentence_id")
     project_id = payload.get("project_id")  # Get project_id from payload
-    tuples: List[Dict[str, Any]] = payload.get("tuples") or []
+    triples: List[Dict[str, Any]] = payload.get("triples") or []
 
     if not sentence:
         return jsonify({"error": "Missing 'sentence'"}), 400
     if not contributor_email:
         return jsonify({"error": "Missing 'contributor_email'"}), 400
-    if not tuples:
-        return jsonify({"error": "Missing 'tuples' array"}), 400
+    if not triples:
+        return jsonify({"error": "Missing 'triples' array"}), 400
 
     # Handle any "other" entries (add new entity or relation types)
     try:
-        for t in tuples:
+        for t in triples:
             # Relation type
             if t.get("relation_type") == "other":
                 new_rel = (t.get("new_relation_type") or "").strip()
@@ -215,18 +215,18 @@ def save():
         except Exception as e:
             return jsonify({"error": f"Failed to save DOI metadata: {e}"}), 500
 
-    # Upsert the sentence, then insert tuples
+    # Upsert the sentence, then insert triples
     try:
         sid = upsert_sentence(DB_PATH, sentence_id, sentence, literature_link, doi_hash)
-        insert_tuple_rows(DB_PATH, sid, tuples, contributor_email, project_id)
+        insert_triple_rows(DB_PATH, sid, triples, contributor_email, project_id)
         return jsonify({"ok": True, "sentence_id": sid, "doi_hash": doi_hash})
     except Exception as e:
         return jsonify({"error": f"Save failed: {e}"}), 500
 
-@app.delete("/api/tuple/<int:tuple_id>")
-def delete_tuple(tuple_id: int):
+@app.delete("/api/triple/<int:triple_id>")
+def delete_triple(triple_id: int):
     """
-    Delete a tuple. Only the original contributor or admin can delete.
+    Delete a triple. Only the original contributor or admin can delete.
     Expected JSON: { "email": "user@example.com", "password": "optional_for_admin" }
     """
     try:
@@ -248,38 +248,38 @@ def delete_tuple(tuple_id: int):
         conn = get_conn(DB_PATH)
         cur = conn.cursor()
 
-        # Get tuple info before deletion
-        cur.execute("SELECT contributor_email, sentence_id FROM tuples WHERE id = ?;", (tuple_id,))
+        # Get triple info before deletion
+        cur.execute("SELECT contributor_email, sentence_id FROM triples WHERE id = ?;", (triple_id,))
         result = cur.fetchone()
 
         if not result:
             conn.close()
-            return jsonify({"error": "Tuple not found"}), 404
+            return jsonify({"error": "Triple not found"}), 404
 
-        tuple_owner, sentence_id = result[0], result[1]
+        triple_owner, sentence_id = result[0], result[1]
 
-        if not is_admin and tuple_owner != requester_email:
+        if not is_admin and triple_owner != requester_email:
             conn.close()
-            return jsonify({"error": "Permission denied. Only the creator or admin can delete this tuple."}), 403
+            return jsonify({"error": "Permission denied. Only the creator or admin can delete this triple."}), 403
 
-        # Delete the tuple
-        cur.execute("DELETE FROM tuples WHERE id = ?;", (tuple_id,))
+        # Delete the triple
+        cur.execute("DELETE FROM triples WHERE id = ?;", (triple_id,))
         
-        # Check if sentence has any remaining tuples
-        cur.execute("SELECT COUNT(*) FROM tuples WHERE sentence_id = ?;", (sentence_id,))
-        remaining_tuples = cur.fetchone()[0]
+        # Check if sentence has any remaining triples
+        cur.execute("SELECT COUNT(*) FROM triples WHERE sentence_id = ?;", (sentence_id,))
+        remaining_triples = cur.fetchone()[0]
         
-        # If no tuples remain, delete the orphaned sentence
-        if remaining_tuples == 0:
+        # If no triples remain, delete the orphaned sentence
+        if remaining_triples == 0:
             cur.execute("DELETE FROM sentences WHERE id = ?;", (sentence_id,))
             conn.commit()
             conn.close()
-            return jsonify({"ok": True, "message": "Tuple and associated sentence deleted (no other tuples remained)"})
+            return jsonify({"ok": True, "message": "Triple and associated sentence deleted (no other triples remained)"})
         
         conn.commit()
         conn.close()
 
-        return jsonify({"ok": True, "message": "Tuple deleted successfully"})
+        return jsonify({"ok": True, "message": "Triple deleted successfully"})
     except Exception as e:
         return jsonify({"error": f"Delete failed: {e}"}), 500
 
@@ -303,10 +303,10 @@ def rows():
                 SELECT s.id, s.text, s.literature_link, s.doi_hash,
                        dm.doi, t.id, t.source_entity_name,
                        t.source_entity_attr, t.relation_type, t.sink_entity_name, t.sink_entity_attr,
-                       t.contributor_email as tuple_contributor, t.project_id
+                       t.contributor_email as triple_contributor, t.project_id
                 FROM sentences s
                 LEFT JOIN doi_metadata dm ON s.doi_hash = dm.doi_hash
-                LEFT JOIN tuples t ON s.id = t.sentence_id
+                LEFT JOIN triples t ON s.id = t.sentence_id
                 WHERE t.project_id = ?
                 ORDER BY s.id DESC, t.id ASC
                 LIMIT 200;
@@ -316,10 +316,10 @@ def rows():
                 SELECT s.id, s.text, s.literature_link, s.doi_hash,
                        dm.doi, t.id, t.source_entity_name,
                        t.source_entity_attr, t.relation_type, t.sink_entity_name, t.sink_entity_attr,
-                       t.contributor_email as tuple_contributor, t.project_id
+                       t.contributor_email as triple_contributor, t.project_id
                 FROM sentences s
                 LEFT JOIN doi_metadata dm ON s.doi_hash = dm.doi_hash
-                LEFT JOIN tuples t ON s.id = t.sentence_id
+                LEFT JOIN triples t ON s.id = t.sentence_id
                 ORDER BY s.id DESC, t.id ASC
                 LIMIT 200;
             """)
@@ -327,9 +327,9 @@ def rows():
         data = cur.fetchall()
         conn.close()
         cols = ["sentence_id", "sentence", "literature_link", "doi_hash",
-                "doi", "tuple_id",
+                "doi", "triple_id",
                 "source_entity_name", "source_entity_attr", "relation_type",
-                "sink_entity_name", "sink_entity_attr", "tuple_contributor", "project_id"]
+                "sink_entity_name", "sink_entity_attr", "triple_contributor", "project_id"]
         out = [dict(zip(cols, row)) for row in data]
         return jsonify(out)
     except Exception as e:
@@ -400,10 +400,10 @@ def admin_create_user():
     else:
         return jsonify({"error": "Failed to create admin user"}), 500
 
-@app.put("/api/admin/tuple/<int:tuple_id>")
-def admin_update_tuple(tuple_id: int):
+@app.put("/api/admin/triple/<int:triple_id>")
+def admin_update_triple(triple_id: int):
     """
-    Update a tuple (admin only).
+    Update a triple (admin only).
     Expected JSON: { "email": "admin@example.com", "password": "secret",
                      "source_entity_name": "...", "source_entity_attr": "...", etc. }
     """
@@ -429,13 +429,13 @@ def admin_update_tuple(tuple_id: int):
     sink_entity_name = payload.get("sink_entity_name")
     sink_entity_attr = payload.get("sink_entity_attr")
 
-    success = update_tuple(DB_PATH, tuple_id, source_entity_name, source_entity_attr,
+    success = update_triple(DB_PATH, triple_id, source_entity_name, source_entity_attr,
                           relation_type, sink_entity_name, sink_entity_attr)
     
     if success:
-        return jsonify({"ok": True, "message": "Tuple updated successfully"})
+        return jsonify({"ok": True, "message": "Triple updated successfully"})
     else:
-        return jsonify({"error": "Failed to update tuple or tuple not found"}), 404
+        return jsonify({"error": "Failed to update triple or triple not found"}), 404
 
 # -----------------------------
 # Project management endpoints
@@ -548,8 +548,8 @@ def delete_existing_project(project_id: int):
     Expected JSON: { 
         "email": "admin@example.com", 
         "password": "secret",
-        "handle_tuples": "delete" | "reassign" | "keep"  (optional, default: "keep")
-        "target_project_id": <id>  (required if handle_tuples is "reassign")
+        "handle_triples": "delete" | "reassign" | "keep"  (optional, default: "keep")
+        "target_project_id": <id>  (required if handle_triples is "reassign")
     }
     """
     try:
@@ -559,7 +559,7 @@ def delete_existing_project(project_id: int):
 
     email = (payload.get("email") or "").strip()
     password = payload.get("password") or ""
-    handle_tuples = payload.get("handle_tuples", "keep")  # Default: keep tuples (set project_id to NULL)
+    handle_triples = payload.get("handle_triples", "keep")  # Default: keep triples (set project_id to NULL)
     target_project_id = payload.get("target_project_id")
 
     if not email or not password:
@@ -569,49 +569,49 @@ def delete_existing_project(project_id: int):
     if not (verify_admin_password(DB_PATH, email, password) or is_admin_user(email)):
         return jsonify({"error": "Invalid admin credentials"}), 403
     
-    # Validate handle_tuples option
-    if handle_tuples not in ["delete", "reassign", "keep"]:
-        return jsonify({"error": "Invalid handle_tuples option. Must be 'delete', 'reassign', or 'keep'"}), 400
+    # Validate handle_triples option
+    if handle_triples not in ["delete", "reassign", "keep"]:
+        return jsonify({"error": "Invalid handle_triples option. Must be 'delete', 'reassign', or 'keep'"}), 400
     
-    if handle_tuples == "reassign" and not target_project_id:
-        return jsonify({"error": "target_project_id required when handle_tuples is 'reassign'"}), 400
+    if handle_triples == "reassign" and not target_project_id:
+        return jsonify({"error": "target_project_id required when handle_triples is 'reassign'"}), 400
 
     try:
         from t2t_store import get_conn
         conn = get_conn(DB_PATH)
         cur = conn.cursor()
         
-        # Check how many tuples are associated with this project
-        cur.execute("SELECT COUNT(*) FROM tuples WHERE project_id = ?;", (project_id,))
-        tuple_count = cur.fetchone()[0]
+        # Check how many triples are associated with this project
+        cur.execute("SELECT COUNT(*) FROM triples WHERE project_id = ?;", (project_id,))
+        triple_count = cur.fetchone()[0]
         
         orphaned_count = 0
-        # Handle tuples based on option
-        if handle_tuples == "delete":
-            # Get all sentence_ids for tuples we're about to delete
-            cur.execute("SELECT DISTINCT sentence_id FROM tuples WHERE project_id = ?;", (project_id,))
+        # Handle triples based on option
+        if handle_triples == "delete":
+            # Get all sentence_ids for triples we're about to delete
+            cur.execute("SELECT DISTINCT sentence_id FROM triples WHERE project_id = ?;", (project_id,))
             sentence_ids = [row[0] for row in cur.fetchall()]
             
-            # Delete all tuples associated with this project
-            cur.execute("DELETE FROM tuples WHERE project_id = ?;", (project_id,))
+            # Delete all triples associated with this project
+            cur.execute("DELETE FROM triples WHERE project_id = ?;", (project_id,))
             
             # Now check for orphaned sentences and delete them
             for sentence_id in sentence_ids:
-                cur.execute("SELECT COUNT(*) FROM tuples WHERE sentence_id = ?;", (sentence_id,))
-                remaining_tuples = cur.fetchone()[0]
-                if remaining_tuples == 0:
-                    # This sentence has no more tuples, delete it
+                cur.execute("SELECT COUNT(*) FROM triples WHERE sentence_id = ?;", (sentence_id,))
+                remaining_triples = cur.fetchone()[0]
+                if remaining_triples == 0:
+                    # This sentence has no more triples, delete it
                     cur.execute("DELETE FROM sentences WHERE id = ?;", (sentence_id,))
                     orphaned_count += 1
             
             conn.commit()
-        elif handle_tuples == "reassign":
-            # Reassign tuples to target project
-            cur.execute("UPDATE tuples SET project_id = ? WHERE project_id = ?;", (target_project_id, project_id))
+        elif handle_triples == "reassign":
+            # Reassign triples to target project
+            cur.execute("UPDATE triples SET project_id = ? WHERE project_id = ?;", (target_project_id, project_id))
             conn.commit()
-        elif handle_tuples == "keep":
+        elif handle_triples == "keep":
             # Set project_id to NULL (uncategorized)
-            cur.execute("UPDATE tuples SET project_id = NULL WHERE project_id = ?;", (project_id,))
+            cur.execute("UPDATE triples SET project_id = NULL WHERE project_id = ?;", (project_id,))
             conn.commit()
         
         # Now delete the project
@@ -620,14 +620,14 @@ def delete_existing_project(project_id: int):
         conn.close()
         
         if success:
-            message = f"Project deleted successfully. {tuple_count} tuple(s) "
-            if handle_tuples == "delete":
+            message = f"Project deleted successfully. {triple_count} triple(s) "
+            if handle_triples == "delete":
                 message += f"and {orphaned_count} orphaned sentence(s) were also deleted."
-            elif handle_tuples == "reassign":
+            elif handle_triples == "reassign":
                 message += f"were reassigned to project {target_project_id}."
             else:
                 message += "were set to uncategorized."
-            return jsonify({"ok": True, "message": message, "tuples_affected": tuple_count})
+            return jsonify({"ok": True, "message": message, "triples_affected": triple_count})
         else:
             return jsonify({"error": "Failed to delete project"}), 500
     except Exception as e:

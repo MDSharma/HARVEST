@@ -20,7 +20,7 @@ API_VALIDATE_DOI = f"{API_BASE}/api/validate-doi"
 API_ADMIN_AUTH = f"{API_BASE}/api/admin/auth"
 API_PROJECTS = f"{API_BASE}/api/projects"
 API_ADMIN_PROJECTS = f"{API_BASE}/api/admin/projects"
-API_ADMIN_TUPLE = f"{API_BASE}/api/admin/tuple"
+API_ADMIN_TRIPLE = f"{API_BASE}/api/admin/triple"
 
 APP_TITLE = "Text2Trait: Training data builder"
 
@@ -74,9 +74,9 @@ def build_relation_options(schema_dict):
 # -----------------------
 # UI Builders
 # -----------------------
-def tuple_row(i, entity_options, relation_options):
+def triple_row(i, entity_options, relation_options):
     """
-    Build one tuple row with inputs:
+    Build one triple row with inputs:
       - source_entity_name (text)
       - source_entity_attr (dropdown) + Other text
       - relation_type (dropdown) + Other text
@@ -193,7 +193,7 @@ def sidebar():
         "**Tables**\n\n"
         "```text\n"
         "sentences(id, text, literature_link, created_at)\n"
-        "tuples(id, sentence_id, source_entity_name, source_entity_attr, relation_type,\n"
+        "triples(id, sentence_id, source_entity_name, source_entity_attr, relation_type,\n"
         "       sink_entity_name, sink_entity_attr, created_at)\n"
         "entity_types(name, value)\n"
         "relation_types(name)\n"
@@ -206,12 +206,12 @@ def sidebar():
 **How to use**
 
 1. Paste a *Sentence* and (optionally) a DOI/URL in *Literature Link*.
-2. Click **Add tuple** to create one or more (source, relation, sink) tuples.
+2. Click **Add triple** to create one or more (source, relation, sink) triples.
 3. Use dropdowns for entity types and relation; choose **Other…** if you need a new label.
-4. Click **Save** — the sentence is stored once, and all tuples link to it.
+4. Click **Save** — the sentence is stored once, and all triples link to it.
 
 **Notes**
-- One sentence can have multiple tuples.
+- One sentence can have multiple triples.
 - If your backend has different endpoint paths, edit `API_*` constants at the top of the file.
 """
     )
@@ -256,7 +256,7 @@ server = app.server  # for gunicorn, if needed
 app.layout = dbc.Container(
     [
         dcc.Store(id="choices-store"),
-        dcc.Store(id="tuple-count", data=1),
+        dcc.Store(id="triple-count", data=1),
         dcc.Store(id="email-store", storage_type="session"),
         dcc.Store(id="doi-metadata-store"),
         dcc.Store(id="admin-auth-store", storage_type="session"),
@@ -270,14 +270,14 @@ app.layout = dbc.Container(
                 dbc.ModalHeader(dbc.ModalTitle("Delete Project")),
                 dbc.ModalBody(
                     [
-                        html.P(id="delete-project-tuple-count", className="mb-3"),
-                        dbc.Label("What should happen to associated tuples?"),
+                        html.P(id="delete-project-triple-count", className="mb-3"),
+                        dbc.Label("What should happen to associated triples?"),
                         dbc.RadioItems(
                             id="delete-project-option",
                             options=[
-                                {"label": "Keep tuples as uncategorized (set project to NULL)", "value": "keep"},
-                                {"label": "Reassign tuples to another project", "value": "reassign"},
-                                {"label": "Delete all associated tuples", "value": "delete"},
+                                {"label": "Keep triples as uncategorized (set project to NULL)", "value": "keep"},
+                                {"label": "Reassign triples to another project", "value": "reassign"},
+                                {"label": "Delete all associated triples", "value": "delete"},
                             ],
                             value="keep",
                             className="mb-3",
@@ -427,15 +427,15 @@ app.layout = dbc.Container(
                                                                 html.Div(className="mt-3"),
                                                                 dbc.ButtonGroup(
                                                                     [
-                                                                        dbc.Button("Add tuple", id="btn-add-tuple", color="primary"),
-                                                                        dbc.Button("Remove last tuple", id="btn-remove-tuple", color="secondary"),
+                                                                        dbc.Button("Add triple", id="btn-add-triple", color="primary"),
+                                                                        dbc.Button("Remove last triple", id="btn-remove-triple", color="secondary"),
                                                                         dbc.Button("Save", id="btn-save", color="success"),
                                                                         dbc.Button("Reset", id="btn-reset", color="warning"),
                                                                     ],
                                                                     size="sm",
                                                                     className="mb-2",
                                                                 ),
-                                                                html.Div(id="tuples-container"),
+                                                                html.Div(id="triples-container"),
                                                                 html.Div(id="save-message", className="mt-2"),
                                                             ],
                                                             body=True,
@@ -597,15 +597,15 @@ app.layout = dbc.Container(
                                                         html.Div(id="projects-list", className="mb-3"),
                                                         html.Hr(),
                                                         
-                                                        html.H6("Edit/Delete Tuples", className="mb-3"),
+                                                        html.H6("Edit/Delete Triples", className="mb-3"),
                                                         dbc.Row(
                                                             [
                                                                 dbc.Col(
                                                                     [
                                                                         dbc.Label("Filter by Project"),
                                                                         dcc.Dropdown(
-                                                                            id="tuple-editor-project-filter",
-                                                                            placeholder="All tuples (no filter)",
+                                                                            id="triple-editor-project-filter",
+                                                                            placeholder="All triples (no filter)",
                                                                             clearable=True,
                                                                         ),
                                                                     ],
@@ -613,11 +613,11 @@ app.layout = dbc.Container(
                                                                 ),
                                                                 dbc.Col(
                                                                     [
-                                                                        dbc.Label("Tuple ID"),
+                                                                        dbc.Label("Triple ID"),
                                                                         dbc.InputGroup(
                                                                             [
-                                                                                dbc.Input(id="tuple-id-input", placeholder="Tuple ID", type="number"),
-                                                                                dbc.Button("Load Tuple", id="btn-load-tuple", color="info", outline=True),
+                                                                                dbc.Input(id="triple-id-input", placeholder="Triple ID", type="number"),
+                                                                                dbc.Button("Load Triple", id="btn-load-triple", color="info", outline=True),
                                                                             ]
                                                                         ),
                                                                     ],
@@ -626,7 +626,7 @@ app.layout = dbc.Container(
                                                             ],
                                                             className="g-3 mb-3",
                                                         ),
-                                                        html.Div(id="tuple-load-message", className="mb-2"),
+                                                        html.Div(id="triple-load-message", className="mb-2"),
                                                         dbc.Row(
                                                             [
                                                                 dbc.Col(
@@ -691,12 +691,12 @@ app.layout = dbc.Container(
                                                         ),
                                                         dbc.ButtonGroup(
                                                             [
-                                                                dbc.Button("Update Tuple", id="btn-update-tuple", color="warning"),
-                                                                dbc.Button("Delete Tuple", id="btn-delete-tuple", color="danger"),
+                                                                dbc.Button("Update Triple", id="btn-update-triple", color="warning"),
+                                                                dbc.Button("Delete Triple", id="btn-delete-triple", color="danger"),
                                                             ],
                                                             className="mb-3",
                                                         ),
-                                                        html.Div(id="tuple-edit-message"),
+                                                        html.Div(id="triple-edit-message"),
                                                     ],
                                                 ),
                                             ],
@@ -861,7 +861,7 @@ def load_choices(_):
         "relation_options": [{"label": k, "value": k} for k in relation_types] + [{"label": "Other…", "value": OTHER_SENTINEL}],
     }
 
-# Populate tuple editor dropdown options
+# Populate triple editor dropdown options
 @app.callback(
     Output("edit-src-attr", "options"),
     Output("edit-rel-type", "options"),
@@ -869,7 +869,7 @@ def load_choices(_):
     Input("choices-store", "data"),
     prevent_initial_call=False,
 )
-def populate_tuple_editor_dropdowns(choices_data):
+def populate_triple_editor_dropdowns(choices_data):
     if not choices_data:
         entity_options = [{"label": k, "value": k} for k in SCHEMA_JSON["span-attribute"].keys()]
         relation_options = [{"label": k, "value": k} for k in SCHEMA_JSON["relation-type"].keys()]
@@ -879,33 +879,33 @@ def populate_tuple_editor_dropdowns(choices_data):
     
     return entity_options, relation_options, entity_options
 
-# Add/remove tuple rows
+# Add/remove triple rows
 @app.callback(
-    Output("tuple-count", "data"),
-    Input("btn-add-tuple", "n_clicks"),
-    Input("btn-remove-tuple", "n_clicks"),
+    Output("triple-count", "data"),
+    Input("btn-add-triple", "n_clicks"),
+    Input("btn-remove-triple", "n_clicks"),
     Input("btn-reset", "n_clicks"),
-    State("tuple-count", "data"),
+    State("triple-count", "data"),
     prevent_initial_call=True,
 )
-def modify_tuple_count(add_clicks, remove_clicks, reset_clicks, current_count):
+def modify_triple_count(add_clicks, remove_clicks, reset_clicks, current_count):
     trigger = ctx.triggered_id
     count = current_count or 1
-    if trigger == "btn-add-tuple":
+    if trigger == "btn-add-triple":
         return count + 1
-    elif trigger == "btn-remove-tuple":
+    elif trigger == "btn-remove-triple":
         return max(1, count - 1)
     elif trigger == "btn-reset":
         return 1
     return count
 
-# Render tuple rows whenever count or choices change
+# Render triple rows whenever count or choices change
 @app.callback(
-    Output("tuples-container", "children"),
-    Input("tuple-count", "data"),
+    Output("triples-container", "children"),
+    Input("triple-count", "data"),
     Input("choices-store", "data"),
 )
-def render_tuple_rows(count, choices_data):
+def render_triple_rows(count, choices_data):
     if not choices_data:
         entity_options = build_entity_options(SCHEMA_JSON)
         relation_options = build_relation_options(SCHEMA_JSON)
@@ -913,7 +913,7 @@ def render_tuple_rows(count, choices_data):
         entity_options = choices_data["entity_options"]
         relation_options = choices_data["relation_options"]
 
-    rows = [tuple_row(i, entity_options, relation_options) for i in range(count or 1)]
+    rows = [triple_row(i, entity_options, relation_options) for i in range(count or 1)]
     return rows
 
 # Show/hide "Other…" inputs for Source Attr
@@ -969,7 +969,7 @@ def toggle_sink_other(values):
     State({"type": "sink-attr-other", "index": ALL}, "value"),
     prevent_initial_call=True,
 )
-def save_tuples(n_clicks, sentence_text, literature_link, contributor_email, email_validated,
+def save_triples(n_clicks, sentence_text, literature_link, contributor_email, email_validated,
                 doi_metadata, project_id,  # Add project_id parameter
                 src_names, src_attrs, src_other,
                 rel_types, rel_other,
@@ -988,7 +988,7 @@ def save_tuples(n_clicks, sentence_text, literature_link, contributor_email, ema
         len(sink_attrs or []),
     )
 
-    tuples = []
+    triples = []
     for i in range(num_rows):
         src_name = (src_names or [""] * num_rows)[i] or ""
         src_attr_val = (src_attrs or [""] * num_rows)[i] or ""
@@ -1003,7 +1003,7 @@ def save_tuples(n_clicks, sentence_text, literature_link, contributor_email, ema
 
         # Minimal validation: require src_name, relation, sink_name
         if src_name and rel_final and sink_name:
-            tuples.append(
+            triples.append(
                 {
                     "source_entity_name": src_name,
                     "source_entity_attr": src_attr_final,
@@ -1013,14 +1013,14 @@ def save_tuples(n_clicks, sentence_text, literature_link, contributor_email, ema
                 }
             )
 
-    if not tuples:
-        return dbc.Alert("At least one complete tuple is required (source, relation, sink).", color="danger", dismissable=True, duration=4000)
+    if not triples:
+        return dbc.Alert("At least one complete triple is required (source, relation, sink).", color="danger", dismissable=True, duration=4000)
 
     payload = {
         "sentence": sentence_text.strip(),
         "literature_link": (literature_link or "").strip(),
         "contributor_email": email_validated,
-        "tuples": tuples,
+        "triples": triples,
     }
 
     if doi_metadata:
@@ -1042,9 +1042,9 @@ def save_tuples(n_clicks, sentence_text, literature_link, contributor_email, ema
                 print(f"Failed to parse response: {parse_err}")
                 resp = {}
             new_id = resp.get("sentence_id") or resp.get("id") or "(unknown)"
-            num_tuples = len(tuples)
+            num_triples = len(triples)
             return dbc.Alert(
-                f"Saved successfully! Sentence ID: {new_id}, Tuples saved: {num_tuples}",
+                f"Saved successfully! Sentence ID: {new_id}, Triples saved: {num_triples}",
                 color="success",
                 dismissable=True,
                 duration=4000
@@ -1548,7 +1548,7 @@ def download_project_pdfs(n_clicks_list, auth_data):
 @app.callback(
     Output("delete-project-modal", "is_open"),
     Output("delete-project-id-store", "data"),
-    Output("delete-project-tuple-count", "children"),
+    Output("delete-project-triple-count", "children"),
     Output("delete-project-target", "options"),
     Input({"type": "delete-project", "index": ALL}, "n_clicks"),
     Input("delete-project-cancel", "n_clicks"),
@@ -1577,21 +1577,21 @@ def toggle_delete_project_modal(delete_clicks_list, cancel_click, projects, auth
         if not project:
             return no_update, no_update, no_update, no_update
         
-        # Get tuple count for this project
+        # Get triple count for this project
         try:
             r = requests.get(f"{API_RECENT}?project_id={project_id}", timeout=5)
             if r.ok:
                 rows = r.json()
-                tuple_count = len(set(row.get("tuple_id") for row in rows if row.get("tuple_id")))
+                triple_count = len(set(row.get("triple_id") for row in rows if row.get("triple_id")))
             else:
-                tuple_count = 0
+                triple_count = 0
         except:
-            tuple_count = 0
+            triple_count = 0
         
         # Create options for target project (exclude current project)
         target_options = [{"label": p["name"], "value": p["id"]} for p in projects if p["id"] != project_id]
         
-        message = f"Project '{project['name']}' has {tuple_count} associated tuple(s)."
+        message = f"Project '{project['name']}' has {triple_count} associated triple(s)."
         
         return True, project_id, message, target_options
     
@@ -1632,7 +1632,7 @@ def confirm_delete_project(n_clicks, project_id, option, target_project_id, auth
         payload = {
             "email": auth_data["email"],
             "password": auth_data["password"],
-            "handle_tuples": option
+            "handle_triples": option
         }
         if option == "reassign":
             payload["target_project_id"] = target_project_id
@@ -1697,45 +1697,45 @@ def confirm_delete_project(n_clicks, project_id, option, target_project_id, auth
     except Exception as e:
         return dbc.Alert(f"Error: {str(e)}", color="danger"), no_update, False
 
-# Populate tuple editor project filter
+# Populate triple editor project filter
 @app.callback(
-    Output("tuple-editor-project-filter", "options"),
+    Output("triple-editor-project-filter", "options"),
     Input("load-trigger", "n_intervals"),
     Input("btn-refresh-projects", "n_clicks"),
     prevent_initial_call=False,
 )
-def populate_tuple_editor_project_filter(trigger1, trigger2):
+def populate_triple_editor_project_filter(trigger1, trigger2):
     try:
         r = requests.get(API_PROJECTS, timeout=5)
         if r.ok:
             projects = r.json()
-            options = [{"label": "All tuples (no filter)", "value": "all"}] + \
+            options = [{"label": "All triples (no filter)", "value": "all"}] + \
                      [{"label": f"{p['name']} (ID: {p['id']})", "value": p["id"]} for p in projects]
             return options
         else:
-            return [{"label": "All tuples (no filter)", "value": "all"}]
+            return [{"label": "All triples (no filter)", "value": "all"}]
     except Exception:
-        return [{"label": "All tuples (no filter)", "value": "all"}]
+        return [{"label": "All triples (no filter)", "value": "all"}]
 
-# Load tuple data
+# Load triple data
 @app.callback(
-    Output("tuple-load-message", "children"),
+    Output("triple-load-message", "children"),
     Output("edit-src-name", "value"),
     Output("edit-src-attr", "value"),
     Output("edit-rel-type", "value"),
     Output("edit-sink-name", "value"),
     Output("edit-sink-attr", "value"),
-    Input("btn-load-tuple", "n_clicks"),
-    State("tuple-id-input", "value"),
-    State("tuple-editor-project-filter", "value"),
+    Input("btn-load-triple", "n_clicks"),
+    State("triple-id-input", "value"),
+    State("triple-editor-project-filter", "value"),
     prevent_initial_call=True,
 )
-def load_tuple_data(n_clicks, tuple_id, project_filter):
-    if not tuple_id:
-        return dbc.Alert("Please enter a tuple ID", color="warning"), "", "", "", "", ""
+def load_triple_data(n_clicks, triple_id, project_filter):
+    if not triple_id:
+        return dbc.Alert("Please enter a triple ID", color="warning"), "", "", "", "", ""
     
     try:
-        # Fetch tuple data from the rows endpoint with optional project filter
+        # Fetch triple data from the rows endpoint with optional project filter
         url = API_RECENT
         if project_filter and project_filter != "all":
             url = f"{API_RECENT}?project_id={project_filter}"
@@ -1743,28 +1743,28 @@ def load_tuple_data(n_clicks, tuple_id, project_filter):
         r = requests.get(url, timeout=5)
         if r.ok:
             rows = r.json()
-            # Find the tuple with matching ID
-            tuple_data = next((row for row in rows if row.get("tuple_id") == tuple_id), None)
+            # Find the triple with matching ID
+            triple_data = next((row for row in rows if row.get("triple_id") == triple_id), None)
             
-            if tuple_data:
+            if triple_data:
                 project_info = ""
-                if tuple_data.get("project_id"):
-                    project_info = f" (Project ID: {tuple_data['project_id']})"
+                if triple_data.get("project_id"):
+                    project_info = f" (Project ID: {triple_data['project_id']})"
                 return (
-                    dbc.Alert(f"Loaded tuple {tuple_id}{project_info}", color="success"),
-                    tuple_data.get("source_entity_name", ""),
-                    tuple_data.get("source_entity_attr", ""),
-                    tuple_data.get("relation_type", ""),
-                    tuple_data.get("sink_entity_name", ""),
-                    tuple_data.get("sink_entity_attr", "")
+                    dbc.Alert(f"Loaded triple {triple_id}{project_info}", color="success"),
+                    triple_data.get("source_entity_name", ""),
+                    triple_data.get("source_entity_attr", ""),
+                    triple_data.get("relation_type", ""),
+                    triple_data.get("sink_entity_name", ""),
+                    triple_data.get("sink_entity_attr", "")
                 )
             else:
                 if project_filter and project_filter != "all":
-                    return dbc.Alert(f"Tuple {tuple_id} not found in the selected project. Try 'All tuples' filter.", color="warning"), "", "", "", "", ""
+                    return dbc.Alert(f"Triple {triple_id} not found in the selected project. Try 'All triples' filter.", color="warning"), "", "", "", "", ""
                 else:
-                    return dbc.Alert(f"Tuple {tuple_id} does not exist in the database.", color="danger"), "", "", "", "", ""
+                    return dbc.Alert(f"Triple {triple_id} does not exist in the database.", color="danger"), "", "", "", "", ""
         else:
-            error_msg = f"Failed to load tuple: {r.status_code}"
+            error_msg = f"Failed to load triple: {r.status_code}"
             try:
                 error_data = r.json()
                 if "error" in error_data:
@@ -1773,14 +1773,14 @@ def load_tuple_data(n_clicks, tuple_id, project_filter):
                 pass
             return dbc.Alert(error_msg, color="danger"), "", "", "", "", ""
     except Exception as e:
-        return dbc.Alert(f"Error loading tuple: {str(e)}", color="danger"), "", "", "", "", ""
+        return dbc.Alert(f"Error loading triple: {str(e)}", color="danger"), "", "", "", "", ""
 
-# Update tuple
+# Update triple
 @app.callback(
-    Output("tuple-edit-message", "children"),
-    Input("btn-update-tuple", "n_clicks"),
-    Input("btn-delete-tuple", "n_clicks"),
-    State("tuple-id-input", "value"),
+    Output("triple-edit-message", "children"),
+    Input("btn-update-triple", "n_clicks"),
+    Input("btn-delete-triple", "n_clicks"),
+    State("triple-id-input", "value"),
     State("edit-src-name", "value"),
     State("edit-src-attr", "value"),
     State("edit-rel-type", "value"),
@@ -1789,18 +1789,18 @@ def load_tuple_data(n_clicks, tuple_id, project_filter):
     State("admin-auth-store", "data"),
     prevent_initial_call=True,
 )
-def edit_tuple_callback(update_clicks, delete_clicks, tuple_id, src_name, src_attr, rel_type, sink_name, sink_attr, auth_data):
+def edit_triple_callback(update_clicks, delete_clicks, triple_id, src_name, src_attr, rel_type, sink_name, sink_attr, auth_data):
     if not auth_data:
         return dbc.Alert("Please login first", color="danger")
     
-    if not tuple_id:
-        return dbc.Alert("Please enter a tuple ID", color="danger")
+    if not triple_id:
+        return dbc.Alert("Please enter a triple ID", color="danger")
     
     trigger = ctx.triggered_id
     
     try:
-        if trigger == "btn-update-tuple":
-            # Update tuple
+        if trigger == "btn-update-triple":
+            # Update triple
             payload = {
                 "email": auth_data["email"],
                 "password": auth_data["password"],
@@ -1819,27 +1819,27 @@ def edit_tuple_callback(update_clicks, delete_clicks, tuple_id, src_name, src_at
             if not any([src_name, src_attr, rel_type, sink_name, sink_attr]):
                 return dbc.Alert("Please provide at least one field to update", color="warning")
             
-            r = requests.put(f"{API_ADMIN_TUPLE}/{tuple_id}", json=payload, timeout=10)
+            r = requests.put(f"{API_ADMIN_TRIPLE}/{triple_id}", json=payload, timeout=10)
             if r.ok:
                 result = r.json()
                 if result.get("ok"):
-                    return dbc.Alert("Tuple updated successfully!", color="success")
+                    return dbc.Alert("Triple updated successfully!", color="success")
                 else:
                     return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger")
             else:
                 return dbc.Alert(f"Failed: {r.status_code} - {r.text[:200]}", color="danger")
         
-        elif trigger == "btn-delete-tuple":
-            # Delete tuple
+        elif trigger == "btn-delete-triple":
+            # Delete triple
             r = requests.delete(
-                f"http://127.0.0.1:5001/api/tuple/{tuple_id}",
+                f"http://127.0.0.1:5001/api/triple/{triple_id}",
                 json={"email": auth_data["email"], "password": auth_data["password"]},
                 timeout=10
             )
             if r.ok:
                 result = r.json()
                 if result.get("ok"):
-                    return dbc.Alert("Tuple deleted successfully!", color="success")
+                    return dbc.Alert("Triple deleted successfully!", color="success")
                 else:
                     return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger")
             else:

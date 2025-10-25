@@ -99,14 +99,14 @@ def migrate_database():
                 cur.execute("ALTER TABLE sentences ADD COLUMN doi_hash TEXT;")
                 print("Added doi_hash column to sentences table")
 
-        # Check if tuples table has contributor_email column
-        cur.execute("PRAGMA table_info(tuples);")
-        tuple_columns = [row[1] for row in cur.fetchall()]
+        # Check if triples table has contributor_email column
+        cur.execute("PRAGMA table_info(triples);")
+        triple_columns = [row[1] for row in cur.fetchall()]
 
-        if 'contributor_email' not in tuple_columns:
-            print("Adding contributor_email to tuples table...")
-            cur.execute("ALTER TABLE tuples ADD COLUMN contributor_email TEXT DEFAULT '';")
-            print("Added contributor_email column to tuples table")
+        if 'contributor_email' not in triple_columns:
+            print("Adding contributor_email to triples table...")
+            cur.execute("ALTER TABLE triples ADD COLUMN contributor_email TEXT DEFAULT '';")
+            print("Added contributor_email column to triples table")
 
         # Create user_sessions table if it doesn't exist
         cur.execute("""
