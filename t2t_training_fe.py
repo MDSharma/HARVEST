@@ -1,6 +1,7 @@
 # t2t_frontend.py
 import os
 import json
+import hashlib
 import requests
 from datetime import datetime
 
@@ -16,6 +17,10 @@ API_CHOICES = f"{API_BASE}/api/choices"
 API_SAVE = f"{API_BASE}/api/save"
 API_RECENT = f"{API_BASE}/api/recent"
 API_VALIDATE_DOI = f"{API_BASE}/api/validate-doi"
+API_ADMIN_AUTH = f"{API_BASE}/api/admin/auth"
+API_PROJECTS = f"{API_BASE}/api/projects"
+API_ADMIN_PROJECTS = f"{API_BASE}/api/admin/projects"
+API_ADMIN_TUPLE = f"{API_BASE}/api/admin/tuple"
 
 APP_TITLE = "Text2Trait: Training data builder"
 
@@ -254,7 +259,52 @@ app.layout = dbc.Container(
         dcc.Store(id="tuple-count", data=1),
         dcc.Store(id="email-store", storage_type="session"),
         dcc.Store(id="doi-metadata-store"),
+        dcc.Store(id="admin-auth-store", storage_type="session"),
+        dcc.Store(id="projects-store"),
+        dcc.Store(id="delete-project-id-store"),  # Store project ID to delete
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
+        
+        # Modal for project deletion options
+        dbc.Modal(
+            [
+                dbc.ModalHeader(dbc.ModalTitle("Delete Project")),
+                dbc.ModalBody(
+                    [
+                        html.P(id="delete-project-tuple-count", className="mb-3"),
+                        dbc.Label("What should happen to associated tuples?"),
+                        dbc.RadioItems(
+                            id="delete-project-option",
+                            options=[
+                                {"label": "Keep tuples as uncategorized (set project to NULL)", "value": "keep"},
+                                {"label": "Reassign tuples to another project", "value": "reassign"},
+                                {"label": "Delete all associated tuples", "value": "delete"},
+                            ],
+                            value="keep",
+                            className="mb-3",
+                        ),
+                        html.Div(
+                            [
+                                dbc.Label("Target Project"),
+                                dcc.Dropdown(
+                                    id="delete-project-target",
+                                    placeholder="Select target project...",
+                                ),
+                            ],
+                            id="delete-project-target-container",
+                            style={"display": "none"},
+                        ),
+                    ]
+                ),
+                dbc.ModalFooter(
+                    [
+                        dbc.Button("Cancel", id="delete-project-cancel", color="secondary"),
+                        dbc.Button("Delete Project", id="delete-project-confirm", color="danger"),
+                    ]
+                ),
+            ],
+            id="delete-project-modal",
+            is_open=False,
+        ),
 
         dbc.Row(
             [
@@ -270,89 +320,160 @@ app.layout = dbc.Container(
                                     label="Annotate",
                                     value="tab-annotate",
                                     children=[
-                                        dbc.Card(
+                                        dbc.Row(
                                             [
-                                                dbc.Row(
+                                                # Left column: Annotation form
+                                                dbc.Col(
                                                     [
-                                                        dbc.Col(
+                                                        dbc.Card(
                                                             [
-                                                                dbc.Label("Your Email (required)", style={"fontWeight": "bold"}),
-                                                                dbc.Input(
-                                                                    id="contributor-email",
-                                                                    placeholder="email@example.com",
-                                                                    type="email",
-                                                                    debounce=True,
-                                                                    required=True,
-                                                                ),
-                                                                html.Small(
-                                                                    id="email-validation",
-                                                                    className="text-muted",
-                                                                ),
-                                                            ],
-                                                            md=12,
-                                                        ),
-                                                    ],
-                                                    className="g-3 mb-3",
-                                                ),
-                                                dbc.Row(
-                                                    [
-                                                        dbc.Col(
-                                                            [
-                                                                dbc.Label("DOI or Literature Link"),
-                                                                dbc.InputGroup(
+                                                                dbc.Row(
                                                                     [
-                                                                        dbc.Input(
-                                                                            id="literature-link",
-                                                                            placeholder="e.g., 10.1234/example or https://doi.org/...",
-                                                                            type="text",
-                                                                            debounce=True,
-                                                                        ),
-                                                                        dbc.Button(
-                                                                            "Validate DOI",
-                                                                            id="btn-validate-doi",
-                                                                            color="info",
-                                                                            outline=True,
+                                                                        dbc.Col(
+                                                                            [
+                                                                                dbc.Label("Your Email (required)", style={"fontWeight": "bold"}),
+                                                                                dbc.Input(
+                                                                                    id="contributor-email",
+                                                                                    placeholder="email@example.com",
+                                                                                    type="email",
+                                                                                    debounce=True,
+                                                                                    required=True,
+                                                                                ),
+                                                                                html.Small(
+                                                                                    id="email-validation",
+                                                                                    className="text-muted",
+                                                                                ),
+                                                                            ],
+                                                                            md=12,
                                                                         ),
                                                                     ],
+                                                                    className="g-3 mb-3",
                                                                 ),
-                                                                html.Small(
-                                                                    id="doi-validation",
-                                                                    className="text-muted",
+                                                                dbc.Row(
+                                                                    [
+                                                                        dbc.Col(
+                                                                            [
+                                                                                dbc.Label("Select Project (optional)"),
+                                                                                dcc.Dropdown(
+                                                                                    id="project-selector",
+                                                                                    placeholder="Choose a project or annotate freely...",
+                                                                                    clearable=True,
+                                                                                ),
+                                                                                html.Small(
+                                                                                    id="project-info",
+                                                                                    className="text-muted",
+                                                                                ),
+                                                                            ],
+                                                                            md=6,
+                                                                        ),
+                                                                        dbc.Col(
+                                                                            [
+                                                                                dbc.Label("Select DOI from Project"),
+                                                                                dcc.Dropdown(
+                                                                                    id="project-doi-selector",
+                                                                                    placeholder="Select a DOI...",
+                                                                                    clearable=True,
+                                                                                    disabled=True,
+                                                                                ),
+                                                                            ],
+                                                                            md=6,
+                                                                        ),
+                                                                    ],
+                                                                    className="g-3 mt-2",
+                                                                ),
+                                                                dbc.Row(
+                                                                    [
+                                                                        dbc.Col(
+                                                                            [
+                                                                                dbc.Label("DOI or Literature Link"),
+                                                                                dbc.InputGroup(
+                                                                                    [
+                                                                                        dbc.Input(
+                                                                                            id="literature-link",
+                                                                                            placeholder="e.g., 10.1234/example or https://doi.org/...",
+                                                                                            type="text",
+                                                                                            debounce=True,
+                                                                                        ),
+                                                                                        dbc.Button(
+                                                                                            "Validate DOI",
+                                                                                            id="btn-validate-doi",
+                                                                                            color="info",
+                                                                                            outline=True,
+                                                                                        ),
+                                                                                    ],
+                                                                                ),
+                                                                                html.Small(
+                                                                                    id="doi-validation",
+                                                                                    className="text-muted",
+                                                                                ),
+                                                                            ],
+                                                                            md=12,
+                                                                        ),
+                                                                    ],
+                                                                    className="g-3 mt-2",
+                                                                ),
+                                                                html.Div(
+                                                                    id="doi-metadata-display",
+                                                                    className="mt-2",
+                                                                    style={"display": "none"},
+                                                                ),
+                                                                html.Hr(),
+                                                                dbc.Label("Sentence"),
+                                                                dcc.Textarea(
+                                                                    id="sentence-text",
+                                                                    placeholder='e.g., "gene FLC regulates flowering time".',
+                                                                    style={"width": "100%", "height": "100px"},
+                                                                ),
+                                                                html.Div(className="mt-3"),
+                                                                dbc.ButtonGroup(
+                                                                    [
+                                                                        dbc.Button("Add tuple", id="btn-add-tuple", color="primary"),
+                                                                        dbc.Button("Remove last tuple", id="btn-remove-tuple", color="secondary"),
+                                                                        dbc.Button("Save", id="btn-save", color="success"),
+                                                                        dbc.Button("Reset", id="btn-reset", color="warning"),
+                                                                    ],
+                                                                    size="sm",
+                                                                    className="mb-2",
+                                                                ),
+                                                                html.Div(id="tuples-container"),
+                                                                html.Div(id="save-message", className="mt-2"),
+                                                            ],
+                                                            body=True,
+                                                        )
+                                                    ],
+                                                    md=6,
+                                                ),
+                                                # Right column: PDF Viewer
+                                                dbc.Col(
+                                                    [
+                                                        dbc.Card(
+                                                            [
+                                                                html.H5("PDF Viewer", className="mb-3"),
+                                                                html.Div(
+                                                                    id="pdf-viewer-container",
+                                                                    children=[
+                                                                        html.P(
+                                                                            "Select a DOI from a project to view the PDF here.",
+                                                                            className="text-muted text-center",
+                                                                            style={"padding": "50px"}
+                                                                        )
+                                                                    ],
+                                                                    style={
+                                                                        "height": "600px",
+                                                                        "overflow": "auto",
+                                                                        "border": "1px solid #dee2e6",
+                                                                        "borderRadius": "4px"
+                                                                    }
                                                                 ),
                                                             ],
-                                                            md=12,
-                                                        ),
+                                                            body=True,
+                                                        )
                                                     ],
-                                                    className="g-3",
+                                                    md=6,
                                                 ),
-                                                html.Div(
-                                                    id="doi-metadata-display",
-                                                    className="mt-2",
-                                                    style={"display": "none"},
-                                                ),
-                                                html.Hr(),
-                                                dbc.Label("Sentence"),
-                                                dcc.Textarea(
-                                                    id="sentence-text",
-                                                    placeholder='e.g., "gene FLC regulates flowering time".',
-                                                    style={"width": "100%", "height": "100px"},
-                                                ),
-                                                html.Div(className="mt-3"),
-                                                dbc.ButtonGroup(
-                                                    [
-                                                        dbc.Button("Add tuple", id="btn-add-tuple", color="primary"),
-                                                        dbc.Button("Remove last tuple", id="btn-remove-tuple", color="secondary"),
-                                                        dbc.Button("Save", id="btn-save", color="success"),
-                                                        dbc.Button("Reset", id="btn-reset", color="warning"),
-                                                    ],
-                                                    size="sm",
-                                                    className="mb-2",
-                                                ),
-                                                html.Div(id="tuples-container"),
-                                                html.Div(id="save-message", className="mt-2"),
                                             ],
-                                            body=True,
-                                        )
+                                            className="g-3",
+                                        ),
                                     ],
                                 ),
                                 dcc.Tab(
@@ -361,8 +482,223 @@ app.layout = dbc.Container(
                                     children=[
                                         dbc.Card(
                                             [
-                                                dbc.Button("Refresh", id="btn-refresh", color="secondary", className="mb-2"),
+                                                dbc.Row(
+                                                    [
+                                                        dbc.Col(
+                                                            [
+                                                                dbc.Label("Filter by Project"),
+                                                                dcc.Dropdown(
+                                                                    id="browse-project-filter",
+                                                                    placeholder="All projects (no filter)",
+                                                                    clearable=True,
+                                                                ),
+                                                            ],
+                                                            md=6,
+                                                        ),
+                                                        dbc.Col(
+                                                            [
+                                                                html.Br(),
+                                                                dbc.Button("Refresh", id="btn-refresh", color="secondary"),
+                                                            ],
+                                                            md=6,
+                                                        ),
+                                                    ],
+                                                    className="mb-2",
+                                                ),
                                                 html.Div(id="recent-table"),
+                                            ],
+                                            body=True,
+                                        )
+                                    ],
+                                ),
+                                dcc.Tab(
+                                    label="Admin",
+                                    value="tab-admin",
+                                    children=[
+                                        dbc.Card(
+                                            [
+                                                html.H5("Admin Panel", className="mb-3"),
+                                                dbc.Row(
+                                                    [
+                                                        dbc.Col(
+                                                            [
+                                                                dbc.Label("Admin Email"),
+                                                                dbc.Input(
+                                                                    id="admin-email",
+                                                                    placeholder="admin@example.com",
+                                                                    type="email",
+                                                                ),
+                                                            ],
+                                                            md=6,
+                                                        ),
+                                                        dbc.Col(
+                                                            [
+                                                                dbc.Label("Admin Password"),
+                                                                dbc.Input(
+                                                                    id="admin-password",
+                                                                    placeholder="Password",
+                                                                    type="password",
+                                                                ),
+                                                            ],
+                                                            md=6,
+                                                        ),
+                                                    ],
+                                                    className="g-3 mb-3",
+                                                ),
+                                                dbc.Button("Login", id="btn-admin-login", color="primary", className="mb-3"),
+                                                html.Div(id="admin-auth-message", className="mb-3"),
+                                                html.Hr(),
+                                                
+                                                html.Div(
+                                                    id="admin-panel-content",
+                                                    style={"display": "none"},
+                                                    children=[
+                                                        html.H6("Project Management", className="mb-3"),
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Label("Project Name"),
+                                                                        dbc.Input(id="new-project-name", placeholder="Project Name"),
+                                                                    ],
+                                                                    md=6,
+                                                                ),
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Label("Description"),
+                                                                        dbc.Input(id="new-project-description", placeholder="Project Description"),
+                                                                    ],
+                                                                    md=6,
+                                                                ),
+                                                            ],
+                                                            className="g-3 mb-2",
+                                                        ),
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Label("DOI List (one per line)"),
+                                                                        dcc.Textarea(
+                                                                            id="new-project-doi-list",
+                                                                            placeholder="10.1234/example1\n10.1234/example2\n...",
+                                                                            style={"width": "100%", "height": "100px"},
+                                                                        ),
+                                                                    ],
+                                                                    md=12,
+                                                                ),
+                                                            ],
+                                                            className="g-3 mb-3",
+                                                        ),
+                                                        dbc.Button("Create Project", id="btn-create-project", color="success", className="mb-3"),
+                                                        html.Div(id="project-message", className="mb-3"),
+                                                        
+                                                        html.H6("Existing Projects", className="mb-2 mt-3"),
+                                                        dbc.Button("Refresh Projects", id="btn-refresh-projects", color="secondary", size="sm", className="mb-2"),
+                                                        html.Div(id="projects-list", className="mb-3"),
+                                                        html.Hr(),
+                                                        
+                                                        html.H6("Edit/Delete Tuples", className="mb-3"),
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Label("Filter by Project"),
+                                                                        dcc.Dropdown(
+                                                                            id="tuple-editor-project-filter",
+                                                                            placeholder="All tuples (no filter)",
+                                                                            clearable=True,
+                                                                        ),
+                                                                    ],
+                                                                    md=6,
+                                                                ),
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Label("Tuple ID"),
+                                                                        dbc.InputGroup(
+                                                                            [
+                                                                                dbc.Input(id="tuple-id-input", placeholder="Tuple ID", type="number"),
+                                                                                dbc.Button("Load Tuple", id="btn-load-tuple", color="info", outline=True),
+                                                                            ]
+                                                                        ),
+                                                                    ],
+                                                                    md=6,
+                                                                ),
+                                                            ],
+                                                            className="g-3 mb-3",
+                                                        ),
+                                                        html.Div(id="tuple-load-message", className="mb-2"),
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Label("Source Entity Name"),
+                                                                        dbc.Input(id="edit-src-name", placeholder="Source entity name"),
+                                                                    ],
+                                                                    md=6,
+                                                                ),
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Label("Source Entity Attribute"),
+                                                                        dcc.Dropdown(
+                                                                            id="edit-src-attr",
+                                                                            placeholder="Select attribute...",
+                                                                            clearable=True,
+                                                                        ),
+                                                                    ],
+                                                                    md=6,
+                                                                ),
+                                                            ],
+                                                            className="g-3 mb-2",
+                                                        ),
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Label("Relation Type"),
+                                                                        dcc.Dropdown(
+                                                                            id="edit-rel-type",
+                                                                            placeholder="Select relation...",
+                                                                            clearable=True,
+                                                                        ),
+                                                                    ],
+                                                                    md=12,
+                                                                ),
+                                                            ],
+                                                            className="g-3 mb-2",
+                                                        ),
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Label("Sink Entity Name"),
+                                                                        dbc.Input(id="edit-sink-name", placeholder="Sink entity name"),
+                                                                    ],
+                                                                    md=6,
+                                                                ),
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Label("Sink Entity Attribute"),
+                                                                        dcc.Dropdown(
+                                                                            id="edit-sink-attr",
+                                                                            placeholder="Select attribute...",
+                                                                            clearable=True,
+                                                                        ),
+                                                                    ],
+                                                                    md=6,
+                                                                ),
+                                                            ],
+                                                            className="g-3 mb-3",
+                                                        ),
+                                                        dbc.ButtonGroup(
+                                                            [
+                                                                dbc.Button("Update Tuple", id="btn-update-tuple", color="warning"),
+                                                                dbc.Button("Delete Tuple", id="btn-delete-tuple", color="danger"),
+                                                            ],
+                                                            className="mb-3",
+                                                        ),
+                                                        html.Div(id="tuple-edit-message"),
+                                                    ],
+                                                ),
                                             ],
                                             body=True,
                                         )
@@ -416,14 +752,8 @@ def validate_email(email):
     else:
         return "Please enter a valid email address", {"color": "red"}, None
 
-# Restore email from session on page load
-@app.callback(
-    Output("contributor-email", "value"),
-    Input("email-store", "data"),
-    prevent_initial_call=False,
-)
-def restore_email(stored_email):
-    return stored_email or ""
+# Note: Removed restore_email callback to prevent circular dependency
+# The email-store serves as validation state, not as a persistent storage for the input field
 
 # DOI validation callback
 @app.callback(
@@ -531,6 +861,24 @@ def load_choices(_):
         "relation_options": [{"label": k, "value": k} for k in relation_types] + [{"label": "Other…", "value": OTHER_SENTINEL}],
     }
 
+# Populate tuple editor dropdown options
+@app.callback(
+    Output("edit-src-attr", "options"),
+    Output("edit-rel-type", "options"),
+    Output("edit-sink-attr", "options"),
+    Input("choices-store", "data"),
+    prevent_initial_call=False,
+)
+def populate_tuple_editor_dropdowns(choices_data):
+    if not choices_data:
+        entity_options = [{"label": k, "value": k} for k in SCHEMA_JSON["span-attribute"].keys()]
+        relation_options = [{"label": k, "value": k} for k in SCHEMA_JSON["relation-type"].keys()]
+    else:
+        entity_options = choices_data["entity_options"]
+        relation_options = choices_data["relation_options"]
+    
+    return entity_options, relation_options, entity_options
+
 # Add/remove tuple rows
 @app.callback(
     Output("tuple-count", "data"),
@@ -610,6 +958,7 @@ def toggle_sink_other(values):
     State("contributor-email", "value"),
     State("email-store", "data"),
     State("doi-metadata-store", "data"),
+    State("project-selector", "value"),  # Add project selector
     State({"type": "src-name", "index": ALL}, "value"),
     State({"type": "src-attr", "index": ALL}, "value"),
     State({"type": "src-attr-other", "index": ALL}, "value"),
@@ -621,7 +970,7 @@ def toggle_sink_other(values):
     prevent_initial_call=True,
 )
 def save_tuples(n_clicks, sentence_text, literature_link, contributor_email, email_validated,
-                doi_metadata,
+                doi_metadata, project_id,  # Add project_id parameter
                 src_names, src_attrs, src_other,
                 rel_types, rel_other,
                 sink_names, sink_attrs, sink_other):
@@ -676,9 +1025,10 @@ def save_tuples(n_clicks, sentence_text, literature_link, contributor_email, ema
 
     if doi_metadata:
         payload["doi"] = doi_metadata.get("doi", "")
-        payload["article_title"] = doi_metadata.get("title", "")
-        payload["article_authors"] = doi_metadata.get("authors", "")
-        payload["article_year"] = doi_metadata.get("year", "")
+    
+    # Add project_id if a project is selected
+    if project_id:
+        payload["project_id"] = project_id
 
     try:
         print(f"Saving payload: {json.dumps(payload, indent=2)}")
@@ -707,17 +1057,42 @@ def save_tuples(n_clicks, sentence_text, literature_link, contributor_email, ema
         traceback.print_exc()
         return dbc.Alert(f"Save error: {str(e)}", color="danger", dismissable=True, duration=8000)
 
+# Populate browse project filter
+@app.callback(
+    Output("browse-project-filter", "options"),
+    Input("load-trigger", "n_intervals"),
+    Input("btn-refresh", "n_clicks"),
+    prevent_initial_call=False,
+)
+def populate_browse_project_filter(trigger1, trigger2):
+    try:
+        r = requests.get(API_PROJECTS, timeout=5)
+        if r.ok:
+            projects = r.json()
+            options = [{"label": "All (no filter)", "value": None}] + [{"label": p["name"], "value": p["id"]} for p in projects]
+            return options
+        else:
+            return [{"label": "All (no filter)", "value": None}]
+    except Exception:
+        return [{"label": "All (no filter)", "value": None}]
+
 # Browse recent
 @app.callback(
     Output("recent-table", "children"),
     Input("btn-refresh", "n_clicks"),
     Input("load-trigger", "n_intervals"),
+    State("browse-project-filter", "value"),
     prevent_initial_call=False,
 )
-def refresh_recent(btn_clicks, interval_trigger):
+def refresh_recent(btn_clicks, interval_trigger, project_filter):
     try:
         print(f"Fetching recent data from {API_RECENT}")
-        r = requests.get(API_RECENT, timeout=8)
+        # Add project_id filter if selected
+        url = API_RECENT
+        if project_filter:
+            url = f"{API_RECENT}?project_id={project_filter}"
+        
+        r = requests.get(url, timeout=8)
         print(f"Response status: {r.status_code}")
         if not r.ok:
             error_text = r.text[:500]
@@ -779,6 +1154,701 @@ def refresh_recent(btn_clicks, interval_trigger):
 )
 def reset_form(_):
     return "", "", True, "", None, {"display": "none"}
+
+# Load projects
+@app.callback(
+    Output("projects-store", "data"),
+    Output("project-selector", "options"),
+    Input("load-trigger", "n_intervals"),
+    Input("btn-create-project", "n_clicks"),
+    prevent_initial_call=False,
+)
+def load_projects(trigger1, trigger2):
+    try:
+        r = requests.get(API_PROJECTS, timeout=5)
+        if r.ok:
+            projects = r.json()
+            options = [{"label": p["name"], "value": p["id"]} for p in projects]
+            return projects, options
+        else:
+            return [], []
+    except Exception as e:
+        print(f"Failed to load projects: {e}")
+        return [], []
+
+# Show project info when selected and populate DOI list
+@app.callback(
+    Output("project-info", "children"),
+    Output("project-doi-selector", "options"),
+    Output("project-doi-selector", "disabled"),
+    Input("project-selector", "value"),
+    State("projects-store", "data"),
+    prevent_initial_call=True,
+)
+def show_project_info(project_id, projects):
+    if not project_id or not projects:
+        return "", [], True
+    
+    # Find selected project
+    project = next((p for p in projects if p["id"] == project_id), None)
+    if not project:
+        return "", [], True
+    
+    doi_count = len(project.get("doi_list", []))
+    info_text = f"Project: {project['name']} ({doi_count} DOIs available)"
+    
+    # Populate DOI dropdown
+    doi_list = project.get("doi_list", [])
+    doi_options = [{"label": doi, "value": doi} for doi in doi_list]
+    
+    return info_text, doi_options, False
+
+# Update literature link when DOI is selected from project
+@app.callback(
+    Output("literature-link", "value", allow_duplicate=True),
+    Input("project-doi-selector", "value"),
+    prevent_initial_call=True,
+)
+def update_doi_from_project(selected_doi):
+    if selected_doi:
+        return selected_doi
+    return no_update
+
+# Update PDF viewer when DOI is selected from project
+@app.callback(
+    Output("pdf-viewer-container", "children"),
+    Input("project-doi-selector", "value"),
+    State("project-selector", "value"),
+    prevent_initial_call=True,
+)
+def update_pdf_viewer(selected_doi, project_id):
+    if not selected_doi or not project_id:
+        return html.P(
+            "Select a DOI from a project to view the PDF here.",
+            className="text-muted text-center",
+            style={"padding": "50px"}
+        )
+    
+    # Get the doi_hash for the selected DOI
+    try:
+        # Clean the DOI
+        clean_doi = selected_doi.replace("https://doi.org/", "").replace("http://doi.org/", "")
+        doi_hash = hashlib.sha256(clean_doi.encode()).hexdigest()[:16]
+        
+        # Construct PDF path
+        pdf_filename = f"{doi_hash}.pdf"
+        pdf_url = f"{API_BASE}/api/projects/{project_id}/pdf/{pdf_filename}"
+        
+        # Check if PDF exists by trying to fetch it
+        try:
+            r = requests.head(pdf_url, timeout=5)
+            if r.ok:
+                # PDF exists, show iframe viewer
+                return html.Iframe(
+                    src=pdf_url,
+                    style={
+                        "width": "100%",
+                        "height": "600px",
+                        "border": "none"
+                    }
+                )
+            else:
+                # PDF doesn't exist
+                return html.Div([
+                    html.P("PDF not available for this DOI.", className="text-warning text-center", style={"padding": "20px"}),
+                    html.P(f"Expected file: {pdf_filename}", className="text-muted text-center small"),
+                    html.P("You may need to download PDFs for this project from the Admin panel.", className="text-muted text-center small"),
+                ])
+        except:
+            # Error checking, assume it doesn't exist
+            return html.Div([
+                html.P("PDF not available for this DOI.", className="text-warning text-center", style={"padding": "20px"}),
+                html.P(f"Expected file: {pdf_filename}", className="text-muted text-center small"),
+                html.P("You may need to download PDFs for this project from the Admin panel.", className="text-muted text-center small"),
+            ])
+    except Exception as e:
+        return html.P(
+            f"Error loading PDF: {str(e)}",
+            className="text-danger text-center",
+            style={"padding": "50px"}
+        )
+
+# Admin authentication
+@app.callback(
+    Output("admin-auth-message", "children"),
+    Output("admin-panel-content", "style"),
+    Output("admin-auth-store", "data"),
+    Input("btn-admin-login", "n_clicks"),
+    State("admin-email", "value"),
+    State("admin-password", "value"),
+    prevent_initial_call=True,
+)
+def admin_login(n_clicks, email, password):
+    if not email or not password:
+        return dbc.Alert("Please enter email and password", color="danger"), {"display": "none"}, None
+    
+    try:
+        r = requests.post(API_ADMIN_AUTH, json={"email": email, "password": password}, timeout=10)
+        if r.ok:
+            result = r.json()
+            if result.get("authenticated"):
+                return (
+                    dbc.Alert("Logged in successfully!", color="success"),
+                    {"display": "block"},
+                    {"email": email, "password": password}
+                )
+            else:
+                return dbc.Alert("Invalid credentials", color="danger"), {"display": "none"}, None
+        else:
+            return dbc.Alert(f"Authentication failed: {r.status_code}", color="danger"), {"display": "none"}, None
+    except Exception as e:
+        return dbc.Alert(f"Error: {str(e)}", color="danger"), {"display": "none"}, None
+
+# Create project
+@app.callback(
+    Output("project-message", "children"),
+    Input("btn-create-project", "n_clicks"),
+    State("new-project-name", "value"),
+    State("new-project-description", "value"),
+    State("new-project-doi-list", "value"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def create_project_callback(n_clicks, name, description, doi_list_text, auth_data):
+    if not auth_data:
+        return dbc.Alert("Please login first", color="danger")
+    
+    if not name or not doi_list_text:
+        return dbc.Alert("Project name and DOI list are required", color="danger")
+    
+    # Parse DOI list
+    doi_list = [doi.strip() for doi in doi_list_text.split("\n") if doi.strip()]
+    
+    try:
+        payload = {
+            "email": auth_data["email"],
+            "password": auth_data["password"],
+            "name": name,
+            "description": description or "",
+            "doi_list": doi_list
+        }
+        r = requests.post(API_ADMIN_PROJECTS, json=payload, timeout=10)
+        if r.ok:
+            result = r.json()
+            if result.get("ok"):
+                return dbc.Alert(f"Project created successfully! ID: {result.get('project_id')}", color="success")
+            else:
+                return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger")
+        else:
+            return dbc.Alert(f"Failed: {r.status_code} - {r.text[:200]}", color="danger")
+    except Exception as e:
+        return dbc.Alert(f"Error: {str(e)}", color="danger")
+
+# Display projects list
+@app.callback(
+    Output("projects-list", "children"),
+    Input("btn-refresh-projects", "n_clicks"),
+    Input("btn-create-project", "n_clicks"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=False,
+)
+def display_projects_list(refresh_clicks, create_clicks, auth_data):
+    if not auth_data:
+        return dbc.Alert("Please login to view projects", color="info")
+    
+    try:
+        r = requests.get(API_PROJECTS, timeout=5)
+        if r.ok:
+            projects = r.json()
+            if not projects:
+                return dbc.Alert("No projects found", color="info")
+            
+            # Create a table of projects
+            project_items = []
+            for p in projects:
+                doi_count = len(p.get("doi_list", []))
+                card = dbc.Card(
+                    [
+                        dbc.CardBody(
+                            [
+                                html.H6(p["name"], className="card-title"),
+                                html.P(p.get("description", "No description"), className="card-text small"),
+                                html.P([
+                                    html.Strong("DOIs: "), f"{doi_count}",
+                                    html.Br(),
+                                    html.Strong("Created by: "), p.get("created_by", "Unknown"),
+                                    html.Br(),
+                                    html.Strong("ID: "), str(p["id"])
+                                ], className="card-text small text-muted mb-2"),
+                                dbc.ButtonGroup(
+                                    [
+                                        dbc.Button("View DOIs", id={"type": "view-project-dois", "index": p["id"]}, 
+                                                 color="info", size="sm", outline=True),
+                                        dbc.Button("Download PDFs", id={"type": "download-project-pdfs", "index": p["id"]}, 
+                                                 color="success", size="sm", outline=True),
+                                        dbc.Button("Delete", id={"type": "delete-project", "index": p["id"]}, 
+                                                 color="danger", size="sm", outline=True),
+                                    ],
+                                    size="sm",
+                                ),
+                            ]
+                        )
+                    ],
+                    className="mb-2",
+                )
+                project_items.append(card)
+            
+            return html.Div(project_items)
+        else:
+            return dbc.Alert(f"Failed to load projects: {r.status_code}", color="danger")
+    except Exception as e:
+        return dbc.Alert(f"Error: {str(e)}", color="danger")
+
+# Handle View DOIs button click
+@app.callback(
+    Output("project-message", "children", allow_duplicate=True),
+    Input({"type": "view-project-dois", "index": ALL}, "n_clicks"),
+    State("projects-store", "data"),
+    prevent_initial_call=True,
+)
+def view_project_dois(n_clicks_list, projects):
+    if not any(n_clicks_list) or not projects:
+        return no_update
+    
+    # Find which button was clicked
+    trigger = ctx.triggered_id
+    if not trigger:
+        return no_update
+    
+    project_id = trigger["index"]
+    project = next((p for p in projects if p["id"] == project_id), None)
+    
+    if not project:
+        return dbc.Alert("Project not found", color="danger")
+    
+    doi_list = project.get("doi_list", [])
+    doi_items = [html.Li(doi) for doi in doi_list]
+    
+    return dbc.Alert(
+        [
+            html.H6(f"DOIs in {project['name']}:", className="alert-heading"),
+            html.Hr(),
+            html.Ul(doi_items),
+        ],
+        color="info",
+        dismissable=True,
+    )
+
+# Handle Download PDFs button click
+@app.callback(
+    Output("project-message", "children", allow_duplicate=True),
+    Input({"type": "download-project-pdfs", "index": ALL}, "n_clicks"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def download_project_pdfs(n_clicks_list, auth_data):
+    if not any(n_clicks_list):
+        return no_update
+    
+    if not auth_data:
+        return dbc.Alert("Please login first", color="danger")
+    
+    email = auth_data.get("email")
+    password = auth_data.get("password")
+    if not email or not password:
+        return dbc.Alert("Please login first", color="danger")
+    
+    # Find which button was clicked
+    trigger = ctx.triggered_id
+    if not trigger:
+        return no_update
+    
+    project_id = trigger["index"]
+    
+    try:
+        # Show loading message
+        loading_alert = dbc.Alert(
+            [
+                html.Div([
+                    dbc.Spinner(size="sm"),
+                    html.Span("Downloading PDFs... This may take a few minutes depending on the number of DOIs.", style={"margin-left": "10px"})
+                ], style={"display": "flex", "align-items": "center"})
+            ],
+            color="info",
+            dismissable=False
+        )
+        
+        # Call backend to download PDFs
+        r = requests.post(
+            f"{API_BASE}/api/admin/projects/{project_id}/download-pdfs",
+            json={"email": email, "password": password},
+            timeout=300  # 5 minute timeout for large batches
+        )
+        
+        if r.ok:
+            data = r.json()
+            summary = data.get("summary", {})
+            downloaded = data.get("downloaded", [])
+            needs_upload = data.get("needs_upload", [])
+            errors = data.get("errors", [])
+            
+            # Build report
+            report_items = [
+                html.H6("PDF Download Report:", className="alert-heading"),
+                html.Hr(),
+                html.P([
+                    html.Strong("Total DOIs: "), str(summary.get("total_dois", 0)),
+                    html.Br(),
+                    html.Strong("Downloaded: "), str(summary.get("downloaded", 0)),
+                    html.Br(),
+                    html.Strong("Need Manual Upload: "), str(summary.get("needs_upload", 0)),
+                    html.Br(),
+                    html.Strong("Errors: "), str(summary.get("errors", 0)),
+                ]),
+            ]
+            
+            if downloaded:
+                report_items.append(html.H6("Successfully Downloaded:", className="mt-2"))
+                # Handle both old format (3-tuple) and new format (4-tuple with source)
+                download_list_items = []
+                for item in downloaded[:10]:
+                    if len(item) == 4:
+                        doi, filename, msg, source = item
+                        download_list_items.append(html.Li(f"{doi} → {filename} (via {source})"))
+                    else:
+                        doi, filename, msg = item
+                        download_list_items.append(html.Li(f"{doi} → {filename}"))
+                report_items.append(html.Ul(download_list_items))
+                if len(downloaded) > 10:
+                    report_items.append(html.P(f"... and {len(downloaded) - 10} more", className="text-muted"))
+            
+            if needs_upload:
+                report_items.append(html.H6("Needs Manual Upload:", className="mt-2 text-warning"))
+                report_items.append(html.Ul([html.Li(f"{doi} → {filename} ({reason})") for doi, filename, reason in needs_upload[:10]]))
+                if len(needs_upload) > 10:
+                    report_items.append(html.P(f"... and {len(needs_upload) - 10} more", className="text-muted"))
+            
+            if errors:
+                report_items.append(html.H6("Errors:", className="mt-2 text-danger"))
+                report_items.append(html.Ul([html.Li(f"{doi}: {error}") for doi, error in errors[:5]]))
+            
+            report_items.append(html.Hr())
+            report_items.append(html.P(f"PDFs stored in: {data.get('project_dir', 'N/A')}", className="small text-muted"))
+            
+            return dbc.Alert(report_items, color="success", dismissable=True)
+        else:
+            error_msg = r.json().get("error", "Unknown error") if r.headers.get("content-type") == "application/json" else f"HTTP {r.status_code}"
+            return dbc.Alert(f"Download failed: {error_msg}", color="danger", dismissable=True)
+    except requests.exceptions.Timeout:
+        return dbc.Alert("Download timed out. Some PDFs may have been downloaded. Check the project folder.", color="warning", dismissable=True)
+    except Exception as e:
+        return dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True)
+
+# Handle Delete project button click - opens modal
+@app.callback(
+    Output("delete-project-modal", "is_open"),
+    Output("delete-project-id-store", "data"),
+    Output("delete-project-tuple-count", "children"),
+    Output("delete-project-target", "options"),
+    Input({"type": "delete-project", "index": ALL}, "n_clicks"),
+    Input("delete-project-cancel", "n_clicks"),
+    State("projects-store", "data"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def toggle_delete_project_modal(delete_clicks_list, cancel_click, projects, auth_data):
+    if not ctx.triggered:
+        return no_update, no_update, no_update, no_update
+    
+    trigger = ctx.triggered_id
+    
+    # Cancel button closes modal
+    if trigger == "delete-project-cancel":
+        return False, None, "", []
+    
+    # Delete button opens modal
+    if isinstance(trigger, dict) and trigger.get("type") == "delete-project":
+        if not any(delete_clicks_list) or not auth_data or not projects:
+            return no_update, no_update, no_update, no_update
+        
+        project_id = trigger["index"]
+        project = next((p for p in projects if p["id"] == project_id), None)
+        
+        if not project:
+            return no_update, no_update, no_update, no_update
+        
+        # Get tuple count for this project
+        try:
+            r = requests.get(f"{API_RECENT}?project_id={project_id}", timeout=5)
+            if r.ok:
+                rows = r.json()
+                tuple_count = len(set(row.get("tuple_id") for row in rows if row.get("tuple_id")))
+            else:
+                tuple_count = 0
+        except:
+            tuple_count = 0
+        
+        # Create options for target project (exclude current project)
+        target_options = [{"label": p["name"], "value": p["id"]} for p in projects if p["id"] != project_id]
+        
+        message = f"Project '{project['name']}' has {tuple_count} associated tuple(s)."
+        
+        return True, project_id, message, target_options
+    
+    return no_update, no_update, no_update, no_update
+
+# Show/hide target project selector based on option
+@app.callback(
+    Output("delete-project-target-container", "style"),
+    Input("delete-project-option", "value"),
+    prevent_initial_call=False,
+)
+def toggle_target_project_selector(option):
+    if option == "reassign":
+        return {"display": "block"}
+    return {"display": "none"}
+
+# Confirm project deletion with options
+@app.callback(
+    Output("project-message", "children", allow_duplicate=True),
+    Output("projects-list", "children", allow_duplicate=True),
+    Output("delete-project-modal", "is_open", allow_duplicate=True),
+    Input("delete-project-confirm", "n_clicks"),
+    State("delete-project-id-store", "data"),
+    State("delete-project-option", "value"),
+    State("delete-project-target", "value"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def confirm_delete_project(n_clicks, project_id, option, target_project_id, auth_data):
+    if not project_id or not auth_data:
+        return no_update, no_update, no_update
+    
+    # Validate reassign option
+    if option == "reassign" and not target_project_id:
+        return dbc.Alert("Please select a target project for reassignment", color="warning"), no_update, True
+    
+    try:
+        payload = {
+            "email": auth_data["email"],
+            "password": auth_data["password"],
+            "handle_tuples": option
+        }
+        if option == "reassign":
+            payload["target_project_id"] = target_project_id
+        
+        r = requests.delete(f"{API_ADMIN_PROJECTS}/{project_id}", json=payload, timeout=10)
+        
+        if r.ok:
+            result = r.json()
+            if result.get("ok"):
+                # Refresh the projects list
+                try:
+                    projects_r = requests.get(API_PROJECTS, timeout=5)
+                    if projects_r.ok:
+                        projects = projects_r.json()
+                        if not projects:
+                            return dbc.Alert(result.get("message", "Project deleted successfully!"), color="success"), dbc.Alert("No projects found", color="info"), False
+                        
+                        project_items = []
+                        for p in projects:
+                            doi_count = len(p.get("doi_list", []))
+                            card = dbc.Card(
+                                [
+                                    dbc.CardBody(
+                                        [
+                                            html.H6(p["name"], className="card-title"),
+                                            html.P(p.get("description", "No description"), className="card-text small"),
+                                            html.P([
+                                                html.Strong("DOIs: "), f"{doi_count}",
+                                                html.Br(),
+                                                html.Strong("Created by: "), p.get("created_by", "Unknown"),
+                                                html.Br(),
+                                                html.Strong("ID: "), str(p["id"])
+                                            ], className="card-text small text-muted mb-2"),
+                                            dbc.ButtonGroup(
+                                                [
+                                                    dbc.Button("View DOIs", id={"type": "view-project-dois", "index": p["id"]}, 
+                                                             color="info", size="sm", outline=True),
+                                                    dbc.Button("Delete", id={"type": "delete-project", "index": p["id"]}, 
+                                                             color="danger", size="sm", outline=True),
+                                                ],
+                                                size="sm",
+                                            ),
+                                        ]
+                                    )
+                                ],
+                                className="mb-2",
+                            )
+                            project_items.append(card)
+                        
+                        return dbc.Alert(result.get("message", "Project deleted successfully!"), color="success"), html.Div(project_items), False
+                except Exception:
+                    return dbc.Alert(result.get("message", "Project deleted successfully!"), color="success"), no_update, False
+            else:
+                return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger"), no_update, False
+        else:
+            try:
+                error_data = r.json()
+                error_msg = error_data.get("error", f"Failed: {r.status_code}")
+            except:
+                error_msg = f"Failed: {r.status_code}"
+            return dbc.Alert(error_msg, color="danger"), no_update, False
+    except Exception as e:
+        return dbc.Alert(f"Error: {str(e)}", color="danger"), no_update, False
+
+# Populate tuple editor project filter
+@app.callback(
+    Output("tuple-editor-project-filter", "options"),
+    Input("load-trigger", "n_intervals"),
+    Input("btn-refresh-projects", "n_clicks"),
+    prevent_initial_call=False,
+)
+def populate_tuple_editor_project_filter(trigger1, trigger2):
+    try:
+        r = requests.get(API_PROJECTS, timeout=5)
+        if r.ok:
+            projects = r.json()
+            options = [{"label": "All tuples (no filter)", "value": "all"}] + \
+                     [{"label": f"{p['name']} (ID: {p['id']})", "value": p["id"]} for p in projects]
+            return options
+        else:
+            return [{"label": "All tuples (no filter)", "value": "all"}]
+    except Exception:
+        return [{"label": "All tuples (no filter)", "value": "all"}]
+
+# Load tuple data
+@app.callback(
+    Output("tuple-load-message", "children"),
+    Output("edit-src-name", "value"),
+    Output("edit-src-attr", "value"),
+    Output("edit-rel-type", "value"),
+    Output("edit-sink-name", "value"),
+    Output("edit-sink-attr", "value"),
+    Input("btn-load-tuple", "n_clicks"),
+    State("tuple-id-input", "value"),
+    State("tuple-editor-project-filter", "value"),
+    prevent_initial_call=True,
+)
+def load_tuple_data(n_clicks, tuple_id, project_filter):
+    if not tuple_id:
+        return dbc.Alert("Please enter a tuple ID", color="warning"), "", "", "", "", ""
+    
+    try:
+        # Fetch tuple data from the rows endpoint with optional project filter
+        url = API_RECENT
+        if project_filter and project_filter != "all":
+            url = f"{API_RECENT}?project_id={project_filter}"
+        
+        r = requests.get(url, timeout=5)
+        if r.ok:
+            rows = r.json()
+            # Find the tuple with matching ID
+            tuple_data = next((row for row in rows if row.get("tuple_id") == tuple_id), None)
+            
+            if tuple_data:
+                project_info = ""
+                if tuple_data.get("project_id"):
+                    project_info = f" (Project ID: {tuple_data['project_id']})"
+                return (
+                    dbc.Alert(f"Loaded tuple {tuple_id}{project_info}", color="success"),
+                    tuple_data.get("source_entity_name", ""),
+                    tuple_data.get("source_entity_attr", ""),
+                    tuple_data.get("relation_type", ""),
+                    tuple_data.get("sink_entity_name", ""),
+                    tuple_data.get("sink_entity_attr", "")
+                )
+            else:
+                if project_filter and project_filter != "all":
+                    return dbc.Alert(f"Tuple {tuple_id} not found in the selected project. Try 'All tuples' filter.", color="warning"), "", "", "", "", ""
+                else:
+                    return dbc.Alert(f"Tuple {tuple_id} does not exist in the database.", color="danger"), "", "", "", "", ""
+        else:
+            error_msg = f"Failed to load tuple: {r.status_code}"
+            try:
+                error_data = r.json()
+                if "error" in error_data:
+                    error_msg = f"Error: {error_data['error']}"
+            except:
+                pass
+            return dbc.Alert(error_msg, color="danger"), "", "", "", "", ""
+    except Exception as e:
+        return dbc.Alert(f"Error loading tuple: {str(e)}", color="danger"), "", "", "", "", ""
+
+# Update tuple
+@app.callback(
+    Output("tuple-edit-message", "children"),
+    Input("btn-update-tuple", "n_clicks"),
+    Input("btn-delete-tuple", "n_clicks"),
+    State("tuple-id-input", "value"),
+    State("edit-src-name", "value"),
+    State("edit-src-attr", "value"),
+    State("edit-rel-type", "value"),
+    State("edit-sink-name", "value"),
+    State("edit-sink-attr", "value"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def edit_tuple_callback(update_clicks, delete_clicks, tuple_id, src_name, src_attr, rel_type, sink_name, sink_attr, auth_data):
+    if not auth_data:
+        return dbc.Alert("Please login first", color="danger")
+    
+    if not tuple_id:
+        return dbc.Alert("Please enter a tuple ID", color="danger")
+    
+    trigger = ctx.triggered_id
+    
+    try:
+        if trigger == "btn-update-tuple":
+            # Update tuple
+            payload = {
+                "email": auth_data["email"],
+                "password": auth_data["password"],
+            }
+            if src_name:
+                payload["source_entity_name"] = src_name
+            if src_attr:
+                payload["source_entity_attr"] = src_attr
+            if rel_type:
+                payload["relation_type"] = rel_type
+            if sink_name:
+                payload["sink_entity_name"] = sink_name
+            if sink_attr:
+                payload["sink_entity_attr"] = sink_attr
+            
+            if not any([src_name, src_attr, rel_type, sink_name, sink_attr]):
+                return dbc.Alert("Please provide at least one field to update", color="warning")
+            
+            r = requests.put(f"{API_ADMIN_TUPLE}/{tuple_id}", json=payload, timeout=10)
+            if r.ok:
+                result = r.json()
+                if result.get("ok"):
+                    return dbc.Alert("Tuple updated successfully!", color="success")
+                else:
+                    return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger")
+            else:
+                return dbc.Alert(f"Failed: {r.status_code} - {r.text[:200]}", color="danger")
+        
+        elif trigger == "btn-delete-tuple":
+            # Delete tuple
+            r = requests.delete(
+                f"http://127.0.0.1:5001/api/tuple/{tuple_id}",
+                json={"email": auth_data["email"], "password": auth_data["password"]},
+                timeout=10
+            )
+            if r.ok:
+                result = r.json()
+                if result.get("ok"):
+                    return dbc.Alert("Tuple deleted successfully!", color="success")
+                else:
+                    return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger")
+            else:
+                return dbc.Alert(f"Failed: {r.status_code} - {r.text[:200]}", color="danger")
+    
+    except Exception as e:
+        return dbc.Alert(f"Error: {str(e)}", color="danger")
+    
+    return no_update
 
 # -----------------------
 # Main
