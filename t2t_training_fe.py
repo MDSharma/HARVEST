@@ -1062,9 +1062,10 @@ def save_triples(n_clicks, sentence_text, literature_link, contributor_email, em
     Output("browse-project-filter", "options"),
     Input("load-trigger", "n_intervals"),
     Input("btn-refresh", "n_clicks"),
+    Input("main-tabs", "value"),
     prevent_initial_call=False,
 )
-def populate_browse_project_filter(trigger1, trigger2):
+def populate_browse_project_filter(load_trigger, refresh_click, tab_value):
     try:
         r = requests.get(API_PROJECTS, timeout=5)
         if r.ok:
@@ -1161,9 +1162,10 @@ def reset_form(_):
     Output("project-selector", "options"),
     Input("load-trigger", "n_intervals"),
     Input("btn-create-project", "n_clicks"),
+    Input("main-tabs", "value"),
     prevent_initial_call=False,
 )
-def load_projects(trigger1, trigger2):
+def load_projects(load_trigger, create_click, tab_value):
     try:
         r = requests.get(API_PROJECTS, timeout=5)
         if r.ok:
@@ -1702,9 +1704,10 @@ def confirm_delete_project(n_clicks, project_id, option, target_project_id, auth
     Output("triple-editor-project-filter", "options"),
     Input("load-trigger", "n_intervals"),
     Input("btn-refresh-projects", "n_clicks"),
+    Input("main-tabs", "value"),
     prevent_initial_call=False,
 )
-def populate_triple_editor_project_filter(trigger1, trigger2):
+def populate_triple_editor_project_filter(load_trigger, refresh_click, tab_value):
     try:
         r = requests.get(API_PROJECTS, timeout=5)
         if r.ok:
