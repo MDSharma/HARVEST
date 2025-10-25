@@ -25,7 +25,7 @@ ADMIN_EMAILS = "admin@example.com,researcher@university.edu"
 # Optional: Customize ports and paths
 HOST = "127.0.0.1"
 PORT = 8050
-BE_PORT = 5000
+BE_PORT = 5001
 DB_PATH = "t2t_training.db"
 ```
 
