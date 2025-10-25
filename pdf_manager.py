@@ -16,8 +16,8 @@ try:
     from config import UNPAYWALL_EMAIL, ENABLE_METAPUB_FALLBACK, ENABLE_HABANERO_DOWNLOAD, HABANERO_PROXY_URL
 except ImportError:
     UNPAYWALL_EMAIL = "research@example.com"
-    ENABLE_METAPUB_FALLBACK = True
-    ENABLE_HABANERO_DOWNLOAD = False
+    ENABLE_METAPUB_FALLBACK = False
+    ENABLE_HABANERO_DOWNLOAD = True
     HABANERO_PROXY_URL = ""
 
 # Try importing optional libraries
@@ -35,6 +35,20 @@ except ImportError:
     HABANERO_AVAILABLE = False
     print("[PDF] Warning: habanero not installed. Institutional access disabled.")
 
+try:
+    from unpywall import Unpywall
+    from unpywall.utils import UnpywallCredentials
+    UNPYWALL_AVAILABLE = True
+    # Configure Unpywall with email if available
+    if UNPAYWALL_EMAIL and UNPAYWALL_EMAIL != "your-email@example.com":
+        try:
+            UnpywallCredentials(UNPAYWALL_EMAIL)
+        except Exception as e:
+            print(f"[PDF] Warning: Could not set Unpywall credentials: {e}")
+except ImportError:
+    UNPYWALL_AVAILABLE = False
+    print("[PDF] Warning: unpywall library not installed. Using REST API fallback only.")
+
 def generate_doi_hash(doi: str) -> str:
     """Generate a hash from DOI for file naming"""
     return hashlib.sha256(doi.encode('utf-8')).hexdigest()[:16]
@@ -42,9 +56,10 @@ def generate_doi_hash(doi: str) -> str:
 def check_open_access(doi: str, email: str = None) -> Tuple[bool, str]:
     """
     Check if a DOI is open access and get the download URL if available.
+    Uses both REST API and unpywall library for better PDF link detection.
     Returns: (is_open_access, pdf_url or error_message)
     """
-    # Check Unpaywall API for open access
+    # First try the REST API approach
     try:
         if email is None:
             email = UNPAYWALL_EMAIL
@@ -59,11 +74,33 @@ def check_open_access(doi: str, email: str = None) -> Tuple[bool, str]:
                 if best_oa and best_oa.get("url_for_pdf"):
                     return True, best_oa["url_for_pdf"]
                 elif best_oa and best_oa.get("url"):
+                    # Found OA but no direct PDF URL - try unpywall library as fallback
+                    if UNPYWALL_AVAILABLE:
+                        print(f"[PDF] Unpaywall REST API: is_oa=True but url_for_pdf is null, trying unpywall library...")
+                        try:
+                            pdf_link = Unpywall.get_pdf_link(doi=doi)
+                            if pdf_link:
+                                print(f"[PDF] Unpywall library found PDF link: {pdf_link}")
+                                return True, pdf_link
+                            else:
+                                print(f"[PDF] Unpywall library returned no PDF link")
+                        except Exception as e:
+                            print(f"[PDF] Unpywall library error: {e}")
                     return True, best_oa["url"]
             return False, "Not open access"
         else:
             return False, f"Unpaywall API error: {r.status_code}"
     except Exception as e:
+        # If REST API fails and unpywall library is available, try it as fallback
+        if UNPYWALL_AVAILABLE:
+            print(f"[PDF] Unpaywall REST API failed ({str(e)}), trying unpywall library...")
+            try:
+                pdf_link = Unpywall.get_pdf_link(doi=doi)
+                if pdf_link:
+                    print(f"[PDF] Unpywall library found PDF link: {pdf_link}")
+                    return True, pdf_link
+            except Exception as lib_error:
+                print(f"[PDF] Unpywall library also failed: {lib_error}")
         return False, f"Error checking open access: {str(e)}"
 
 def try_metapub_download(doi: str) -> Tuple[bool, str]:

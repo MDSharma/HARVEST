@@ -21,7 +21,6 @@ from t2t_store import (
     add_relation_type,
     add_entity_type,
     generate_doi_hash,
-    decode_doi_hash,
     is_admin_user,
     verify_admin_password,
     create_admin_user,
@@ -647,8 +646,8 @@ def _run_pdf_download_task(project_id: int, doi_list: List[str], project_dir: st
     
     print(f"[PDF Download Task] Starting background download for project {project_id}")
     
-    # Initialize progress in database
-    init_pdf_download_progress(DB_PATH, project_id, len(doi_list), project_dir)
+    # Note: Progress is already initialized in the main thread before this task starts
+    # This avoids race condition where frontend polls before initialization
     
     # Track progress locally during processing
     downloaded = []
@@ -763,6 +762,11 @@ def download_project_pdfs(project_id: int):
               f"with {len(doi_list)} DOIs")
         print(f"[PDF Download] Target directory: {project_dir}")
         print(f"[PDF Download] Requested by: {email}")
+        
+        # Initialize progress in database before starting thread to avoid race condition
+        if not init_pdf_download_progress(DB_PATH, project_id, len(doi_list), project_dir):
+            print(f"[PDF Download] Failed to initialize download progress for project {project_id}")
+            return jsonify({"error": "Failed to initialize download progress. See server logs."}), 500
         
         # Start background thread
         thread = threading.Thread(

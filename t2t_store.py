@@ -6,7 +6,6 @@ import sqlite3
 from datetime import datetime
 import json
 import hashlib
-import base64
 
 # -----------------------------
 # Seed schema from your JSON
@@ -44,24 +43,10 @@ SCHEMA_JSON = {
 }
 
 def generate_doi_hash(doi: str) -> str:
-    """Generate a reversible hash from a DOI using base64 encoding."""
+    """Generate a hash from DOI for file naming (consistent with pdf_manager.py)."""
     if not doi:
         return ""
-    doi_bytes = doi.encode('utf-8')
-    return base64.urlsafe_b64encode(doi_bytes).decode('utf-8').rstrip('=')
-
-def decode_doi_hash(doi_hash: str) -> str:
-    """Decode a DOI hash back to the original DOI."""
-    if not doi_hash:
-        return ""
-    padding = 4 - (len(doi_hash) % 4)
-    if padding != 4:
-        doi_hash += '=' * padding
-    try:
-        doi_bytes = base64.urlsafe_b64decode(doi_hash.encode('utf-8'))
-        return doi_bytes.decode('utf-8')
-    except Exception:
-        return ""
+    return hashlib.sha256(doi.encode('utf-8')).hexdigest()[:16]
 
 ADMIN_EMAILS = set(os.environ.get("T2T_ADMIN_EMAILS", "").split(","))
 

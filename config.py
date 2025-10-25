@@ -31,6 +31,6 @@ ENABLE_PDF_DOWNLOAD = True  # Enable automatic PDF downloading
 ENABLE_PDF_VIEWER = True  # Enable embedded PDF viewer on Annotate tab
 
 # PDF Download Options
-ENABLE_METAPUB_FALLBACK = True  # Try metapub if Unpaywall fails
-ENABLE_HABANERO_DOWNLOAD = False  # Try habanero/institutional access (requires proper setup)
+ENABLE_METAPUB_FALLBACK = False  # Try metapub if Unpaywall fails (requires NCBI_API_KEY environment variable)
+ENABLE_HABANERO_DOWNLOAD = True  # Try habanero/institutional access (works within institutional networks)
 HABANERO_PROXY_URL = ""  # Optional: Proxy URL for institutional access (e.g., "http://proxy.university.edu:8080")

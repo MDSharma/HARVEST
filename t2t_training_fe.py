@@ -709,16 +709,22 @@ app.layout = dbc.Container(
                             ],
                         ),
                     ],
-                    md=8,
+                    md=12,  # Changed from md=8 to full width
                 ),
+            ],
+            className="g-4",
+        ),
+        # Move sidebar below main content
+        dbc.Row(
+            [
                 dbc.Col(
                     [
                         sidebar()
                     ],
-                    md=4,
+                    md=12,
                 ),
             ],
-            className="g-4",
+            className="g-4 mt-3",
         ),
         html.Footer(
             dbc.Row(
@@ -1353,10 +1359,11 @@ def create_project_callback(n_clicks, name, description, doi_list_text, auth_dat
     Output("projects-list", "children"),
     Input("btn-refresh-projects", "n_clicks"),
     Input("btn-create-project", "n_clicks"),
+    Input("delete-project-confirm", "n_clicks"),
     State("admin-auth-store", "data"),
     prevent_initial_call=False,
 )
-def display_projects_list(refresh_clicks, create_clicks, auth_data):
+def display_projects_list(refresh_clicks, create_clicks, delete_clicks, auth_data):
     if not auth_data:
         return dbc.Alert("Please login to view projects", color="info")
     
