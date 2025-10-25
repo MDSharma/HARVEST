@@ -262,7 +262,9 @@ app.layout = dbc.Container(
         dcc.Store(id="admin-auth-store", storage_type="session"),
         dcc.Store(id="projects-store"),
         dcc.Store(id="delete-project-id-store"),  # Store project ID to delete
+        dcc.Store(id="pdf-download-project-id", data=None),  # Store project ID for PDF download tracking
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
+        dcc.Interval(id="pdf-download-progress-interval", interval=2000, disabled=True),  # Poll every 2 seconds
         
         # Modal for project deletion options
         dbc.Modal(
@@ -1441,85 +1443,186 @@ def view_project_dois(n_clicks_list, projects):
         dismissable=True,
     )
 
-# Handle Download PDFs button click
+# Handle Download PDFs button click - Start download and enable progress polling
 @app.callback(
     Output("project-message", "children", allow_duplicate=True),
+    Output("pdf-download-project-id", "data"),
+    Output("pdf-download-progress-interval", "disabled"),
     Input({"type": "download-project-pdfs", "index": ALL}, "n_clicks"),
     State("admin-auth-store", "data"),
     prevent_initial_call=True,
 )
-def download_project_pdfs(n_clicks_list, auth_data):
+def start_download_project_pdfs(n_clicks_list, auth_data):
+    """Start PDF download and enable progress polling"""
     if not any(n_clicks_list):
-        return no_update
+        return no_update, no_update, no_update
     
     if not auth_data:
-        return dbc.Alert("Please login first", color="danger")
+        print("[Frontend] PDF Download: No auth data")
+        return dbc.Alert("Please login first", color="danger"), None, True
     
     email = auth_data.get("email")
     password = auth_data.get("password")
     if not email or not password:
-        return dbc.Alert("Please login first", color="danger")
+        print("[Frontend] PDF Download: Missing credentials")
+        return dbc.Alert("Please login first", color="danger"), None, True
     
     # Find which button was clicked
     trigger = ctx.triggered_id
     if not trigger:
-        return no_update
+        return no_update, no_update, no_update
     
     project_id = trigger["index"]
     
+    print(f"[Frontend] PDF Download: Starting download for project {project_id}")
+    
     try:
-        # Show loading message
-        loading_alert = dbc.Alert(
-            [
-                html.Div([
-                    dbc.Spinner(size="sm"),
-                    html.Span("Downloading PDFs... This may take a few minutes depending on the number of DOIs.", style={"margin-left": "10px"})
-                ], style={"display": "flex", "align-items": "center"})
-            ],
-            color="info",
-            dismissable=False
-        )
-        
-        # Call backend to download PDFs
+        # Call backend to start download
+        # Using short timeout (10s) because this only starts the background task
+        # The actual download happens asynchronously, so we don't need to wait
+        # If timeout occurs, the task may still be running on the server
         r = requests.post(
             f"{API_BASE}/api/admin/projects/{project_id}/download-pdfs",
             json={"email": email, "password": password},
-            timeout=300  # 5 minute timeout for large batches
+            timeout=10
         )
         
         if r.ok:
             data = r.json()
-            summary = data.get("summary", {})
-            downloaded = data.get("downloaded", [])
-            needs_upload = data.get("needs_upload", [])
-            errors = data.get("errors", [])
+            print(f"[Frontend] PDF Download: Download started - {data.get('total_dois', 0)} DOIs")
             
-            # Build report
+            # Show initial message and enable polling
+            initial_message = dbc.Alert(
+                [
+                    html.H6("PDF Download Started", className="alert-heading"),
+                    html.Hr(),
+                    html.P(f"Downloading PDFs for {data.get('total_dois', 0)} DOIs..."),
+                    html.Div([
+                        dbc.Spinner(size="sm"),
+                        html.Span(" Progress updates will appear below...", style={"margin-left": "10px"})
+                    ], style={"display": "flex", "align-items": "center"})
+                ],
+                color="info",
+                dismissable=False
+            )
+            
+            # Return: message, project_id (to track), enable interval
+            return initial_message, project_id, False
+        else:
+            error_msg = r.json().get("error", "Unknown error") if r.headers.get("content-type") == "application/json" else f"HTTP {r.status_code}"
+            print(f"[Frontend] PDF Download: Failed to start - {error_msg}")
+            return dbc.Alert(f"Download failed: {error_msg}", color="danger", dismissable=True), None, True
+            
+    except Exception as e:
+        print(f"[Frontend] PDF Download: Error starting download - {str(e)}")
+        return dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True), None, True
+
+# Poll for PDF download progress
+@app.callback(
+    Output("project-message", "children", allow_duplicate=True),
+    Output("pdf-download-progress-interval", "disabled", allow_duplicate=True),
+    Output("pdf-download-project-id", "data", allow_duplicate=True),
+    Input("pdf-download-progress-interval", "n_intervals"),
+    State("pdf-download-project-id", "data"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def poll_pdf_download_progress(n_intervals, project_id, auth_data):
+    """Poll the backend for PDF download progress"""
+    if not project_id:
+        return no_update, no_update, no_update
+    
+    if not auth_data:
+        return no_update, True, None  # Disable polling if not authenticated
+    
+    print(f"[Frontend] PDF Download: Polling progress for project {project_id} (interval {n_intervals})")
+    
+    try:
+        # Get progress from backend
+        r = requests.get(
+            f"{API_BASE}/api/admin/projects/{project_id}/download-pdfs/status",
+            timeout=5
+        )
+        
+        if r.status_code == 404:
+            # Not started or no progress info
+            print(f"[Frontend] PDF Download: No progress info for project {project_id}")
+            return no_update, True, None  # Disable polling
+        
+        if not r.ok:
+            print(f"[Frontend] PDF Download: Error fetching progress - {r.status_code}")
+            return no_update, no_update, no_update  # Keep polling
+        
+        data = r.json()
+        status = data.get("status")
+        total = data.get("total", 0)
+        current = data.get("current", 0)
+        current_doi = data.get("current_doi", "")
+        
+        print(f"[Frontend] PDF Download: Status={status}, Progress={current}/{total}")
+        
+        if status == "running":
+            # Show progress
+            progress_message = dbc.Alert(
+                [
+                    html.H6("PDF Download In Progress", className="alert-heading"),
+                    html.Hr(),
+                    html.P([
+                        html.Strong(f"Progress: {current} / {total} DOIs processed"),
+                        html.Br(),
+                        html.Strong("Currently processing: "), current_doi or "..."
+                    ]),
+                    dbc.Progress(value=current, max=total, striped=True, animated=True, className="mb-2"),
+                    html.P([
+                        html.Strong("Downloaded: "), str(data.get("downloaded_count", 0)),
+                        html.Br(),
+                        html.Strong("Need Manual Upload: "), str(data.get("needs_upload_count", 0)),
+                        html.Br(),
+                        html.Strong("Errors: "), str(data.get("errors_count", 0)),
+                    ], className="mb-0"),
+                ],
+                color="info",
+                dismissable=False
+            )
+            return progress_message, False, project_id  # Keep polling
+        
+        elif status == "completed":
+            print(f"[Frontend] PDF Download: Completed!")
+            # Show final report
+            full_results = data.get("full_results", {})
+            downloaded = full_results.get("downloaded", [])
+            needs_upload = full_results.get("needs_upload", [])
+            errors = full_results.get("errors", [])
+            
             report_items = [
-                html.H6("PDF Download Report:", className="alert-heading"),
+                html.H6("PDF Download Complete!", className="alert-heading"),
                 html.Hr(),
                 html.P([
-                    html.Strong("Total DOIs: "), str(summary.get("total_dois", 0)),
+                    html.Strong("Total DOIs: "), str(total),
                     html.Br(),
-                    html.Strong("Downloaded: "), str(summary.get("downloaded", 0)),
+                    html.Strong("Downloaded: "), str(len(downloaded)),
                     html.Br(),
-                    html.Strong("Need Manual Upload: "), str(summary.get("needs_upload", 0)),
+                    html.Strong("Need Manual Upload: "), str(len(needs_upload)),
                     html.Br(),
-                    html.Strong("Errors: "), str(summary.get("errors", 0)),
+                    html.Strong("Errors: "), str(len(errors)),
                 ]),
             ]
             
             if downloaded:
                 report_items.append(html.H6("Successfully Downloaded:", className="mt-2"))
-                # Handle both old format (3-tuple) and new format (4-tuple with source)
                 download_list_items = []
                 for item in downloaded[:10]:
-                    if len(item) == 4:
-                        doi, filename, msg, source = item
+                    # Handle both formats: 4-tuple (doi, filename, msg, source) or 3-tuple (doi, filename, msg)
+                    if len(item) >= 4:
+                        doi, filename, msg, source = item[0], item[1], item[2], item[3]
                         download_list_items.append(html.Li(f"{doi} → {filename} (via {source})"))
-                    else:
-                        doi, filename, msg = item
+                    elif len(item) >= 3:
+                        doi, filename, msg = item[0], item[1], item[2]
                         download_list_items.append(html.Li(f"{doi} → {filename}"))
+                    else:
+                        # Unexpected format, log and skip
+                        print(f"[Frontend] PDF Download: Unexpected item format: {item}")
+                        continue
                 report_items.append(html.Ul(download_list_items))
                 if len(downloaded) > 10:
                     report_items.append(html.P(f"... and {len(downloaded) - 10} more", className="text-muted"))
@@ -1537,14 +1640,22 @@ def download_project_pdfs(n_clicks_list, auth_data):
             report_items.append(html.Hr())
             report_items.append(html.P(f"PDFs stored in: {data.get('project_dir', 'N/A')}", className="small text-muted"))
             
-            return dbc.Alert(report_items, color="success", dismissable=True)
+            return dbc.Alert(report_items, color="success", dismissable=True), True, None  # Disable polling
+        
+        elif status == "error":
+            error_message = data.get("error_message", "Unknown error")
+            print(f"[Frontend] PDF Download: Error - {error_message}")
+            return dbc.Alert(f"Download error: {error_message}", color="danger", dismissable=True), True, None  # Disable polling
+        
         else:
-            error_msg = r.json().get("error", "Unknown error") if r.headers.get("content-type") == "application/json" else f"HTTP {r.status_code}"
-            return dbc.Alert(f"Download failed: {error_msg}", color="danger", dismissable=True)
-    except requests.exceptions.Timeout:
-        return dbc.Alert("Download timed out. Some PDFs may have been downloaded. Check the project folder.", color="warning", dismissable=True)
+            # Unknown status
+            return no_update, no_update, no_update
+            
     except Exception as e:
-        return dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True)
+        print(f"[Frontend] PDF Download: Error polling - {str(e)}")
+        # Don't disable polling on error, might be temporary
+        return no_update, no_update, no_update
+
 
 # Handle Delete project button click - opens modal
 @app.callback(

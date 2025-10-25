@@ -193,6 +193,24 @@ def init_db(db_path: str) -> None:
             created_at TEXT NOT NULL
         );
     """)
+    
+    # Table for tracking PDF download progress (replaces in-memory dictionary)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS pdf_download_progress (
+            project_id INTEGER PRIMARY KEY,
+            status TEXT NOT NULL,
+            total INTEGER NOT NULL,
+            current INTEGER NOT NULL,
+            current_doi TEXT,
+            downloaded TEXT,  -- JSON array of [doi, filename, msg, source]
+            needs_upload TEXT,  -- JSON array of [doi, filename, reason]
+            errors TEXT,  -- JSON array of [doi, error]
+            project_dir TEXT,
+            start_time REAL,
+            end_time REAL,
+            updated_at REAL NOT NULL
+        );
+    """)
 
     for name, value in SCHEMA_JSON["span-attribute"].items():
         cur.execute("INSERT OR IGNORE INTO entity_types(name, value) VALUES (?, ?);", (name, value))
@@ -499,3 +517,121 @@ def update_triple(db_path: str, triple_id: int, source_entity_name: str = None,
         print(f"Failed to update triple: {e}")
         conn.close()
         return False
+
+# -----------------------------
+# PDF Download Progress Management
+# -----------------------------
+
+def init_pdf_download_progress(db_path: str, project_id: int, total: int, project_dir: str) -> bool:
+    """Initialize progress tracking for a PDF download job."""
+    try:
+        import time
+        conn = get_conn(db_path)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            INSERT OR REPLACE INTO pdf_download_progress 
+            (project_id, status, total, current, current_doi, downloaded, needs_upload, 
+             errors, project_dir, start_time, updated_at)
+            VALUES (?, 'running', ?, 0, '', '[]', '[]', '[]', ?, ?, ?)
+        """, (project_id, total, project_dir, time.time(), time.time()))
+        
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Failed to init PDF download progress: {e}")
+        return False
+
+def update_pdf_download_progress(db_path: str, project_id: int, updates: dict) -> bool:
+    """Update progress for a PDF download job."""
+    try:
+        import time
+        conn = get_conn(db_path)
+        cur = conn.cursor()
+        
+        # Build dynamic UPDATE query based on what fields are provided
+        set_clauses = []
+        values = []
+        
+        for key, value in updates.items():
+            if key in ['status', 'total', 'current', 'current_doi', 'project_dir', 'end_time']:
+                set_clauses.append(f"{key} = ?")
+                values.append(value)
+            elif key in ['downloaded', 'needs_upload', 'errors']:
+                # Convert lists to JSON strings
+                set_clauses.append(f"{key} = ?")
+                values.append(json.dumps(value))
+        
+        # Always update updated_at
+        set_clauses.append("updated_at = ?")
+        values.append(time.time())
+        
+        # Add project_id for WHERE clause
+        values.append(project_id)
+        
+        query = f"UPDATE pdf_download_progress SET {', '.join(set_clauses)} WHERE project_id = ?"
+        cur.execute(query, values)
+        
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Failed to update PDF download progress: {e}")
+        return False
+
+def get_pdf_download_progress(db_path: str, project_id: int) -> dict:
+    """Get current progress for a PDF download job."""
+    try:
+        conn = get_conn(db_path)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT status, total, current, current_doi, downloaded, needs_upload, 
+                   errors, project_dir, start_time, end_time, updated_at
+            FROM pdf_download_progress
+            WHERE project_id = ?
+        """, (project_id,))
+        
+        row = cur.fetchone()
+        conn.close()
+        
+        if not row:
+            return None
+        
+        return {
+            "status": row[0],
+            "total": row[1],
+            "current": row[2],
+            "current_doi": row[3],
+            "downloaded": json.loads(row[4]) if row[4] else [],
+            "needs_upload": json.loads(row[5]) if row[5] else [],
+            "errors": json.loads(row[6]) if row[6] else [],
+            "project_dir": row[7],
+            "start_time": row[8],
+            "end_time": row[9],
+            "updated_at": row[10]
+        }
+    except Exception as e:
+        print(f"Failed to get PDF download progress: {e}")
+        return None
+
+def cleanup_old_pdf_download_progress(db_path: str, max_age_seconds: int = 3600) -> int:
+    """Clean up old completed/error progress entries. Returns number of entries deleted."""
+    try:
+        import time
+        conn = get_conn(db_path)
+        cur = conn.cursor()
+        
+        cutoff_time = time.time() - max_age_seconds
+        
+        cur.execute("""
+            DELETE FROM pdf_download_progress
+            WHERE (status = 'completed' OR status = 'error')
+            AND updated_at < ?
+        """, (cutoff_time,))
+        
+        deleted = cur.rowcount
+        conn.close()
+        return deleted
+    except Exception as e:
+        print(f"Failed to cleanup PDF download progress: {e}")
+        return 0

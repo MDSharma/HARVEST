@@ -5,6 +5,8 @@ import os
 import re
 import requests
 from typing import Dict, Any, List
+import threading
+import time
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -30,6 +32,10 @@ from t2t_store import (
     delete_project,
     update_triple,
     check_admin_status,
+    init_pdf_download_progress,
+    update_pdf_download_progress,
+    get_pdf_download_progress,
+    cleanup_old_pdf_download_progress,
 )
 
 # Import configuration
@@ -634,12 +640,87 @@ def delete_existing_project(project_id: int):
         return jsonify({"error": f"Failed to delete project: {str(e)}"}), 500
 
 # PDF Management Endpoints
+def _run_pdf_download_task(project_id: int, doi_list: List[str], project_dir: str):
+    """Background task to download PDFs and update progress in database"""
+    import json
+    from pdf_manager import process_project_dois_with_progress, get_project_pdf_dir
+    
+    print(f"[PDF Download Task] Starting background download for project {project_id}")
+    
+    # Initialize progress in database
+    init_pdf_download_progress(DB_PATH, project_id, len(doi_list), project_dir)
+    
+    # Track progress locally during processing
+    downloaded = []
+    needs_upload = []
+    errors = []
+    
+    try:
+        # Process DOIs with progress callback
+        def progress_callback(current_idx: int, doi: str, success: bool, message: str, source: str = ""):
+            print(f"[PDF Download Task] Progress: {current_idx + 1}/{len(doi_list)} - {doi}: {message}")
+            
+            doi_hash = ""
+            try:
+                from pdf_manager import generate_doi_hash
+                doi_hash = generate_doi_hash(doi)
+                filename = f"{doi_hash}.pdf"
+            except (ImportError, ValueError, Exception) as e:
+                print(f"[PDF Download Task] Warning: Could not generate doi_hash for {doi}: {e}")
+                filename = "unknown.pdf"
+            
+            if success:
+                downloaded.append((doi, filename, message, source))
+            else:
+                # Categorize failures: needs_upload (not available) vs errors (technical issues)
+                # Patterns indicating the resource simply isn't available vs actual errors
+                needs_upload_patterns = ["failed", "not found", "not open access", "not available", 
+                                        "no accessible", "not a pdf", "too small"]
+                is_needs_upload = any(pattern in message.lower() for pattern in needs_upload_patterns)
+                
+                if is_needs_upload:
+                    needs_upload.append((doi, filename, message))
+                else:
+                    errors.append((doi, message))
+            
+            # Update database with current progress
+            update_pdf_download_progress(DB_PATH, project_id, {
+                "current": current_idx + 1,
+                "current_doi": doi,
+                "downloaded": downloaded,
+                "needs_upload": needs_upload,
+                "errors": errors
+            })
+        
+        results = process_project_dois_with_progress(doi_list, project_dir, progress_callback)
+        
+        # Update final status in database
+        update_pdf_download_progress(DB_PATH, project_id, {
+            "status": "completed",
+            "downloaded": results["downloaded"],
+            "needs_upload": results["needs_upload"],
+            "errors": results["errors"],
+            "end_time": time.time()
+        })
+        
+        print(f"[PDF Download Task] Completed - Downloaded: {len(results['downloaded'])}, "
+              f"Needs upload: {len(results['needs_upload'])}, Errors: {len(results['errors'])}")
+        
+    except Exception as e:
+        import traceback
+        print(f"[PDF Download Task] Error: {e}")
+        print(traceback.format_exc())
+        update_pdf_download_progress(DB_PATH, project_id, {
+            "status": "error",
+            "end_time": time.time()
+        })
+
 @app.post("/api/admin/projects/<int:project_id>/download-pdfs")
 def download_project_pdfs(project_id: int):
     """
-    Download PDFs for all DOIs in a project (admin only).
+    Start PDF download for all DOIs in a project (admin only).
     Expected JSON: { "email": "admin@example.com", "password": "secret" }
-    Returns: Status of downloads and list of DOIs requiring manual upload
+    Returns: Immediate response, use /download-pdfs/status to check progress
     """
     try:
         payload = request.get_json(force=True, silent=False)
@@ -659,6 +740,12 @@ def download_project_pdfs(project_id: int):
         print(f"[PDF Download] Invalid credentials for {email}")
         return jsonify({"error": "Invalid admin credentials"}), 403
     
+    # Check if download is already running for this project (check database)
+    progress = get_pdf_download_progress(DB_PATH, project_id)
+    if progress and progress.get("status") == "running":
+        print(f"[PDF Download] Download already in progress for project {project_id}")
+        return jsonify({"error": "Download already in progress for this project"}), 409
+    
     # Get project
     project = get_project_by_id(DB_PATH, project_id)
     if not project:
@@ -667,36 +754,76 @@ def download_project_pdfs(project_id: int):
     
     try:
         import json
-        from pdf_manager import process_project_dois, get_project_pdf_dir
+        from pdf_manager import get_project_pdf_dir
         
         doi_list = json.loads(project["doi_list"]) if isinstance(project["doi_list"], str) else project["doi_list"]
         project_dir = get_project_pdf_dir(project_id)
         
-        print(f"[PDF Download] Starting download for project {project_id} with {len(doi_list)} DOIs")
+        print(f"[PDF Download] Starting download for project {project_id} ({project.get('name', 'Unknown')}) "
+              f"with {len(doi_list)} DOIs")
         print(f"[PDF Download] Target directory: {project_dir}")
+        print(f"[PDF Download] Requested by: {email}")
         
-        results = process_project_dois(doi_list, project_dir)
-        
-        print(f"[PDF Download] Completed - Downloaded: {len(results['downloaded'])}, Needs upload: {len(results['needs_upload'])}, Errors: {len(results['errors'])}")
+        # Start background thread
+        thread = threading.Thread(
+            target=_run_pdf_download_task,
+            args=(project_id, doi_list, project_dir),
+            daemon=True
+        )
+        thread.start()
         
         return jsonify({
             "ok": True,
-            "project_dir": project_dir,
-            "downloaded": results["downloaded"],
-            "needs_upload": results["needs_upload"],
-            "errors": results["errors"],
-            "summary": {
-                "total_dois": len(doi_list),
-                "downloaded": len(results["downloaded"]),
-                "needs_upload": len(results["needs_upload"]),
-                "errors": len(results["errors"])
-            }
+            "message": "PDF download started",
+            "project_id": project_id,
+            "total_dois": len(doi_list),
+            "status_url": f"/api/admin/projects/{project_id}/download-pdfs/status"
         })
+        
     except Exception as e:
         import traceback
-        print(f"[PDF Download] Error: {e}")
+        print(f"[PDF Download] Error starting download: {e}")
         print(traceback.format_exc())
-        return jsonify({"error": f"Download failed: {str(e)}"}), 500
+        # Don't expose detailed error messages to client
+        return jsonify({"error": "Failed to start download. Please check server logs for details."}), 500
+
+@app.get("/api/admin/projects/<int:project_id>/download-pdfs/status")
+def get_pdf_download_status(project_id: int):
+    """
+    Get the current status of PDF download for a project from database.
+    Returns progress information if download is in progress or completed.
+    """
+    print(f"[PDF Download Status] Checking status for project {project_id}")
+    
+    progress = get_pdf_download_progress(DB_PATH, project_id)
+    
+    if not progress:
+        return jsonify({"status": "not_started"}), 404
+    
+    print(f"[PDF Download Status] Project {project_id}: status={progress.get('status')}, "
+          f"current={progress.get('current')}/{progress.get('total')}")
+    
+    # Return current progress
+    return jsonify({
+        "ok": True,
+        "status": progress.get("status"),
+        "total": progress.get("total", 0),
+        "current": progress.get("current", 0),
+        "current_doi": progress.get("current_doi", ""),
+        "downloaded_count": len(progress.get("downloaded", [])),
+        "needs_upload_count": len(progress.get("needs_upload", [])),
+        "errors_count": len(progress.get("errors", [])),
+        "downloaded": progress.get("downloaded", [])[:10],  # Return first 10 for preview
+        "needs_upload": progress.get("needs_upload", [])[:10],
+        "errors": progress.get("errors", [])[:5],
+        "project_dir": progress.get("project_dir", ""),
+        # Include full results when completed
+        "full_results": {
+            "downloaded": progress.get("downloaded", []),
+            "needs_upload": progress.get("needs_upload", []),
+            "errors": progress.get("errors", [])
+        } if progress.get("status") == "completed" else None
+    })
 
 @app.get("/api/projects/<int:project_id>/pdfs")
 def list_project_pdfs_endpoint(project_id: int):
@@ -799,4 +926,10 @@ def serve_project_pdf(project_id: int, filename: str):
         return jsonify({"error": f"Failed to serve PDF: {str(e)}"}), 500
 
 if __name__ == "__main__":
+    # Cleanup old progress entries on startup (older than 1 hour)
+    print("[PDF Download] Cleaning up old progress entries...")
+    deleted = cleanup_old_pdf_download_progress(DB_PATH, max_age_seconds=3600)
+    if deleted > 0:
+        print(f"[PDF Download] Cleaned up {deleted} old progress entries")
+    
     app.run(host=HOST, port=PORT, debug=True)

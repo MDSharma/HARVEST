@@ -273,6 +273,23 @@ def process_project_dois(doi_list: List[str], project_dir: str) -> Dict:
         "errors": [(doi, error), ...]
     }
     """
+    return process_project_dois_with_progress(doi_list, project_dir, None)
+
+def process_project_dois_with_progress(doi_list: List[str], project_dir: str, progress_callback=None) -> Dict:
+    """
+    Process a list of DOIs for a project with progress updates.
+    
+    Args:
+        doi_list: List of DOIs to process
+        project_dir: Directory to save PDFs
+        progress_callback: Optional callback function(current_idx, doi, success, message, source)
+    
+    Returns: {
+        "downloaded": [(doi, filename, message, source), ...],
+        "needs_upload": [(doi, filename, reason), ...],
+        "errors": [(doi, error), ...]
+    }
+    """
     # Create project directory if it doesn't exist
     Path(project_dir).mkdir(parents=True, exist_ok=True)
     
@@ -282,7 +299,7 @@ def process_project_dois(doi_list: List[str], project_dir: str) -> Dict:
         "errors": []
     }
     
-    for doi in doi_list:
+    for idx, doi in enumerate(doi_list):
         doi = doi.strip()
         if not doi:
             continue
@@ -293,7 +310,7 @@ def process_project_dois(doi_list: List[str], project_dir: str) -> Dict:
         doi_hash = generate_doi_hash(doi)
         filename = f"{doi_hash}.pdf"
         
-        print(f"[PDF] Processing DOI: {doi}")
+        print(f"[PDF] Processing DOI {idx + 1}/{len(doi_list)}: {doi}")
         
         try:
             # Try multi-source download
@@ -302,10 +319,14 @@ def process_project_dois(doi_list: List[str], project_dir: str) -> Dict:
             if success:
                 print(f"[PDF] Success via {source}: {message}")
                 results["downloaded"].append((doi, filename, message, source))
+                if progress_callback:
+                    progress_callback(idx, doi, True, message, source)
             else:
                 # All methods failed - needs manual upload
                 print(f"[PDF] Failed: {message}")
                 results["needs_upload"].append((doi, filename, message))
+                if progress_callback:
+                    progress_callback(idx, doi, False, message, "")
             
             # Be nice to APIs
             time.sleep(1)
@@ -313,6 +334,11 @@ def process_project_dois(doi_list: List[str], project_dir: str) -> Dict:
         except Exception as e:
             print(f"[PDF] Error processing {doi}: {e}")
             results["errors"].append((doi, str(e)))
+            if progress_callback:
+                progress_callback(idx, doi, False, f"Error: {str(e)}", "")
+    
+    print(f"[PDF] Batch complete - Downloaded: {len(results['downloaded'])}, "
+          f"Needs upload: {len(results['needs_upload'])}, Errors: {len(results['errors'])}")
     
     return results
 
