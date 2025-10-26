@@ -23,10 +23,11 @@ logger = logging.getLogger(__name__)
 
 # Import configuration
 try:
-    from config import PARTNER_LOGOS
+    from config import PARTNER_LOGOS, ENABLE_LITERATURE_SEARCH
 except ImportError:
     # Fallback if config not available
     PARTNER_LOGOS = []
+    ENABLE_LITERATURE_SEARCH = True  # Default to enabled
 
 # -----------------------
 # Config
@@ -91,6 +92,144 @@ FETCH_COOLDOWN_SECONDS = 2  # Minimum seconds between fetches
 
 # Helper constant for no_update returns with many outputs
 NO_UPDATE_15 = tuple([no_update] * 15)
+
+
+def create_execution_log_display(execution_log):
+    """
+    Create a visual display of the search pipeline execution log.
+    Shows AutoResearch, DeepResearch (Python Reimpl), and DELM steps.
+    """
+    if not execution_log:
+        return None
+    
+    # Create timeline items for each step
+    timeline_items = []
+    
+    # Define colors for each step type
+    step_colors = {
+        'AutoResearch': '#17a2b8',  # Info blue
+        'DeepResearch (Python Reimpl)': '#28a745',  # Success green
+        'DELM': '#ffc107',  # Warning yellow/gold
+        'Error': '#dc3545'  # Danger red
+    }
+    
+    for idx, log_entry in enumerate(execution_log):
+        step_name = log_entry.get('step', 'Unknown')
+        description = log_entry.get('description', '')
+        details = log_entry.get('details', '')
+        elapsed_ms = log_entry.get('elapsed_ms', 0)
+        status = log_entry.get('status', 'completed')
+        
+        # Get color for this step
+        color = step_colors.get(step_name, '#6c757d')
+        
+        # Create status icon
+        if status == 'completed':
+            status_icon = html.I(className="bi bi-check-circle-fill", style={"color": "#28a745"})
+        elif status == 'error':
+            status_icon = html.I(className="bi bi-x-circle-fill", style={"color": "#dc3545"})
+        else:
+            status_icon = html.I(className="bi bi-clock-fill", style={"color": "#ffc107"})
+        
+        # Create timeline item
+        timeline_item = dbc.Card(
+            dbc.CardBody(
+                [
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Span(
+                                        f"{idx + 1}",
+                                        style={
+                                            "display": "inline-block",
+                                            "width": "28px",
+                                            "height": "28px",
+                                            "borderRadius": "50%",
+                                            "backgroundColor": color,
+                                            "color": "white",
+                                            "textAlign": "center",
+                                            "lineHeight": "28px",
+                                            "fontWeight": "bold",
+                                            "fontSize": "14px",
+                                            "marginRight": "12px"
+                                        }
+                                    ),
+                                    html.Span(
+                                        step_name,
+                                        style={
+                                            "fontWeight": "bold",
+                                            "fontSize": "16px",
+                                            "color": color
+                                        }
+                                    ),
+                                ],
+                                style={"display": "flex", "alignItems": "center", "marginBottom": "8px"}
+                            ),
+                            html.Div(
+                                [
+                                    html.Strong(description),
+                                    html.Br(),
+                                    html.Span(details, style={"fontSize": "14px", "color": "#6c757d"}),
+                                    html.Br(),
+                                    html.Small(
+                                        f"⏱️ {elapsed_ms}ms",
+                                        style={"color": "#6c757d", "fontStyle": "italic"}
+                                    ),
+                                ],
+                                style={"marginLeft": "40px"}
+                            ),
+                        ]
+                    )
+                ]
+            ),
+            className="mb-2",
+            style={"borderLeft": f"4px solid {color}"}
+        )
+        
+        timeline_items.append(timeline_item)
+    
+    # Create the execution log card with collapse functionality
+    execution_log_card = dbc.Card(
+        [
+            dbc.CardHeader(
+                dbc.Button(
+                    [
+                        html.Span([
+                            html.I(className="bi bi-diagram-3-fill", style={"marginRight": "8px"}),
+                            "Pipeline Execution Flow"
+                        ]),
+                        html.I(className="bi bi-chevron-down text-muted", id="pipeline-chevron", style={"fontSize": "0.8rem", "float": "right"})
+                    ],
+                    id="pipeline-collapse-button",
+                    color="link",
+                    style={"width": "100%", "textAlign": "left", "textDecoration": "none", "color": "#000", "fontWeight": "600"},
+                    className="p-0"
+                ),
+                style={"backgroundColor": "#f8f9fa"}
+            ),
+            dbc.Collapse(
+                dbc.CardBody(
+                    [
+                        html.P(
+                            "The Semantic Paper Discovery system executes the following steps:",
+                            className="text-muted mb-3",
+                            style={"fontSize": "14px"}
+                        ),
+                        html.Div(timeline_items)
+                    ]
+                ),
+                id="pipeline-collapse",
+                is_open=False,  # Collapsed by default
+            )
+        ],
+        className="mb-3"
+    )
+    
+    return execution_log_card
+
+
+# Helper constant for no_update returns with many outputs
 
 
 def build_entity_options(schema_dict):
@@ -264,6 +403,24 @@ def sidebar():
     )
 
     # Create collapsible sections with horizontal buttons using Tabs
+    # Database model tab
+    db_model_md = dcc.Markdown(
+        """
+**Database Schema & Relationships**
+
+```text
+admin_users, projects, doi_metadata, sentences, triples
+entity_types, relation_types, user_sessions
+```
+
+**Key Relationships:**
+- **sentences → triples**: One-to-Many (one sentence → many triples)
+- **projects → triples**: One-to-Many (one project → many triples)
+- **triples** reference **entity_types** and **relation_types**
+- **doi_metadata** stores DOI hashes for PDF mapping
+"""
+    )
+    
     info_tabs = dbc.Card(
         [
             dbc.Tabs(
@@ -271,6 +428,7 @@ def sidebar():
                     dbc.Tab(help_md, label="Help", tab_id="help"),
                     dbc.Tab(schema_md, label="Schema", tab_id="schema"),
                     dbc.Tab(qa_md, label="Q&A", tab_id="qa"),
+                    dbc.Tab(db_model_md, label="DB Model", tab_id="dbmodel"),
                 ],
                 id="info-tabs",
                 active_tab="help",
@@ -296,7 +454,7 @@ def sidebar():
                         src=logo_url,
                         alt=logo.get("alt", logo.get("name", "Partner Logo")),
                         style={
-                            "maxHeight": "120px",
+                            "maxHeight": "80px",  # Reduced from 120px
                             "maxWidth": "100%",
                             "objectFit": "contain"
                         },
@@ -310,13 +468,14 @@ def sidebar():
         logos_card = dbc.Card(
             dbc.CardBody(
                 [
-                    html.H6("Partner Institutions", className="text-center mb-3 text-muted"),
+                    html.H6("Partner Institutions", className="text-center mb-2 text-muted", style={"fontSize": "0.9rem"}),
                     dbc.Row(
                         logo_elements,
-                        className="g-3",
+                        className="g-2",  # Reduced from g-3 to g-2 for less spacing
                         justify="center"
                     )
-                ]
+                ],
+                style={"padding": "0.75rem"}  # Reduced padding from default (usually 1.25rem)
             ),
             className="mb-3"
         )
@@ -344,8 +503,64 @@ app.layout = dbc.Container(
         dcc.Store(id="delete-project-id-store"),  # Store project ID to delete
         dcc.Store(id="upload-project-id-store"),  # Store project ID for upload
         dcc.Store(id="pdf-download-project-id", data=None),  # Store project ID for PDF download tracking
+        dcc.Store(id="lit-search-selected-papers", data=[]),  # Store selected papers
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
         dcc.Interval(id="pdf-download-progress-interval", interval=2000, disabled=True),  # Poll every 2 seconds
+        
+        # Modal for exporting DOIs from literature search
+        dbc.Modal(
+            [
+                dbc.ModalHeader(dbc.ModalTitle("Export Selected DOIs")),
+                dbc.ModalBody(
+                    [
+                        html.H6("Create New Project or Add to Existing", className="mb-3"),
+                        dbc.RadioItems(
+                            id="export-doi-action",
+                            options=[
+                                {"label": "Create new project", "value": "new"},
+                                {"label": "Add to existing project", "value": "existing"},
+                                {"label": "Copy to clipboard", "value": "clipboard"},
+                            ],
+                            value="new",
+                            className="mb-3",
+                        ),
+                        html.Div(
+                            [
+                                dbc.Label("Project Name"),
+                                dbc.Input(id="export-new-project-name", placeholder="Enter project name"),
+                                dbc.Label("Description (optional)", className="mt-2"),
+                                dbc.Input(id="export-new-project-description", placeholder="Enter project description"),
+                            ],
+                            id="export-new-project-fields",
+                            className="mb-3",
+                        ),
+                        html.Div(
+                            [
+                                dbc.Label("Select Target Project"),
+                                dcc.Dropdown(
+                                    id="export-target-project",
+                                    placeholder="Select a project...",
+                                ),
+                            ],
+                            id="export-existing-project-fields",
+                            style={"display": "none"},
+                            className="mb-3",
+                        ),
+                        html.Div(id="export-selected-dois-list", className="mb-3"),
+                        html.Div(id="export-doi-message"),
+                    ]
+                ),
+                dbc.ModalFooter(
+                    [
+                        dbc.Button("Cancel", id="export-doi-cancel", color="secondary"),
+                        dbc.Button("Export", id="export-doi-confirm", color="primary"),
+                    ]
+                ),
+            ],
+            id="export-doi-modal",
+            is_open=False,
+            size="lg",
+        ),
         
         # Modal for project deletion options
         dbc.Modal(
@@ -460,8 +675,8 @@ app.layout = dbc.Container(
 
                         dcc.Tabs(
                             id="main-tabs",
-                            value="tab-literature",
-                            children=[
+                            value="tab-literature" if ENABLE_LITERATURE_SEARCH else "tab-annotate",
+                            children=[tab for tab in [
                                 dcc.Tab(
                                     label="Literature Search",
                                     value="tab-literature",
@@ -469,56 +684,130 @@ app.layout = dbc.Container(
                                         dbc.Card(
                                             [
                                                 html.H5("Semantic Paper Discovery", className="mb-3"),
-                                                html.P(
-                                                    "Search for relevant papers from Semantic Scholar and arXiv using natural language queries.",
-                                                    className="text-muted mb-4"
-                                                ),
-                                                dbc.Row(
-                                                    [
-                                                        dbc.Col(
+                                                
+                                                # Authentication message - shown when not authenticated
+                                                html.Div(
+                                                    id="lit-search-auth-required",
+                                                    children=[
+                                                        dbc.Alert(
                                                             [
-                                                                dbc.Label("Search Query", style={"fontWeight": "bold"}),
-                                                                dbc.Input(
-                                                                    id="lit-search-query",
-                                                                    placeholder="e.g., AI in drug discovery, climate change ethics, CRISPR gene editing",
-                                                                    type="text",
-                                                                    debounce=True,
-                                                                ),
-                                                                html.Small(
-                                                                    "Enter a natural language query to find relevant papers",
-                                                                    className="text-muted"
-                                                                ),
-                                                            ],
-                                                            md=9,
-                                                        ),
-                                                        dbc.Col(
-                                                            [
+                                                                html.I(className="bi bi-lock me-2"),
+                                                                html.Strong("Authentication Required"),
                                                                 html.Br(),
-                                                                dbc.Button(
-                                                                    "Search Papers",
-                                                                    id="btn-search-papers",
-                                                                    color="primary",
-                                                                    className="w-100",
-                                                                ),
+                                                                "Please login via the ",
+                                                                html.Strong("Admin"),
+                                                                " tab to access the Literature Search feature."
                                                             ],
-                                                            md=3,
+                                                            color="info",
+                                                            className="text-center"
                                                         ),
                                                     ],
-                                                    className="mb-4",
+                                                    style={"display": "block"}
                                                 ),
-                                                dcc.Loading(
-                                                    id="loading-search",
-                                                    type="default",
+                                                
+                                                # Search content - hidden until authenticated
+                                                # Search content - hidden until authenticated
+                                                html.Div(
+                                                    id="lit-search-content",
+                                                    style={"display": "none"},
                                                     children=[
-                                                        html.Div(id="search-status", className="mb-3"),
-                                                        html.Div(id="search-results"),
+                                                        
+                                                        html.P(
+                                                            "Search for relevant papers from Semantic Scholar and arXiv using natural language queries.",
+                                                            className="text-muted mb-4"
+                                                        ),
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Label("Search Query", style={"fontWeight": "bold"}),
+                                                                        dbc.Input(
+                                                                            id="lit-search-query",
+                                                                            placeholder="e.g., AI in drug discovery, climate change ethics, CRISPR gene editing",
+                                                                            type="text",
+                                                                            debounce=True,
+                                                                        ),
+                                                                        html.Small(
+                                                                            "Enter a natural language query to find relevant papers",
+                                                                            className="text-muted"
+                                                                        ),
+                                                                    ],
+                                                                    md=9,
+                                                                ),
+                                                                dbc.Col(
+                                                                    [
+                                                                        html.Br(),
+                                                                        dbc.Button(
+                                                                            "Search Papers",
+                                                                            id="btn-search-papers",
+                                                                            color="primary",
+                                                                            className="w-100",
+                                                                        ),
+                                                                    ],
+                                                                    md=3,
+                                                                ),
+                                                            ],
+                                                            className="mb-4",
+                                                        ),
+                                                        
+                                                        # Export controls (shown when papers are displayed)
+                                                        html.Div(
+                                                            id="lit-search-export-controls",
+                                                            children=[
+                                                                dbc.Row(
+                                                                    [
+                                                                        dbc.Col(
+                                                                            [
+                                                                                dbc.Button(
+                                                                                    "Select All",
+                                                                                    id="btn-select-all-papers",
+                                                                                    color="secondary",
+                                                                                    size="sm",
+                                                                                    className="me-2",
+                                                                                ),
+                                                                                dbc.Button(
+                                                                                    "Deselect All",
+                                                                                    id="btn-deselect-all-papers",
+                                                                                    color="secondary",
+                                                                                    size="sm",
+                                                                                    className="me-2",
+                                                                                ),
+                                                                                dbc.Button(
+                                                                                    [
+                                                                                        html.I(className="bi bi-download me-1"),
+                                                                                        "Export Selected DOIs"
+                                                                                    ],
+                                                                                    id="btn-export-selected-dois",
+                                                                                    color="success",
+                                                                                    size="sm",
+                                                                                    disabled=True,
+                                                                                ),
+                                                                            ],
+                                                                            md=12,
+                                                                        ),
+                                                                    ],
+                                                                    className="mb-3",
+                                                                ),
+                                                                html.Div(id="selected-papers-count", className="mb-2"),
+                                                            ],
+                                                            style={"display": "none"},
+                                                        ),
+                                                        
+                                                        dcc.Loading(
+                                                            id="loading-search",
+                                                            type="default",
+                                                            children=[
+                                                                html.Div(id="search-status", className="mb-3"),
+                                                                html.Div(id="search-results"),
+                                                            ],
+                                                        ),
                                                     ],
                                                 ),
                                             ],
                                             body=True,
                                         )
                                     ],
-                                ),
+                                ) if ENABLE_LITERATURE_SEARCH else None,
                                 dcc.Tab(
                                     label="Annotate",
                                     value="tab-annotate",
@@ -748,7 +1037,14 @@ app.layout = dbc.Container(
                                                     ],
                                                     className="g-3 mb-3",
                                                 ),
-                                                dbc.Button("Login", id="btn-admin-login", color="primary", className="mb-3"),
+                                                dbc.Row([
+                                                    dbc.Col([
+                                                        dbc.Button("Login", id="btn-admin-login", color="primary"),
+                                                    ], width="auto"),
+                                                    dbc.Col([
+                                                        dbc.Button("Logout", id="btn-admin-logout", color="secondary", style={"display": "none"}),
+                                                    ], width="auto"),
+                                                ], className="mb-3"),
                                                 html.Div(id="admin-auth-message", className="mb-3"),
                                                 html.Hr(),
                                                 
@@ -909,7 +1205,7 @@ app.layout = dbc.Container(
                                         )
                                     ],
                                 ),
-                            ],
+                            ] if tab is not None],
                         ),
                     ],
                     md=12,  # Changed from md=8 to full width
@@ -1079,10 +1375,34 @@ def validate_email(email):
 # The email-store serves as validation state, not as a persistent storage for the input field
 
 
+# Literature Search Authentication check - use Admin panel auth
+@app.callback(
+    Output("lit-search-auth-required", "style"),
+    Output("lit-search-content", "style"),
+    Input("admin-auth-store", "data"),
+    Input("main-tabs", "value"),
+    prevent_initial_call=False,
+)
+def check_lit_search_auth(auth_data, active_tab):
+    """Check if user is authenticated via Admin panel and show/hide Literature Search content"""
+    # Only apply when Literature Search tab is active
+    if active_tab != "tab-literature":
+        return no_update, no_update
+    
+    if auth_data and ("email" in auth_data or "token" in auth_data):
+        # User is authenticated, show search content and hide auth required message
+        return {"display": "none"}, {"display": "block"}
+    else:
+        # User not authenticated, show auth required message and hide search content
+        return {"display": "block"}, {"display": "none"}
+
+
 # Literature Search callback
 @app.callback(
     Output("search-status", "children"),
     Output("search-results", "children"),
+    Output("lit-search-selected-papers", "data"),
+    Output("lit-search-export-controls", "style"),
     Input("btn-search-papers", "n_clicks"),
     State("lit-search-query", "value"),
     prevent_initial_call=True,
@@ -1090,11 +1410,14 @@ def validate_email(email):
 def perform_literature_search(n_clicks, query):
     """
     Callback to perform literature search when button is clicked.
+    Displays the execution pipeline for AutoResearch, DeepResearch, and DELM.
     """
     if not query or not query.strip():
         return (
             dbc.Alert("Please enter a search query", color="warning"),
-            None
+            None,
+            [],
+            {"display": "none"}
         )
 
     try:
@@ -1102,9 +1425,24 @@ def perform_literature_search(n_clicks, query):
         result = literature_search.search_papers(query.strip(), top_k=10)
 
         if not result['success']:
+            # Show execution log even on failure
+            execution_log = result.get('execution_log', [])
+            if execution_log:
+                log_display = create_execution_log_display(execution_log)
+                return (
+                    html.Div([
+                        dbc.Alert(result['message'], color="danger"),
+                        log_display
+                    ]),
+                    None,
+                    [],
+                    {"display": "none"}
+                )
             return (
                 dbc.Alert(result['message'], color="danger"),
-                None
+                None,
+                [],
+                {"display": "none"}
             )
 
         papers = result['papers']
@@ -1112,23 +1450,45 @@ def perform_literature_search(n_clicks, query):
         if not papers:
             return (
                 dbc.Alert("No papers found. Try a different query.", color="info"),
-                None
+                None,
+                [],
+                {"display": "none"}
             )
 
-        # Create status message
-        status = dbc.Alert(
-            [
-                html.Strong(result['message']),
-                html.Br(),
-                html.Small(f"Total found: {result['total_found']} | Unique: {result['total_unique']} | Displaying: {result['returned']}")
-            ],
-            color="success"
-        )
+        # Create execution log display
+        execution_log = result.get('execution_log', [])
+        log_display = create_execution_log_display(execution_log)
 
+        # Create status message with execution log
+        status = html.Div([
+            dbc.Alert(
+                [
+                    html.Strong(result['message']),
+                    html.Br(),
+                    html.Small(f"Total found: {result['total_found']} | Unique: {result['total_unique']} | Displaying: {result['returned']}")
+                ],
+                color="success"
+            ),
+            log_display
+        ])
+
+        # Store paper data for later use
+        papers_data = []
+        
         # Create results table
         results_content = []
 
         for i, paper in enumerate(papers, 1):
+            # Store paper data including DOI
+            papers_data.append({
+                'index': i,
+                'doi': paper.get('doi', ''),
+                'title': paper.get('title', 'N/A'),
+                'authors': paper.get('authors', []),
+                'year': paper.get('year', 'N/A'),
+                'source': paper.get('source', 'N/A')
+            })
+            
             # Format authors
             authors_text = ", ".join(paper.get('authors', [])[:3])
             if len(paper.get('authors', [])) > 3:
@@ -1158,15 +1518,35 @@ def perform_literature_search(n_clicks, query):
             else:
                 doi_link = html.Span("N/A", className="text-muted")
 
-            # Create paper card
+            # Create paper card with checkbox
             paper_card = dbc.Card(
                 [
                     dbc.CardBody(
                         [
-                            html.H6(
-                                f"{i}. {paper.get('title', 'N/A')}",
-                                className="mb-2",
-                                style={"fontWeight": "bold"}
+                            dbc.Row(
+                                [
+                                    dbc.Col(
+                                        [
+                                            dbc.Checkbox(
+                                                id={"type": "paper-checkbox", "index": i},
+                                                className="form-check-input-lg",
+                                                value=False,
+                                            ),
+                                        ],
+                                        width="auto",
+                                        className="d-flex align-items-center",
+                                    ),
+                                    dbc.Col(
+                                        [
+                                            html.H6(
+                                                f"{i}. {paper.get('title', 'N/A')}",
+                                                className="mb-2",
+                                                style={"fontWeight": "bold"}
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                                className="g-2",
                             ),
                             html.P(
                                 [
@@ -1182,7 +1562,7 @@ def perform_literature_search(n_clicks, query):
                                     html.Strong("DOI: "),
                                     doi_link,
                                 ],
-                                className="mb-2",
+                                className="mb-2 ms-5",
                                 style={"fontSize": "0.9rem"}
                             ),
                             dbc.Collapse(
@@ -1201,13 +1581,14 @@ def perform_literature_search(n_clicks, query):
                                 ),
                                 id=f"collapse-paper-{i}",
                                 is_open=False,
+                                className="ms-5",
                             ),
                             dbc.Button(
                                 "Show Abstract",
                                 id=f"btn-toggle-paper-{i}",
                                 color="link",
                                 size="sm",
-                                className="mt-2 p-0",
+                                className="mt-2 p-0 ms-5",
                             ),
                         ]
                     )
@@ -1218,14 +1599,33 @@ def perform_literature_search(n_clicks, query):
 
             results_content.append(paper_card)
 
-        return status, html.Div(results_content)
+        return status, html.Div(results_content), papers_data, {"display": "block"}
 
     except Exception as e:
         logger.error(f"Literature search error: {e}")
         return (
             dbc.Alert(f"Search failed: {str(e)}", color="danger"),
-            None
+            None,
+            [],
+            {"display": "none"}
         )
+
+
+# Callback for pipeline execution flow collapse
+@app.callback(
+    Output("pipeline-collapse", "is_open"),
+    Output("pipeline-chevron", "className"),
+    Input("pipeline-collapse-button", "n_clicks"),
+    State("pipeline-collapse", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_pipeline_collapse(n_clicks, is_open):
+    """Toggle the pipeline execution flow card"""
+    if n_clicks:
+        new_state = not is_open
+        chevron_class = "bi bi-chevron-up" if new_state else "bi bi-chevron-down"
+        return new_state, chevron_class + " " + "text-muted" + " " + "float-end"
+    return is_open, "bi bi-chevron-down text-muted float-end"
 
 
 # Callbacks for paper abstract toggling
@@ -1241,6 +1641,253 @@ for i in range(1, 11):
         if n:
             return not is_open, "Hide Abstract" if not is_open else "Show Abstract"
         return is_open, "Show Abstract"
+
+
+# Callbacks for selecting/deselecting all papers
+@app.callback(
+    Output({"type": "paper-checkbox", "index": ALL}, "value"),
+    Input("btn-select-all-papers", "n_clicks"),
+    Input("btn-deselect-all-papers", "n_clicks"),
+    State("lit-search-selected-papers", "data"),
+    prevent_initial_call=True,
+)
+def select_deselect_all_papers(select_clicks, deselect_clicks, papers_data):
+    """Select or deselect all paper checkboxes"""
+    if not papers_data:
+        return []
+    
+    trigger = ctx.triggered_id
+    if trigger == "btn-select-all-papers":
+        return [True] * len(papers_data)
+    elif trigger == "btn-deselect-all-papers":
+        return [False] * len(papers_data)
+    return no_update
+
+
+# Update selected paper count and enable/disable export button
+@app.callback(
+    Output("selected-papers-count", "children"),
+    Output("btn-export-selected-dois", "disabled"),
+    Input({"type": "paper-checkbox", "index": ALL}, "value"),
+    State("lit-search-selected-papers", "data"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=False,
+)
+def update_selected_count(checkbox_values, papers_data, auth_data):
+    """Update the count of selected papers and enable/disable export button"""
+    if not checkbox_values or not papers_data:
+        return "", True
+    
+    selected_count = sum(1 for v in checkbox_values if v)
+    
+    if selected_count == 0:
+        return html.Small("No papers selected", className="text-muted"), True
+    
+    # Check if user is authenticated
+    is_authenticated = auth_data is not None
+    button_disabled = not is_authenticated
+    
+    count_text = f"Selected: {selected_count} paper(s)"
+    if not is_authenticated:
+        count_text += " - Login required to export"
+    
+    return html.Small(count_text, className="text-info"), button_disabled
+
+
+# Open export modal and populate selected DOIs
+@app.callback(
+    Output("export-doi-modal", "is_open"),
+    Output("export-selected-dois-list", "children"),
+    Output("export-target-project", "options"),
+    Input("btn-export-selected-dois", "n_clicks"),
+    Input("export-doi-cancel", "n_clicks"),
+    Input("export-doi-confirm", "n_clicks"),
+    State("export-doi-modal", "is_open"),
+    State({"type": "paper-checkbox", "index": ALL}, "value"),
+    State("lit-search-selected-papers", "data"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def toggle_export_modal(export_clicks, cancel_clicks, confirm_clicks, is_open, 
+                       checkbox_values, papers_data, auth_data):
+    """Toggle export modal and populate with selected DOIs"""
+    trigger = ctx.triggered_id
+    
+    if trigger == "btn-export-selected-dois":
+        if not auth_data:
+            return False, None, []
+        
+        # Get selected papers
+        selected_papers = [
+            paper for i, paper in enumerate(papers_data)
+            if i < len(checkbox_values) and checkbox_values[i]
+        ]
+        
+        if not selected_papers:
+            return False, None, []
+        
+        # Create DOI list display
+        doi_list_items = []
+        for paper in selected_papers:
+            doi = paper.get('doi', 'N/A')
+            title = paper.get('title', 'N/A')
+            doi_list_items.append(
+                html.Li([
+                    html.Strong(doi),
+                    html.Br(),
+                    html.Small(title, className="text-muted")
+                ])
+            )
+        
+        doi_list_display = html.Div([
+            html.H6(f"Selected DOIs ({len(selected_papers)}):"),
+            html.Ul(doi_list_items, style={"maxHeight": "200px", "overflowY": "auto"})
+        ])
+        
+        # Get projects for dropdown
+        try:
+            r = requests.get(API_PROJECTS, timeout=5)
+            if r.ok:
+                projects = r.json()
+                project_options = [{"label": p["name"], "value": p["id"]} for p in projects]
+            else:
+                project_options = []
+        except:
+            project_options = []
+        
+        return True, doi_list_display, project_options
+    
+    elif trigger in ["export-doi-cancel", "export-doi-confirm"]:
+        return False, None, []
+    
+    return is_open, None, []
+
+
+# Toggle between new project and existing project fields
+@app.callback(
+    Output("export-new-project-fields", "style"),
+    Output("export-existing-project-fields", "style"),
+    Input("export-doi-action", "value"),
+    prevent_initial_call=False,
+)
+def toggle_export_fields(action):
+    """Show/hide fields based on export action"""
+    if action == "new":
+        return {"display": "block"}, {"display": "none"}
+    elif action == "existing":
+        return {"display": "none"}, {"display": "block"}
+    else:  # clipboard
+        return {"display": "none"}, {"display": "none"}
+
+
+# Handle export confirmation
+@app.callback(
+    Output("export-doi-message", "children"),
+    Input("export-doi-confirm", "n_clicks"),
+    State("export-doi-action", "value"),
+    State("export-new-project-name", "value"),
+    State("export-new-project-description", "value"),
+    State("export-target-project", "value"),
+    State({"type": "paper-checkbox", "index": ALL}, "value"),
+    State("lit-search-selected-papers", "data"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_export_confirmation(n_clicks, action, new_name, new_desc, target_project_id,
+                               checkbox_values, papers_data, auth_data):
+    """Handle the export confirmation based on selected action"""
+    if not auth_data:
+        return dbc.Alert("Authentication required", color="danger")
+    
+    # Use email/password from admin auth (not token-based for now)
+    # Get selected DOIs
+    selected_dois = [
+        paper['doi'] for i, paper in enumerate(papers_data)
+        if i < len(checkbox_values) and checkbox_values[i] and paper.get('doi')
+    ]
+    
+    if not selected_dois:
+        return dbc.Alert("No DOIs to export", color="warning")
+    
+    # Handle clipboard action
+    if action == "clipboard":
+        doi_text = "\n".join(selected_dois)
+        return dbc.Alert([
+            html.Strong("Copy these DOIs:"),
+            html.Pre(doi_text, style={"marginTop": "10px", "padding": "10px", "backgroundColor": "#f8f9fa"})
+        ], color="info")
+    
+    # Handle new project creation
+    if action == "new":
+        if not new_name or not new_name.strip():
+            return dbc.Alert("Project name is required", color="warning")
+        
+        try:
+            payload = {
+                "email": auth_data["email"],
+                "password": auth_data["password"],
+                "name": new_name.strip(),
+                "description": new_desc.strip() if new_desc else "",
+                "doi_list": selected_dois
+            }
+            r = requests.post(f"{API_BASE}/api/admin/projects", json=payload, timeout=10)
+            if r.ok:
+                result = r.json()
+                if result.get("ok"):
+                    return dbc.Alert(f"Project created successfully! ID: {result.get('project_id')}", color="success")
+                else:
+                    return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger")
+            else:
+                return dbc.Alert(f"Failed: {r.status_code}", color="danger")
+        except Exception as e:
+            return dbc.Alert(f"Error: {str(e)}", color="danger")
+    
+    # Handle adding to existing project
+    if action == "existing":
+        if not target_project_id:
+            return dbc.Alert("Please select a target project", color="warning")
+        
+        try:
+            # First, get the existing project
+            r = requests.get(f"{API_BASE}/api/projects/{target_project_id}", timeout=5)
+            if not r.ok:
+                return dbc.Alert("Failed to fetch project", color="danger")
+            
+            project = r.json()
+            existing_dois = set(project.get("doi_list", []))
+            
+            # Deduplicate: only add DOIs that don't exist
+            new_dois = [doi for doi in selected_dois if doi not in existing_dois]
+            duplicates = len(selected_dois) - len(new_dois)
+            
+            if not new_dois:
+                return dbc.Alert(f"All {len(selected_dois)} DOI(s) already exist in the project", color="info")
+            
+            # Merge DOI lists
+            merged_dois = list(existing_dois) + new_dois
+            
+            # Update project
+            payload = {
+                "email": auth_data["email"],
+                "password": auth_data["password"],
+                "doi_list": merged_dois
+            }
+            r = requests.put(f"{API_BASE}/api/admin/projects/{target_project_id}", json=payload, timeout=10)
+            if r.ok:
+                result = r.json()
+                if result.get("ok"):
+                    msg = f"Added {len(new_dois)} new DOI(s) to project"
+                    if duplicates > 0:
+                        msg += f" ({duplicates} duplicate(s) skipped)"
+                    return dbc.Alert(msg, color="success")
+                else:
+                    return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger")
+            else:
+                return dbc.Alert(f"Failed: {r.status_code}", color="danger")
+        except Exception as e:
+            return dbc.Alert(f"Error: {str(e)}", color="danger")
+    
+    return no_update
 
 
 # Helper function to create DOI metadata card and store data
@@ -1939,6 +2586,8 @@ def update_pdf_viewer(selected_doi, project_id):
     Output("admin-auth-message", "children"),
     Output("admin-panel-content", "style"),
     Output("admin-auth-store", "data"),
+    Output("btn-admin-login", "style"),
+    Output("btn-admin-logout", "style"),
     Input("btn-admin-login", "n_clicks"),
     State("admin-email", "value"),
     State("admin-password", "value"),
@@ -1946,7 +2595,13 @@ def update_pdf_viewer(selected_doi, project_id):
 )
 def admin_login(n_clicks, email, password):
     if not email or not password:
-        return dbc.Alert("Please enter email and password", color="danger"), {"display": "none"}, None
+        return (
+            dbc.Alert("Please enter email and password", color="danger"), 
+            {"display": "none"}, 
+            None,
+            {"display": "inline-block"},
+            {"display": "none"}
+        )
     
     try:
         r = requests.post(API_ADMIN_AUTH, json={"email": email, "password": password}, timeout=10)
@@ -1956,14 +2611,54 @@ def admin_login(n_clicks, email, password):
                 return (
                     dbc.Alert("Logged in successfully!", color="success"),
                     {"display": "block"},
-                    {"email": email, "password": password}
+                    {"email": email, "password": password},
+                    {"display": "none"},  # Hide login button
+                    {"display": "inline-block"}  # Show logout button
                 )
             else:
-                return dbc.Alert("Invalid credentials", color="danger"), {"display": "none"}, None
+                return (
+                    dbc.Alert("Invalid credentials", color="danger"), 
+                    {"display": "none"}, 
+                    None,
+                    {"display": "inline-block"},
+                    {"display": "none"}
+                )
         else:
-            return dbc.Alert(f"Authentication failed: {r.status_code}", color="danger"), {"display": "none"}, None
+            return (
+                dbc.Alert(f"Authentication failed: {r.status_code}", color="danger"), 
+                {"display": "none"}, 
+                None,
+                {"display": "inline-block"},
+                {"display": "none"}
+            )
     except Exception as e:
-        return dbc.Alert(f"Error: {str(e)}", color="danger"), {"display": "none"}, None
+        return (
+            dbc.Alert(f"Error: {str(e)}", color="danger"), 
+            {"display": "none"}, 
+            None,
+            {"display": "inline-block"},
+            {"display": "none"}
+        )
+
+
+# Admin logout
+@app.callback(
+    Output("admin-auth-message", "children", allow_duplicate=True),
+    Output("admin-panel-content", "style", allow_duplicate=True),
+    Output("admin-auth-store", "data", allow_duplicate=True),
+    Output("btn-admin-login", "style", allow_duplicate=True),
+    Output("btn-admin-logout", "style", allow_duplicate=True),
+    Input("btn-admin-logout", "n_clicks"),
+    prevent_initial_call=True,
+)
+def admin_logout(n_clicks):
+    return (
+        dbc.Alert("Logged out successfully", color="info"),
+        {"display": "none"},
+        None,  # Clear auth data
+        {"display": "inline-block"},  # Show login button
+        {"display": "none"}  # Hide logout button
+    )
 
 # Create project
 @app.callback(

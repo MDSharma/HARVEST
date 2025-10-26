@@ -60,15 +60,37 @@ def validate_doi(doi: str) -> bool:
     """
     Validate DOI format to prevent injection attacks.
     Returns True if DOI is valid, False otherwise.
+    
+    DOI format: 10.prefix/suffix
+    - Prefix: 4-9 digits
+    - Suffix: Can contain any printable ASCII character except whitespace
+    
+    Per DOI spec, the suffix can include: a-z A-Z 0-9 - . _ ; ( ) / : and more
+    We exclude only dangerous characters that could enable injection attacks:
+    - No whitespace
+    - No quotes (single or double)
+    - No backslashes
+    - No control characters
     """
     if not doi or not isinstance(doi, str):
         return False
     
-    # DOI pattern: 10.xxxx/yyyy where xxxx is 4-9 digits
-    # Only allow alphanumeric, dots, hyphens, underscores, slashes, and parentheses
-    # Explicitly exclude semicolons, quotes, and other potentially dangerous characters
-    doi_pattern = r'^10\.\d{4,9}/[-._()\[\]A-Za-z0-9]+$'
-    return bool(re.match(doi_pattern, doi))
+    # Must start with 10.xxxx/ where xxxx is 4-9 digits
+    if not re.match(r'^10\.\d{4,9}/', doi):
+        return False
+    
+    # Check for dangerous characters that could enable injection
+    # Allow: a-z A-Z 0-9 and common DOI punctuation: . - _ ( ) [ ] / : ;
+    # Explicitly block: quotes, backslash, whitespace, control characters
+    dangerous_chars = r'[\s\\"\'\x00-\x1f\x7f]'
+    if re.search(dangerous_chars, doi):
+        return False
+    
+    # Additional length check to prevent abuse
+    if len(doi) > 200:  # DOIs are typically much shorter
+        return False
+    
+    return True
 
 def validate_url(url: str) -> bool:
     """

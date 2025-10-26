@@ -256,45 +256,92 @@ def rerank_papers(papers: List[Dict[str, Any]], query: str, top_k: int = 10) -> 
 def search_papers(query: str, top_k: int = 10) -> Dict[str, Any]:
     """
     Main search function that orchestrates the entire search pipeline:
-    1. Query expansion
-    2. Multi-source search (Semantic Scholar + arXiv)
+    1. Query expansion (AutoResearch)
+    2. Multi-source search (DeepResearch - Python Reimpl): Semantic Scholar + arXiv
     3. Deduplication
-    4. Semantic reranking
+    4. Semantic reranking (DELM)
 
-    Returns a dictionary with papers and metadata.
+    Returns a dictionary with papers and metadata, including execution details.
     """
     start_time = time.time()
+    execution_log = []  # Track execution steps for display
 
     try:
-        # Expand query
+        # Step 1: AutoResearch - Query expansion
+        step1_start = time.time()
         queries = expand_query(query)
+        step1_time = time.time() - step1_start
         logger.info(f"Expanded query '{query}' to {len(queries)} variations")
+        execution_log.append({
+            'step': 'AutoResearch',
+            'description': 'Query Expansion',
+            'details': f"Expanded '{query}' to {len(queries)} query variations",
+            'elapsed_ms': int(step1_time * 1000),
+            'status': 'completed'
+        })
 
-        # Search both sources
+        # Step 2: DeepResearch (Python Reimpl) - Multi-source search
+        step2_start = time.time()
         all_papers = []
 
         # Semantic Scholar (40 papers)
+        s2_start = time.time()
+        s2_papers = []
         for q in queries[:1]:  # Use only the primary query for S2
-            s2_papers = search_semantic_scholar(q, limit=40)
-            all_papers.extend(s2_papers)
+            s2_results = search_semantic_scholar(q, limit=40)
+            s2_papers.extend(s2_results)
+            all_papers.extend(s2_results)
+        s2_time = time.time() - s2_start
+        s2_count = len(s2_papers)
 
         # arXiv (10 papers)
+        arxiv_start = time.time()
         arxiv_papers = search_arxiv(query, limit=10)
         all_papers.extend(arxiv_papers)
+        arxiv_time = time.time() - arxiv_start
+        arxiv_count = len(arxiv_papers)
+
+        step2_time = time.time() - step2_start
+        execution_log.append({
+            'step': 'DeepResearch (Python Reimpl)',
+            'description': 'Multi-Source Paper Retrieval',
+            'details': f"Retrieved {len(all_papers)} papers: Semantic Scholar ({s2_count} in {s2_time:.2f}s), arXiv ({arxiv_count} in {arxiv_time:.2f}s)",
+            'elapsed_ms': int(step2_time * 1000),
+            'status': 'completed'
+        })
 
         if not all_papers:
             return {
                 'success': False,
                 'papers': [],
                 'message': 'No papers found. Try a different query.',
-                'elapsed_time': time.time() - start_time
+                'elapsed_time': time.time() - start_time,
+                'execution_log': execution_log
             }
 
-        # Deduplicate
+        # Step 2b: Deduplication (part of DeepResearch)
+        dedup_start = time.time()
         unique_papers = deduplicate_papers(all_papers)
+        dedup_time = time.time() - dedup_start
+        execution_log.append({
+            'step': 'DeepResearch (Python Reimpl)',
+            'description': 'Deduplication',
+            'details': f"Deduplicated {len(all_papers)} papers to {len(unique_papers)} unique entries",
+            'elapsed_ms': int(dedup_time * 1000),
+            'status': 'completed'
+        })
 
-        # Rerank
+        # Step 3: DELM - Semantic reranking
+        step3_start = time.time()
         reranked_papers = rerank_papers(unique_papers, query, top_k=top_k)
+        step3_time = time.time() - step3_start
+        execution_log.append({
+            'step': 'DELM',
+            'description': 'Semantic Reranking',
+            'details': f"Reranked {len(unique_papers)} papers using semantic similarity, returning top {len(reranked_papers)} results",
+            'elapsed_ms': int(step3_time * 1000),
+            'status': 'completed'
+        })
 
         # Format abstracts (snippet only)
         for paper in reranked_papers:
@@ -313,14 +360,23 @@ def search_papers(query: str, top_k: int = 10) -> Dict[str, Any]:
             'total_unique': len(unique_papers),
             'returned': len(reranked_papers),
             'elapsed_time': elapsed_time,
-            'message': f'Found {len(reranked_papers)} relevant papers in {elapsed_time:.2f}s'
+            'message': f'Found {len(reranked_papers)} relevant papers in {elapsed_time:.2f}s',
+            'execution_log': execution_log
         }
 
     except Exception as e:
         logger.error(f"Search pipeline failed: {e}")
+        execution_log.append({
+            'step': 'Error',
+            'description': 'Pipeline Failure',
+            'details': str(e),
+            'elapsed_ms': 0,
+            'status': 'error'
+        })
         return {
             'success': False,
             'papers': [],
             'message': f'Search failed: {str(e)}',
-            'elapsed_time': time.time() - start_time
+            'elapsed_time': time.time() - start_time,
+            'execution_log': execution_log
         }
