@@ -4,6 +4,9 @@ import json
 import hashlib
 import requests
 import base64
+import time
+import logging
+import threading
 from datetime import datetime
 from functools import lru_cache
 
@@ -11,6 +14,9 @@ import dash
 from dash import Dash, dcc, html, dash_table, Input, Output, State, MATCH, ALL, ctx, no_update
 import dash_bootstrap_components as dbc
 from flask import Response, request as flask_request
+
+# Setup logging
+logger = logging.getLogger(__name__)
 
 # Import configuration
 try:
@@ -70,6 +76,19 @@ SCHEMA_JSON = {
 }
 
 OTHER_SENTINEL = "__OTHER__"
+
+# Rate limiting state for data fetches
+# Store last fetch times to prevent rapid successive requests
+# Using threading.Lock for thread-safety in multi-user scenarios
+_last_fetch_times = {
+    "recent_data": 0,  # Timestamp of last fetch for recent data
+}
+_fetch_lock = threading.Lock()  # Thread-safe access to _last_fetch_times
+FETCH_COOLDOWN_SECONDS = 2  # Minimum seconds between fetches
+
+# Helper constant for no_update returns with many outputs
+NO_UPDATE_15 = tuple([no_update] * 15)
+
 
 def build_entity_options(schema_dict):
     base = [{"label": k, "value": k} for k in schema_dict["span-attribute"].keys()]
@@ -1033,20 +1052,26 @@ def create_doi_metadata_card_and_data(doi, metadata):
     
     return metadata_card, metadata_data
 
-# DOI validation callback
-@app.callback(
-    Output("doi-validation", "children"),
-    Output("doi-validation", "style"),
-    Output("doi-metadata-display", "children"),
-    Output("doi-metadata-display", "style"),
-    Output("doi-metadata-store", "data"),
-    Input("btn-validate-doi", "n_clicks"),
-    State("literature-link", "value"),
-    prevent_initial_call=True,
-)
-def validate_doi(n_clicks, doi_input):
+
+def validate_doi_internal(doi_input):
+    """
+    Internal helper function to validate a DOI and retrieve metadata.
+    
+    Args:
+        doi_input: DOI string to validate
+        
+    Returns:
+        tuple: (success, validation_message, validation_style, metadata_card, metadata_card_style, metadata_data)
+        - success: boolean indicating if validation was successful
+        - validation_message: string message to display
+        - validation_style: dict with CSS style for validation message
+        - metadata_card: Dash component with metadata display or None
+        - metadata_card_style: dict with CSS style for metadata card
+        - metadata_data: dict with metadata or None
+    """
     if not doi_input or not doi_input.strip():
         return (
+            False,
             "Please enter a DOI",
             {"color": "red"},
             None,
@@ -1065,6 +1090,7 @@ def validate_doi(n_clicks, doi_input):
                 metadata_card, metadata_data = create_doi_metadata_card_and_data(doi, metadata)
 
                 return (
+                    True,
                     "Valid DOI - metadata retrieved",
                     {"color": "green"},
                     metadata_card,
@@ -1074,6 +1100,7 @@ def validate_doi(n_clicks, doi_input):
             else:
                 error_msg = result.get("error", "Invalid DOI")
                 return (
+                    False,
                     error_msg,
                     {"color": "red"},
                     None,
@@ -1082,20 +1109,62 @@ def validate_doi(n_clicks, doi_input):
                 )
         else:
             return (
+                False,
                 f"Validation failed: {r.status_code}",
                 {"color": "red"},
                 None,
                 {"display": "none"},
                 None
             )
-    except Exception as e:
+    except requests.exceptions.Timeout:
+        # Log error type for debugging without exposing DOI
+        logger.warning("DOI validation request timed out")
         return (
-            f"Error: {str(e)}",
+            False,
+            "Validation request timed out",
             {"color": "red"},
             None,
             {"display": "none"},
             None
         )
+    except requests.exceptions.RequestException as e:
+        # Log error type for debugging without exposing DOI or internal details
+        logger.warning(f"DOI validation request failed: {type(e).__name__}")
+        return (
+            False,
+            "Validation service unavailable",
+            {"color": "red"},
+            None,
+            {"display": "none"},
+            None
+        )
+    except Exception as e:
+        # Log error type for debugging without exposing internal details
+        logger.error(f"Unexpected error during DOI validation: {type(e).__name__}")
+        return (
+            False,
+            "An error occurred during validation",
+            {"color": "red"},
+            None,
+            {"display": "none"},
+            None
+        )
+
+# DOI validation callback
+@app.callback(
+    Output("doi-validation", "children"),
+    Output("doi-validation", "style"),
+    Output("doi-metadata-display", "children"),
+    Output("doi-metadata-display", "style"),
+    Output("doi-metadata-store", "data"),
+    Input("btn-validate-doi", "n_clicks"),
+    State("literature-link", "value"),
+    prevent_initial_call=True,
+)
+def validate_doi(n_clicks, doi_input):
+    # Use internal helper function for validation
+    success, msg, style, card, card_style, data = validate_doi_internal(doi_input)
+    return msg, style, card, card_style, data
 
 # Load choices once (try backend; fallback to local schema)
 @app.callback(
@@ -1352,6 +1421,26 @@ def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter):
     # Only refresh if Browse tab is active
     if tab_value != "tab-browse" and ctx.triggered_id == "main-tabs":
         return no_update
+    
+    # Rate limiting: check if enough time has passed since last fetch
+    # Allow manual refresh button to bypass cooldown
+    # Use thread-safe lock for multi-user scenarios
+    current_time = time.time()
+    should_fetch = True
+    
+    with _fetch_lock:
+        time_since_last_fetch = current_time - _last_fetch_times["recent_data"]
+        
+        if ctx.triggered_id != "btn-refresh" and time_since_last_fetch < FETCH_COOLDOWN_SECONDS:
+            # Too soon since last fetch, skip this request
+            should_fetch = False
+        else:
+            # Update last fetch time
+            _last_fetch_times["recent_data"] = current_time
+    
+    if not should_fetch:
+        return no_update
+    
     try:
         print(f"Fetching recent data from {API_RECENT}")
         # Add project_id filter if selected
@@ -1471,6 +1560,22 @@ def show_project_info(project_id, projects):
     
     return info_text, doi_options, False
 
+
+def create_empty_form_values(num_rows):
+    """
+    Helper function to create empty values for clearing form fields.
+    
+    Args:
+        num_rows: Number of triple rows to clear
+        
+    Returns:
+        tuple: (empty_values, empty_dropdowns) for clearing form fields
+    """
+    empty_values = [""] * num_rows if num_rows > 0 else []
+    empty_dropdowns = [None] * num_rows if num_rows > 0 else []
+    return empty_values, empty_dropdowns
+
+
 # Update literature link when DOI is selected from project
 @app.callback(
     Output("literature-link", "value", allow_duplicate=True),
@@ -1493,49 +1598,26 @@ def show_project_info(project_id, projects):
     prevent_initial_call=True,
 )
 def update_doi_from_project(selected_doi, src_names):
-    if selected_doi:
-        # Clear previous sentence, triple fields, and validate the selected DOI
-        # Determine the number of triple rows to clear
-        num_rows = len(src_names) if src_names else 0
-        
-        # Create empty lists for clearing all triple fields
-        empty_values = [""] * num_rows if num_rows > 0 else []
-        empty_dropdowns = [None] * num_rows if num_rows > 0 else []
-        
-        # Try to validate the DOI automatically
-        try:
-            r = requests.post(API_VALIDATE_DOI, json={"doi": selected_doi}, timeout=15)
-            if r.ok:
-                result = r.json()
-                if result.get("valid"):
-                    metadata = result.get("metadata", {})
-                    doi = result.get("doi", "")
-
-                    metadata_card, metadata_data = create_doi_metadata_card_and_data(doi, metadata)
-
-                    return (
-                        selected_doi,
-                        metadata_data,
-                        "Valid DOI - metadata retrieved",
-                        {"color": "green"},
-                        metadata_card,
-                        {"display": "block"},
-                        "",
-                        empty_values,  # src-name
-                        empty_dropdowns,  # src-attr
-                        empty_values,  # src-attr-other
-                        empty_dropdowns,  # rel-type
-                        empty_values,  # rel-type-other
-                        empty_values,  # sink-name
-                        empty_dropdowns,  # sink-attr
-                        empty_values,  # sink-attr-other
-                    )
-        except Exception as e:
-            print(f"Auto-validation failed for {selected_doi}: {e}")
-        
-        # If validation fails, just update literature link and clear sentence and triple fields
+    if not selected_doi:
+        return NO_UPDATE_15
+    
+    # Clear previous sentence and triple fields
+    num_rows = len(src_names) if src_names else 0
+    empty_values, empty_dropdowns = create_empty_form_values(num_rows)
+    
+    # Try to validate the DOI automatically
+    success, validation_msg, validation_style, metadata_card, metadata_card_style, metadata_data = validate_doi_internal(selected_doi)
+    
+    if success:
+        # Validation succeeded - populate with DOI and metadata
         return (
-            selected_doi, None, "", {"color": "black"}, None, {"display": "none"}, "",
+            selected_doi,
+            metadata_data,
+            validation_msg,
+            validation_style,
+            metadata_card,
+            metadata_card_style,
+            "",  # Clear sentence text
             empty_values,  # src-name
             empty_dropdowns,  # src-attr
             empty_values,  # src-attr-other
@@ -1545,7 +1627,25 @@ def update_doi_from_project(selected_doi, src_names):
             empty_dropdowns,  # sink-attr
             empty_values,  # sink-attr-other
         )
-    return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+    else:
+        # Validation failed - provide user feedback with error message
+        return (
+            selected_doi,
+            None,
+            validation_msg,  # Show error message instead of empty string
+            {"color": "orange"},  # Use orange for warning
+            None,
+            {"display": "none"},
+            "",  # Clear sentence text
+            empty_values,  # src-name
+            empty_dropdowns,  # src-attr
+            empty_values,  # src-attr-other
+            empty_dropdowns,  # rel-type
+            empty_values,  # rel-type-other
+            empty_values,  # sink-name
+            empty_dropdowns,  # sink-attr
+            empty_values,  # sink-attr-other
+        )
 
 # Update PDF viewer when DOI is selected from project
 @app.callback(
