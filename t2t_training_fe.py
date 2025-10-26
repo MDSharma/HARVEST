@@ -5,10 +5,19 @@ import hashlib
 import requests
 import base64
 from datetime import datetime
+from functools import lru_cache
 
 import dash
 from dash import Dash, dcc, html, dash_table, Input, Output, State, MATCH, ALL, ctx, no_update
 import dash_bootstrap_components as dbc
+from flask import Response, request as flask_request
+
+# Import configuration
+try:
+    from config import PARTNER_LOGOS
+except ImportError:
+    # Fallback if config not available
+    PARTNER_LOGOS = []
 
 # -----------------------
 # Config
@@ -232,19 +241,67 @@ def sidebar():
 """
     )
 
-    return dbc.Card(
-        dbc.Accordion(
-            [
-                dbc.AccordionItem(help_md, title="Help"),
-                dbc.AccordionItem(schema_md, title="Schema"),
-                dbc.AccordionItem(qa_md, title="Q&A"),
-            ],
-            start_collapsed=True,
-            always_open=False,
-        ),
+    # Create collapsible sections with horizontal buttons using Tabs
+    info_tabs = dbc.Card(
+        [
+            dbc.Tabs(
+                [
+                    dbc.Tab(help_md, label="Help", tab_id="help"),
+                    dbc.Tab(schema_md, label="Schema", tab_id="schema"),
+                    dbc.Tab(qa_md, label="Q&A", tab_id="qa"),
+                ],
+                id="info-tabs",
+                active_tab="help",
+            )
+        ],
         body=True,
         className="mb-3"
     )
+    
+    # Create partner logos card if logos are configured
+    if PARTNER_LOGOS:
+        logo_elements = []
+        for logo in PARTNER_LOGOS:
+            # Construct the asset path - Dash serves files from /assets/ directory
+            logo_url = logo.get("url", "")
+            if logo_url and not logo_url.startswith(("http://", "https://", "/")):
+                # Local file - prepend with /assets/ path
+                logo_url = f"/assets/{logo_url}"
+            
+            logo_elements.append(
+                dbc.Col(
+                    html.Img(
+                        src=logo_url,
+                        alt=logo.get("alt", logo.get("name", "Partner Logo")),
+                        style={
+                            "maxHeight": "120px",
+                            "maxWidth": "100%",
+                            "objectFit": "contain"
+                        },
+                        title=logo.get("name", "")
+                    ),
+                    className="text-center d-flex align-items-center justify-content-center",
+                    xs=12, sm=6, md=4
+                )
+            )
+        
+        logos_card = dbc.Card(
+            dbc.CardBody(
+                [
+                    html.H6("Partner Institutions", className="text-center mb-3 text-muted"),
+                    dbc.Row(
+                        logo_elements,
+                        className="g-3",
+                        justify="center"
+                    )
+                ]
+            ),
+            className="mb-3"
+        )
+        
+        return html.Div([info_tabs, logos_card])
+    
+    return info_tabs
 
 # -----------------------
 # App & Layout
@@ -526,7 +583,7 @@ app.layout = dbc.Container(
                                                                         )
                                                                     ],
                                                                     style={
-                                                                        "height": "600px",
+                                                                        "height": "1000px",
                                                                         "overflow": "auto",
                                                                         "border": "1px solid #dee2e6",
                                                                         "borderRadius": "4px"
@@ -804,6 +861,118 @@ app.layout = dbc.Container(
     ],
     fluid=True,
 )
+
+# -----------------------
+# Proxy Routes for PDF Streaming
+# -----------------------
+# These routes proxy PDF requests from the frontend to the internal backend (127.0.0.1:5001)
+# This keeps the backend private and unexposed to remote clients
+
+@lru_cache(maxsize=100)
+def _validate_pdf_params(project_id: int, filename: str) -> bool:
+    """
+    Validate PDF request parameters with caching.
+    Returns True if parameters are valid, False otherwise.
+    """
+    # Validate project_id is a positive integer
+    if not isinstance(project_id, int) or project_id <= 0:
+        return False
+    
+    # Validate filename: must be .pdf and no path traversal
+    if not filename:
+        return False
+    if not filename.endswith('.pdf'):
+        return False
+    if '/' in filename or '\\' in filename or '..' in filename:
+        return False
+    
+    # Filename should be a valid hash format (alphanumeric + .pdf)
+    if not all(c.isalnum() or c == '.' for c in filename):
+        return False
+    
+    return True
+
+@server.route('/proxy/pdf/<int:project_id>/<filename>')
+def proxy_pdf(project_id: int, filename: str):
+    """
+    Proxy route to fetch PDFs from internal backend and stream to client.
+    - Validates input parameters
+    - Fetches PDF from internal backend (127.0.0.1:5001)
+    - Streams response with proper error handling
+    - Returns 400 for invalid input, 502 for backend errors, 404 for not found
+    """
+    try:
+        # Validate parameters
+        if not _validate_pdf_params(project_id, filename):
+            return Response(
+                json.dumps({"error": "Invalid project_id or filename"}),
+                status=400,
+                mimetype='application/json'
+            )
+        
+        # Construct internal backend URL
+        backend_url = f"{API_BASE}/api/projects/{project_id}/pdf/{filename}"
+        
+        # Fetch PDF from internal backend
+        try:
+            response = requests.get(backend_url, timeout=10, stream=True)
+            
+            if response.status_code == 404:
+                return Response(
+                    json.dumps({"error": "PDF not found"}),
+                    status=404,
+                    mimetype='application/json'
+                )
+            
+            if not response.ok:
+                return Response(
+                    json.dumps({"error": f"Backend returned status {response.status_code}"}),
+                    status=502,
+                    mimetype='application/json'
+                )
+            
+            # Stream PDF response to client
+            def generate():
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        yield chunk
+            
+            return Response(
+                generate(),
+                status=200,
+                mimetype='application/pdf',
+                headers={
+                    'Content-Disposition': f'inline; filename="{filename}"',
+                    'Cache-Control': 'public, max-age=3600'  # Cache for 1 hour
+                }
+            )
+        
+        except requests.exceptions.Timeout:
+            return Response(
+                json.dumps({"error": "Backend request timeout"}),
+                status=502,
+                mimetype='application/json'
+            )
+        except requests.exceptions.ConnectionError:
+            return Response(
+                json.dumps({"error": "Cannot connect to backend"}),
+                status=502,
+                mimetype='application/json'
+            )
+        except requests.exceptions.RequestException:
+            return Response(
+                json.dumps({"error": "Backend request failed"}),
+                status=502,
+                mimetype='application/json'
+            )
+    
+    except Exception:
+        # Catch-all for unexpected errors
+        return Response(
+            json.dumps({"error": "Internal server error"}),
+            status=500,
+            mimetype='application/json'
+        )
 
 # -----------------------
 # Callbacks
@@ -1314,18 +1483,21 @@ def update_pdf_viewer(selected_doi, project_id):
         
         # Construct PDF path
         pdf_filename = f"{doi_hash}.pdf"
-        pdf_url = f"{API_BASE}/api/projects/{project_id}/pdf/{pdf_filename}"
+        # Use internal backend URL for server-side check
+        backend_pdf_url = f"{API_BASE}/api/projects/{project_id}/pdf/{pdf_filename}"
+        # Use proxy URL for client-side iframe (keeps backend private)
+        proxy_pdf_url = f"/proxy/pdf/{project_id}/{pdf_filename}"
         
-        # Check if PDF exists by trying to fetch it
+        # Check if PDF exists by trying to fetch it from backend
         try:
-            r = requests.head(pdf_url, timeout=5)
+            r = requests.head(backend_pdf_url, timeout=5)
             if r.ok:
-                # PDF exists, show iframe viewer
+                # PDF exists, show iframe viewer with proxy URL
                 return html.Iframe(
-                    src=pdf_url,
+                    src=proxy_pdf_url,
                     style={
                         "width": "100%",
-                        "height": "600px",
+                        "height": "980px",
                         "border": "none"
                     }
                 )
@@ -2241,7 +2413,7 @@ def edit_triple_callback(update_clicks, delete_clicks, triple_id, src_name, src_
         elif trigger == "btn-delete-triple":
             # Delete triple
             r = requests.delete(
-                f"http://127.0.0.1:5001/api/triple/{triple_id}",
+                f"{API_BASE}/api/triple/{triple_id}",
                 json={"email": auth_data["email"], "password": auth_data["password"]},
                 timeout=10
             )

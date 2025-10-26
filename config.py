@@ -34,3 +34,31 @@ ENABLE_PDF_VIEWER = True  # Enable embedded PDF viewer on Annotate tab
 ENABLE_METAPUB_FALLBACK = False  # Try metapub if Unpaywall fails (requires NCBI_API_KEY environment variable)
 ENABLE_HABANERO_DOWNLOAD = True  # Try habanero/institutional access (works within institutional networks)
 HABANERO_PROXY_URL = ""  # Optional: Proxy URL for institutional access (e.g., "http://proxy.university.edu:8080")
+
+# NCBI API Key for Metapub (optional)
+# To use metapub for PDF downloads, you need an NCBI API key
+# Sign up for a free API key at: https://www.ncbi.nlm.nih.gov/account/
+# After creating an account, go to Settings > API Key Management to generate a key
+# Example: NCBI_API_KEY = "27992b64b7fd3c29d74dc4e0ba49bd504e09"
+NCBI_API_KEY = ""  # Enter your NCBI API key here if using metapub
+
+# Partner Logos Configuration
+# Local logo files (jpg or png) in the document root
+# Place your logo files (UOE.png, UM.jpg, ARIA.jpg) in the same directory as this file
+PARTNER_LOGOS = [
+    {
+        "name": "University of Exeter",
+        "url": "UOE.png",
+        "alt": "University of Exeter Logo"
+    },
+    {
+        "name": "Maastricht University",
+        "url": "UM.jpg",
+        "alt": "Maastricht University Logo"
+    },
+    {
+        "name": "Advanced Research and Invention Agency",
+        "url": "ARIA.jpg",
+        "alt": "Funded By Advanced Research + Invention Agency"
+    }
+]
