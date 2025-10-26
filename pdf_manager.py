@@ -6,11 +6,14 @@ Handles downloading and managing PDFs for project DOIs with multiple source fall
 """
 
 import os
+import re
 import requests
 import hashlib
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 import time
+from urllib.parse import urlparse
+import ipaddress
 
 try:
     from config import UNPAYWALL_EMAIL, ENABLE_METAPUB_FALLBACK, ENABLE_HABANERO_DOWNLOAD, HABANERO_PROXY_URL
@@ -49,6 +52,83 @@ except ImportError:
     UNPYWALL_AVAILABLE = False
     print("[PDF] Warning: unpywall library not installed. Using REST API fallback only.")
 
+# Security constants
+MAX_PDF_SIZE = 100 * 1024 * 1024  # 100 MB limit for PDF downloads
+ALLOWED_URL_SCHEMES = ['http', 'https']  # Only allow HTTP(S) downloads
+
+def validate_doi(doi: str) -> bool:
+    """
+    Validate DOI format to prevent injection attacks.
+    Returns True if DOI is valid, False otherwise.
+    """
+    if not doi or not isinstance(doi, str):
+        return False
+    
+    # DOI pattern: 10.xxxx/yyyy where xxxx is 4-9 digits
+    # Only allow alphanumeric, dots, hyphens, underscores, slashes, and parentheses
+    # Explicitly exclude semicolons, quotes, and other potentially dangerous characters
+    doi_pattern = r'^10\.\d{4,9}/[-._()\[\]A-Za-z0-9]+$'
+    return bool(re.match(doi_pattern, doi))
+
+def validate_url(url: str) -> bool:
+    """
+    Validate URL to ensure it's safe to download from.
+    Returns True if URL is valid and safe, False otherwise.
+    """
+    if not url or not isinstance(url, str):
+        return False
+    
+    try:
+        parsed = urlparse(url)
+        # Check scheme is allowed
+        if parsed.scheme.lower() not in ALLOWED_URL_SCHEMES:
+            print(f"[PDF] Security: Blocked URL with invalid scheme: {parsed.scheme}")
+            return False
+        
+        # Check for localhost/internal IPs (SSRF protection)
+        hostname = parsed.hostname
+        if hostname:
+            hostname_lower = hostname.lower()
+            
+            # Block localhost explicitly
+            if hostname_lower in ['localhost', '0.0.0.0', '::1']:
+                print(f"[PDF] Security: Blocked URL targeting internal network: {hostname}")
+                return False
+            
+            # Try to parse as IP address
+            try:
+                ip = ipaddress.ip_address(hostname)
+                # Block private, loopback, link-local, and multicast addresses
+                if (ip.is_private or ip.is_loopback or 
+                    ip.is_link_local or ip.is_multicast or 
+                    ip.is_reserved):
+                    print(f"[PDF] Security: Blocked URL targeting internal network: {hostname}")
+                    return False
+            except ValueError:
+                # Not an IP address, it's a hostname - allow it
+                pass
+        
+        return True
+    except Exception as e:
+        print(f"[PDF] Security: URL validation error: {e}")
+        return False
+
+def sanitize_filename(filename: str) -> str:
+    """
+    Sanitize filename to prevent path traversal attacks.
+    Returns sanitized filename with only alphanumeric and safe characters.
+    """
+    # Remove any path components
+    filename = os.path.basename(filename)
+    # Keep only alphanumeric, dots, hyphens, and underscores
+    filename = re.sub(r'[^a-zA-Z0-9._-]', '_', filename)
+    # Remove leading dots to prevent hidden files
+    filename = filename.lstrip('.')
+    # Ensure it ends with .pdf
+    if not filename.endswith('.pdf'):
+        filename = filename + '.pdf'
+    return filename
+
 def generate_doi_hash(doi: str) -> str:
     """Generate a hash from DOI for file naming"""
     return hashlib.sha256(doi.encode('utf-8')).hexdigest()[:16]
@@ -59,6 +139,10 @@ def check_open_access(doi: str, email: str = None) -> Tuple[bool, str]:
     Uses both REST API and unpywall library for better PDF link detection.
     Returns: (is_open_access, pdf_url or error_message)
     """
+    # Validate DOI format
+    if not validate_doi(doi):
+        return False, f"Invalid DOI format: {doi}"
+    
     # First try the REST API approach
     try:
         if email is None:
@@ -183,8 +267,16 @@ def download_pdf(doi: str, pdf_url: str, save_dir: str, use_proxy: bool = False)
     Returns: (success, message)
     """
     try:
+        # Validate DOI format
+        if not validate_doi(doi):
+            return False, f"Invalid DOI format: {doi}"
+        
+        # Validate URL
+        if not validate_url(pdf_url):
+            return False, f"Invalid or unsafe URL: {pdf_url}"
+        
         doi_hash = generate_doi_hash(doi)
-        filename = f"{doi_hash}.pdf"
+        filename = sanitize_filename(f"{doi_hash}.pdf")
         filepath = os.path.join(save_dir, filename)
         
         # Check if file already exists
@@ -215,10 +307,22 @@ def download_pdf(doi: str, pdf_url: str, save_dir: str, use_proxy: bool = False)
             if 'pdf' not in content_type and 'application/octet-stream' not in content_type:
                 return False, f"Response is not a PDF (content-type: {content_type})"
             
-            # Save file
+            # Check content length to prevent DoS
+            content_length = response.headers.get('content-length')
+            if content_length and int(content_length) > MAX_PDF_SIZE:
+                return False, f"File too large ({int(content_length)} bytes exceeds {MAX_PDF_SIZE} bytes limit)"
+            
+            # Save file with size limit
+            total_size = 0
             with open(filepath, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
+                        total_size += len(chunk)
+                        # Check size during download
+                        if total_size > MAX_PDF_SIZE:
+                            f.close()
+                            os.remove(filepath)
+                            return False, f"Download aborted: file size exceeds {MAX_PDF_SIZE} bytes limit"
                         f.write(chunk)
             
             file_size = os.path.getsize(filepath)
@@ -328,7 +432,15 @@ def process_project_dois_with_progress(doi_list: List[str], project_dir: str, pr
     }
     """
     # Create project directory if it doesn't exist
-    Path(project_dir).mkdir(parents=True, exist_ok=True)
+    try:
+        Path(project_dir).mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        print(f"[PDF] Error creating project directory: {e}")
+        return {
+            "downloaded": [],
+            "needs_upload": [],
+            "errors": [("", f"Failed to create project directory: {str(e)}")]
+        }
     
     results = {
         "downloaded": [],
@@ -344,8 +456,16 @@ def process_project_dois_with_progress(doi_list: List[str], project_dir: str, pr
         # Clean DOI - remove any URL prefixes
         doi = doi.replace("https://doi.org/", "").replace("http://doi.org/", "")
         
+        # Validate DOI format
+        if not validate_doi(doi):
+            print(f"[PDF] Invalid DOI format: {doi}")
+            results["errors"].append((doi, "Invalid DOI format"))
+            if progress_callback:
+                progress_callback(idx, doi, False, "Invalid DOI format", "")
+            continue
+        
         doi_hash = generate_doi_hash(doi)
-        filename = f"{doi_hash}.pdf"
+        filename = sanitize_filename(f"{doi_hash}.pdf")
         
         print(f"[PDF] Processing DOI {idx + 1}/{len(doi_list)}: {doi}")
         
@@ -391,15 +511,32 @@ def list_project_pdfs(project_dir: str) -> List[Dict]:
     if not os.path.exists(project_dir):
         return []
     
+    # Resolve to absolute path to prevent directory traversal
+    project_dir = os.path.abspath(project_dir)
+    
     pdfs = []
-    for filename in os.listdir(project_dir):
-        if filename.endswith('.pdf'):
-            filepath = os.path.join(project_dir, filename)
-            pdfs.append({
-                "filename": filename,
-                "size": os.path.getsize(filepath),
-                "path": filepath
-            })
+    try:
+        for filename in os.listdir(project_dir):
+            # Sanitize filename and only allow PDF files
+            if not filename.endswith('.pdf'):
+                continue
+            
+            # Prevent directory traversal by ensuring the file is within project_dir
+            filepath = os.path.abspath(os.path.join(project_dir, filename))
+            if not filepath.startswith(project_dir):
+                print(f"[PDF] Security: Blocked access to file outside project directory: {filename}")
+                continue
+            
+            # Check if it's a file (not a directory or symlink)
+            if os.path.isfile(filepath) and not os.path.islink(filepath):
+                pdfs.append({
+                    "filename": os.path.basename(filename),
+                    "size": os.path.getsize(filepath),
+                    "path": filepath
+                })
+    except Exception as e:
+        print(f"[PDF] Error listing PDFs: {e}")
+        return []
     
     return pdfs
 

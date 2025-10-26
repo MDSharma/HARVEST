@@ -6,6 +6,7 @@ Tests unpaywall, metapub, and habanero sources with a list of DOIs
 """
 
 import os
+import re
 import sys
 from pathlib import Path
 from typing import List, Tuple, Dict
@@ -16,6 +17,7 @@ try:
         check_open_access,
         try_metapub_download,
         download_pdf_multi_source,
+        validate_doi,
         METAPUB_AVAILABLE,
         HABANERO_AVAILABLE,
         UNPYWALL_AVAILABLE,
@@ -24,6 +26,28 @@ try:
 except ImportError as e:
     print(f"Error importing pdf_manager: {e}")
     sys.exit(1)
+
+def sanitize_doi_input(doi: str) -> str:
+    """
+    Sanitize and validate DOI input from command line.
+    Returns cleaned DOI or empty string if invalid.
+    Uses the same validation as pdf_manager.validate_doi for consistency.
+    """
+    if not doi or not isinstance(doi, str):
+        return ""
+    
+    # Strip whitespace
+    doi = doi.strip()
+    
+    # Remove common URL prefixes
+    doi = doi.replace("https://doi.org/", "").replace("http://doi.org/", "")
+    
+    # Validate using the same function from pdf_manager
+    if not validate_doi(doi):
+        print(f"Warning: Invalid DOI format, will be skipped: {doi}")
+        return ""
+    
+    return doi
 
 def test_unpaywall(doi: str) -> Dict:
     """Test Unpaywall API for a DOI"""
@@ -104,6 +128,19 @@ def test_habanero(doi: str) -> Dict:
 
 def test_doi(doi: str, test_dir: str) -> Dict:
     """Test all sources for a single DOI"""
+    # Validate DOI first
+    if not validate_doi(doi):
+        print(f"\n{'='*80}")
+        print(f"Skipping invalid DOI: {doi}")
+        print(f"{'='*80}")
+        return {
+            "doi": doi,
+            "unpaywall": {"available": False, "message": "Invalid DOI format"},
+            "metapub": {"available": False, "message": "Invalid DOI format"},
+            "habanero": {"available": False, "message": "Invalid DOI format"},
+            "download": {"success": False, "message": "Invalid DOI format", "source": "none"}
+        }
+    
     print(f"\n{'='*80}")
     print(f"Testing DOI: {doi}")
     print(f"{'='*80}")
@@ -140,12 +177,16 @@ def print_summary(all_results: List[Dict]):
     print("="*80)
     
     total = len(all_results)
+    if total == 0:
+        print("\nNo DOIs were tested.")
+        return
+    
     unpaywall_success = sum(1 for r in all_results if r["unpaywall"].get("available", False))
     metapub_success = sum(1 for r in all_results if r["metapub"].get("available", False))
     download_success = sum(1 for r in all_results if r["download"].get("success", False))
     
     print(f"\nTotal DOIs tested: {total}")
-    print(f"Unpaywall found: {unpaywall_success}/{total} ({unpaywall_success*100//total}%)")
+    print(f"Unpaywall found: {unpaywall_success}/{total} ({unpaywall_success*100//total if total else 0}%)")
     print(f"Metapub found: {metapub_success}/{total} ({metapub_success*100//total if total else 0}%)")
     print(f"Successfully downloaded: {download_success}/{total} ({download_success*100//total if total else 0}%)")
     
@@ -216,15 +257,30 @@ def main():
     
     # Allow user to provide DOIs as arguments
     if len(sys.argv) > 1:
-        test_dois = sys.argv[1:]
-        print(f"\nUsing {len(test_dois)} DOI(s) from command line arguments")
+        # Sanitize command-line inputs
+        raw_dois = sys.argv[1:]
+        test_dois = []
+        for doi in raw_dois:
+            sanitized = sanitize_doi_input(doi)
+            if sanitized:
+                test_dois.append(sanitized)
+        
+        if not test_dois:
+            print("\nError: No valid DOIs provided in command line arguments")
+            sys.exit(1)
+        
+        print(f"\nUsing {len(test_dois)} valid DOI(s) from command line arguments")
     else:
         print(f"\nUsing {len(test_dois)} default test DOIs")
         print("(You can provide DOIs as command line arguments)")
     
     # Create test directory
     test_dir = "/tmp/pdf_test"
-    Path(test_dir).mkdir(parents=True, exist_ok=True)
+    try:
+        Path(test_dir).mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        print(f"\nError: Failed to create test directory: {e}")
+        sys.exit(1)
     print(f"\nTest download directory: {test_dir}")
     
     # Test each DOI

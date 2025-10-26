@@ -86,7 +86,7 @@ def init_db(db_path: str) -> None:
         columns = [row[1] for row in cur.fetchall()]
 
         if 'doi_hash' not in columns:
-            print("WARNING: Database schema needs migration. Please run: python3 migrate_db.py")
+            print("WARNING: Database schema needs migration. Please run: python3 migrate_db_v2.py")
             print("Attempting automatic migration...")
 
             # Try to add missing columns
