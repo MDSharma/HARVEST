@@ -39,7 +39,7 @@ HABANERO_PROXY_URL = ""  # Optional: Proxy URL for institutional access (e.g., "
 # To use metapub for PDF downloads, you need an NCBI API key
 # Sign up for a free API key at: https://www.ncbi.nlm.nih.gov/account/
 # After creating an account, go to Settings > API Key Management to generate a key
-# Example: NCBI_API_KEY = "27992b64b7fd3c29d74dc4e0ba49bd504e09"
+# Example: NCBI_API_KEY = "279xxxxxxxxd504e09"
 NCBI_API_KEY = ""  # Enter your NCBI API key here if using metapub
 
 # Partner Logos Configuration
