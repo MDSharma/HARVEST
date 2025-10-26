@@ -15,6 +15,9 @@ from dash import Dash, dcc, html, dash_table, Input, Output, State, MATCH, ALL, 
 import dash_bootstrap_components as dbc
 from flask import Response, request as flask_request
 
+# Literature search module
+import literature_search
+
 # Setup logging
 logger = logging.getLogger(__name__)
 
@@ -457,8 +460,65 @@ app.layout = dbc.Container(
 
                         dcc.Tabs(
                             id="main-tabs",
-                            value="tab-annotate",
+                            value="tab-literature",
                             children=[
+                                dcc.Tab(
+                                    label="Literature Search",
+                                    value="tab-literature",
+                                    children=[
+                                        dbc.Card(
+                                            [
+                                                html.H5("Semantic Paper Discovery", className="mb-3"),
+                                                html.P(
+                                                    "Search for relevant papers from Semantic Scholar and arXiv using natural language queries.",
+                                                    className="text-muted mb-4"
+                                                ),
+                                                dbc.Row(
+                                                    [
+                                                        dbc.Col(
+                                                            [
+                                                                dbc.Label("Search Query", style={"fontWeight": "bold"}),
+                                                                dbc.Input(
+                                                                    id="lit-search-query",
+                                                                    placeholder="e.g., AI in drug discovery, climate change ethics, CRISPR gene editing",
+                                                                    type="text",
+                                                                    debounce=True,
+                                                                ),
+                                                                html.Small(
+                                                                    "Enter a natural language query to find relevant papers",
+                                                                    className="text-muted"
+                                                                ),
+                                                            ],
+                                                            md=9,
+                                                        ),
+                                                        dbc.Col(
+                                                            [
+                                                                html.Br(),
+                                                                dbc.Button(
+                                                                    "Search Papers",
+                                                                    id="btn-search-papers",
+                                                                    color="primary",
+                                                                    className="w-100",
+                                                                ),
+                                                            ],
+                                                            md=3,
+                                                        ),
+                                                    ],
+                                                    className="mb-4",
+                                                ),
+                                                dcc.Loading(
+                                                    id="loading-search",
+                                                    type="default",
+                                                    children=[
+                                                        html.Div(id="search-status", className="mb-3"),
+                                                        html.Div(id="search-results"),
+                                                    ],
+                                                ),
+                                            ],
+                                            body=True,
+                                        )
+                                    ],
+                                ),
                                 dcc.Tab(
                                     label="Annotate",
                                     value="tab-annotate",
@@ -1017,6 +1077,171 @@ def validate_email(email):
 
 # Note: Removed restore_email callback to prevent circular dependency
 # The email-store serves as validation state, not as a persistent storage for the input field
+
+
+# Literature Search callback
+@app.callback(
+    Output("search-status", "children"),
+    Output("search-results", "children"),
+    Input("btn-search-papers", "n_clicks"),
+    State("lit-search-query", "value"),
+    prevent_initial_call=True,
+)
+def perform_literature_search(n_clicks, query):
+    """
+    Callback to perform literature search when button is clicked.
+    """
+    if not query or not query.strip():
+        return (
+            dbc.Alert("Please enter a search query", color="warning"),
+            None
+        )
+
+    try:
+        # Perform search
+        result = literature_search.search_papers(query.strip(), top_k=10)
+
+        if not result['success']:
+            return (
+                dbc.Alert(result['message'], color="danger"),
+                None
+            )
+
+        papers = result['papers']
+
+        if not papers:
+            return (
+                dbc.Alert("No papers found. Try a different query.", color="info"),
+                None
+            )
+
+        # Create status message
+        status = dbc.Alert(
+            [
+                html.Strong(result['message']),
+                html.Br(),
+                html.Small(f"Total found: {result['total_found']} | Unique: {result['total_unique']} | Displaying: {result['returned']}")
+            ],
+            color="success"
+        )
+
+        # Create results table
+        results_content = []
+
+        for i, paper in enumerate(papers, 1):
+            # Format authors
+            authors_text = ", ".join(paper.get('authors', [])[:3])
+            if len(paper.get('authors', [])) > 3:
+                authors_text += " et al."
+
+            # Format year
+            year_text = str(paper.get('year', 'N/A'))
+
+            # Format DOI link
+            doi = paper.get('doi', '')
+            if doi:
+                if doi.startswith('arXiv:'):
+                    arxiv_id = doi.replace('arXiv:', '')
+                    doi_link = html.A(
+                        doi,
+                        href=f"https://arxiv.org/abs/{arxiv_id}",
+                        target="_blank",
+                        className="text-decoration-none"
+                    )
+                else:
+                    doi_link = html.A(
+                        doi,
+                        href=f"https://doi.org/{doi}",
+                        target="_blank",
+                        className="text-decoration-none"
+                    )
+            else:
+                doi_link = html.Span("N/A", className="text-muted")
+
+            # Create paper card
+            paper_card = dbc.Card(
+                [
+                    dbc.CardBody(
+                        [
+                            html.H6(
+                                f"{i}. {paper.get('title', 'N/A')}",
+                                className="mb-2",
+                                style={"fontWeight": "bold"}
+                            ),
+                            html.P(
+                                [
+                                    html.Strong("Authors: "),
+                                    authors_text,
+                                    html.Br(),
+                                    html.Strong("Year: "),
+                                    year_text,
+                                    html.Br(),
+                                    html.Strong("Source: "),
+                                    paper.get('source', 'N/A'),
+                                    html.Br(),
+                                    html.Strong("DOI: "),
+                                    doi_link,
+                                ],
+                                className="mb-2",
+                                style={"fontSize": "0.9rem"}
+                            ),
+                            dbc.Collapse(
+                                dbc.Card(
+                                    dbc.CardBody(
+                                        [
+                                            html.Strong("Abstract:"),
+                                            html.P(
+                                                paper.get('abstract_snippet', 'No abstract available'),
+                                                className="mt-2",
+                                                style={"fontSize": "0.85rem"}
+                                            ),
+                                        ]
+                                    ),
+                                    color="light",
+                                ),
+                                id=f"collapse-paper-{i}",
+                                is_open=False,
+                            ),
+                            dbc.Button(
+                                "Show Abstract",
+                                id=f"btn-toggle-paper-{i}",
+                                color="link",
+                                size="sm",
+                                className="mt-2 p-0",
+                            ),
+                        ]
+                    )
+                ],
+                className="mb-3",
+                style={"borderLeft": "3px solid #007bff"}
+            )
+
+            results_content.append(paper_card)
+
+        return status, html.Div(results_content)
+
+    except Exception as e:
+        logger.error(f"Literature search error: {e}")
+        return (
+            dbc.Alert(f"Search failed: {str(e)}", color="danger"),
+            None
+        )
+
+
+# Callbacks for paper abstract toggling
+for i in range(1, 11):
+    @app.callback(
+        Output(f"collapse-paper-{i}", "is_open"),
+        Output(f"btn-toggle-paper-{i}", "children"),
+        Input(f"btn-toggle-paper-{i}", "n_clicks"),
+        State(f"collapse-paper-{i}", "is_open"),
+        prevent_initial_call=True,
+    )
+    def toggle_collapse(n, is_open, idx=i):
+        if n:
+            return not is_open, "Hide Abstract" if not is_open else "Show Abstract"
+        return is_open, "Show Abstract"
+
 
 # Helper function to create DOI metadata card and store data
 def create_doi_metadata_card_and_data(doi, metadata):
