@@ -999,6 +999,40 @@ def validate_email(email):
 # Note: Removed restore_email callback to prevent circular dependency
 # The email-store serves as validation state, not as a persistent storage for the input field
 
+# Helper function to create DOI metadata card and store data
+def create_doi_metadata_card_and_data(doi, metadata):
+    """
+    Create metadata card and data structure for a validated DOI.
+    
+    Args:
+        doi: The validated DOI string
+        metadata: Dictionary with title, authors, year
+        
+    Returns:
+        tuple: (metadata_card, metadata_data_dict)
+    """
+    metadata_card = dbc.Alert(
+        [
+            html.H6("Article Metadata Retrieved:", className="alert-heading"),
+            html.Hr(),
+            html.P([html.Strong("DOI: "), doi]),
+            html.P([html.Strong("Title: "), metadata.get("title", "N/A")]),
+            html.P([html.Strong("Authors: "), metadata.get("authors", "N/A")]),
+            html.P([html.Strong("Year: "), metadata.get("year", "N/A")], className="mb-0"),
+        ],
+        color="success",
+        className="mb-2",
+    )
+    
+    metadata_data = {
+        "doi": doi,
+        "title": metadata.get("title", ""),
+        "authors": metadata.get("authors", ""),
+        "year": metadata.get("year", ""),
+    }
+    
+    return metadata_card, metadata_data
+
 # DOI validation callback
 @app.callback(
     Output("doi-validation", "children"),
@@ -1028,30 +1062,14 @@ def validate_doi(n_clicks, doi_input):
                 metadata = result.get("metadata", {})
                 doi = result.get("doi", "")
 
-                metadata_card = dbc.Alert(
-                    [
-                        html.H6("Article Metadata Retrieved:", className="alert-heading"),
-                        html.Hr(),
-                        html.P([html.Strong("DOI: "), doi]),
-                        html.P([html.Strong("Title: "), metadata.get("title", "N/A")]),
-                        html.P([html.Strong("Authors: "), metadata.get("authors", "N/A")]),
-                        html.P([html.Strong("Year: "), metadata.get("year", "N/A")], className="mb-0"),
-                    ],
-                    color="success",
-                    className="mb-2",
-                )
+                metadata_card, metadata_data = create_doi_metadata_card_and_data(doi, metadata)
 
                 return (
                     "Valid DOI - metadata retrieved",
                     {"color": "green"},
                     metadata_card,
                     {"display": "block"},
-                    {
-                        "doi": doi,
-                        "title": metadata.get("title", ""),
-                        "authors": metadata.get("authors", ""),
-                        "year": metadata.get("year", ""),
-                    }
+                    metadata_data
                 )
             else:
                 error_msg = result.get("error", "Invalid DOI")
@@ -1326,10 +1344,14 @@ def populate_browse_project_filter(load_trigger, refresh_click, tab_value):
     Output("recent-table", "children"),
     Input("btn-refresh", "n_clicks"),
     Input("load-trigger", "n_intervals"),
+    Input("main-tabs", "value"),
     State("browse-project-filter", "value"),
     prevent_initial_call=False,
 )
-def refresh_recent(btn_clicks, interval_trigger, project_filter):
+def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter):
+    # Only refresh if Browse tab is active
+    if tab_value != "tab-browse" and ctx.triggered_id == "main-tabs":
+        return no_update
     try:
         print(f"Fetching recent data from {API_RECENT}")
         # Add project_id filter if selected
@@ -1452,13 +1474,78 @@ def show_project_info(project_id, projects):
 # Update literature link when DOI is selected from project
 @app.callback(
     Output("literature-link", "value", allow_duplicate=True),
+    Output("doi-metadata-store", "data", allow_duplicate=True),
+    Output("doi-validation", "children", allow_duplicate=True),
+    Output("doi-validation", "style", allow_duplicate=True),
+    Output("doi-metadata-display", "children", allow_duplicate=True),
+    Output("doi-metadata-display", "style", allow_duplicate=True),
+    Output("sentence-text", "value", allow_duplicate=True),
+    Output({"type": "src-name", "index": ALL}, "value", allow_duplicate=True),
+    Output({"type": "src-attr", "index": ALL}, "value", allow_duplicate=True),
+    Output({"type": "src-attr-other", "index": ALL}, "value", allow_duplicate=True),
+    Output({"type": "rel-type", "index": ALL}, "value", allow_duplicate=True),
+    Output({"type": "rel-type-other", "index": ALL}, "value", allow_duplicate=True),
+    Output({"type": "sink-name", "index": ALL}, "value", allow_duplicate=True),
+    Output({"type": "sink-attr", "index": ALL}, "value", allow_duplicate=True),
+    Output({"type": "sink-attr-other", "index": ALL}, "value", allow_duplicate=True),
     Input("project-doi-selector", "value"),
+    State({"type": "src-name", "index": ALL}, "value"),
     prevent_initial_call=True,
 )
-def update_doi_from_project(selected_doi):
+def update_doi_from_project(selected_doi, src_names):
     if selected_doi:
-        return selected_doi
-    return no_update
+        # Clear previous sentence, triple fields, and validate the selected DOI
+        # Determine the number of triple rows to clear
+        num_rows = len(src_names) if src_names else 0
+        
+        # Create empty lists for clearing all triple fields
+        empty_values = [""] * num_rows if num_rows > 0 else []
+        empty_dropdowns = [None] * num_rows if num_rows > 0 else []
+        
+        # Try to validate the DOI automatically
+        try:
+            r = requests.post(API_VALIDATE_DOI, json={"doi": selected_doi}, timeout=15)
+            if r.ok:
+                result = r.json()
+                if result.get("valid"):
+                    metadata = result.get("metadata", {})
+                    doi = result.get("doi", "")
+
+                    metadata_card, metadata_data = create_doi_metadata_card_and_data(doi, metadata)
+
+                    return (
+                        selected_doi,
+                        metadata_data,
+                        "Valid DOI - metadata retrieved",
+                        {"color": "green"},
+                        metadata_card,
+                        {"display": "block"},
+                        "",
+                        empty_values,  # src-name
+                        empty_dropdowns,  # src-attr
+                        empty_values,  # src-attr-other
+                        empty_dropdowns,  # rel-type
+                        empty_values,  # rel-type-other
+                        empty_values,  # sink-name
+                        empty_dropdowns,  # sink-attr
+                        empty_values,  # sink-attr-other
+                    )
+        except Exception as e:
+            print(f"Auto-validation failed for {selected_doi}: {e}")
+        
+        # If validation fails, just update literature link and clear sentence and triple fields
+        return (
+            selected_doi, None, "", {"color": "black"}, None, {"display": "none"}, "",
+            empty_values,  # src-name
+            empty_dropdowns,  # src-attr
+            empty_values,  # src-attr-other
+            empty_dropdowns,  # rel-type
+            empty_values,  # rel-type-other
+            empty_values,  # sink-name
+            empty_dropdowns,  # sink-attr
+            empty_values,  # sink-attr-other
+        )
+    return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
 # Update PDF viewer when DOI is selected from project
 @app.callback(
