@@ -3,6 +3,7 @@ import os
 import json
 import hashlib
 import requests
+import base64
 from datetime import datetime
 
 import dash
@@ -262,6 +263,7 @@ app.layout = dbc.Container(
         dcc.Store(id="admin-auth-store", storage_type="session"),
         dcc.Store(id="projects-store"),
         dcc.Store(id="delete-project-id-store"),  # Store project ID to delete
+        dcc.Store(id="upload-project-id-store"),  # Store project ID for upload
         dcc.Store(id="pdf-download-project-id", data=None),  # Store project ID for PDF download tracking
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
         dcc.Interval(id="pdf-download-progress-interval", interval=2000, disabled=True),  # Poll every 2 seconds
@@ -306,6 +308,69 @@ app.layout = dbc.Container(
             ],
             id="delete-project-modal",
             is_open=False,
+        ),
+
+        # Modal for PDF upload
+        dbc.Modal(
+            [
+                dbc.ModalHeader(dbc.ModalTitle("Upload PDFs")),
+                dbc.ModalBody(
+                    [
+                        html.P([
+                            "Upload PDF files manually for this project. ",
+                            html.Strong("For each file selected, you must provide the corresponding DOI."),
+                            " Files will be named according to their DOI using the generate_doi_hash function."
+                        ], className="mb-3"),
+                        
+                        html.Div([
+                            dbc.Label("Option 1: Single DOI for all files (use when uploading multiple files for the same paper)"),
+                            dbc.Input(
+                                id="upload-single-doi-input",
+                                type="text",
+                                placeholder="10.1234/example",
+                                className="mb-2",
+                            ),
+                            html.Small("If provided, this DOI will be used for all uploaded files.", className="text-muted"),
+                        ], className="mb-3"),
+                        
+                        html.Hr(),
+                        
+                        html.Div([
+                            dbc.Label("Option 2: Upload files and specify DOI for each one below"),
+                            dcc.Upload(
+                                id="upload-pdf-files",
+                                children=html.Div([
+                                    'Drag and Drop or ',
+                                    html.A('Select PDF Files')
+                                ]),
+                                style={
+                                    'width': '100%',
+                                    'height': '60px',
+                                    'lineHeight': '60px',
+                                    'borderWidth': '1px',
+                                    'borderStyle': 'dashed',
+                                    'borderRadius': '5px',
+                                    'textAlign': 'center',
+                                    'margin': '10px 0'
+                                },
+                                multiple=True  # Allow multiple files
+                            ),
+                        ], className="mb-3"),
+                        
+                        html.Div(id="upload-file-doi-inputs", className="mb-3"),
+                        html.Div(id="upload-status-message"),
+                    ]
+                ),
+                dbc.ModalFooter(
+                    [
+                        dbc.Button("Cancel", id="upload-pdf-cancel", color="secondary"),
+                        dbc.Button("Upload", id="upload-pdf-confirm", color="warning"),
+                    ]
+                ),
+            ],
+            id="upload-pdf-modal",
+            is_open=False,
+            size="lg",
         ),
 
         dbc.Row(
@@ -597,6 +662,8 @@ app.layout = dbc.Container(
                                                         html.H6("Existing Projects", className="mb-2 mt-3"),
                                                         dbc.Button("Refresh Projects", id="btn-refresh-projects", color="secondary", size="sm", className="mb-2"),
                                                         html.Div(id="projects-list", className="mb-3"),
+                                                        
+                                                        html.Div(id="pdf-download-progress-container", className="mb-3"),
                                                         html.Hr(),
                                                         
                                                         html.H6("Edit/Delete Triples", className="mb-3"),
@@ -1397,6 +1464,8 @@ def display_projects_list(refresh_clicks, create_clicks, delete_clicks, auth_dat
                                                  color="info", size="sm", outline=True),
                                         dbc.Button("Download PDFs", id={"type": "download-project-pdfs", "index": p["id"]}, 
                                                  color="success", size="sm", outline=True),
+                                        dbc.Button("Upload PDFs", id={"type": "upload-project-pdfs", "index": p["id"]}, 
+                                                 color="warning", size="sm", outline=True),
                                         dbc.Button("Delete", id={"type": "delete-project", "index": p["id"]}, 
                                                  color="danger", size="sm", outline=True),
                                     ],
@@ -1452,7 +1521,7 @@ def view_project_dois(n_clicks_list, projects):
 
 # Handle Download PDFs button click - Start download and enable progress polling
 @app.callback(
-    Output("project-message", "children", allow_duplicate=True),
+    Output("pdf-download-progress-container", "children"),
     Output("pdf-download-project-id", "data"),
     Output("pdf-download-progress-interval", "disabled"),
     Input({"type": "download-project-pdfs", "index": ALL}, "n_clicks"),
@@ -1526,7 +1595,7 @@ def start_download_project_pdfs(n_clicks_list, auth_data):
 
 # Poll for PDF download progress
 @app.callback(
-    Output("project-message", "children", allow_duplicate=True),
+    Output("pdf-download-progress-container", "children", allow_duplicate=True),
     Output("pdf-download-progress-interval", "disabled", allow_duplicate=True),
     Output("pdf-download-project-id", "data", allow_duplicate=True),
     Input("pdf-download-progress-interval", "n_intervals"),
@@ -1565,20 +1634,69 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data):
         total = data.get("total", 0)
         current = data.get("current", 0)
         current_doi = data.get("current_doi", "")
+        current_source = data.get("current_source", "")
         
-        print(f"[Frontend] PDF Download: Status={status}, Progress={current}/{total}")
+        print(f"[Frontend] PDF Download: Status={status}, Progress={current}/{total}, Source={current_source}")
         
         if status == "running":
             # Show progress
+            # Format the source name for display
+            source_display = ""
+            if current_source:
+                source_map = {
+                    "unpaywall": "Unpaywall",
+                    "unpywall": "Unpywall",
+                    "metapub": "Metapub",
+                    "habanero": "Habanero",
+                    "habanero_proxy": "Habanero (via proxy)",
+                    "cached": "Cached",
+                    "none": "All sources attempted"
+                }
+                source_display = source_map.get(current_source, current_source)
+            
+            # Build progress text content
+            progress_content = [
+                html.Strong(f"Progress: {current} / {total} DOIs processed"),
+                html.Br(),
+                html.Strong("Currently processing: "), current_doi or "...",
+            ]
+            
+            # Add source information if available
+            if source_display:
+                progress_content.extend([
+                    html.Br(),
+                    html.Strong("Last source used: "),
+                    source_display
+                ])
+            
+            # Fetch and display download configuration
+            try:
+                config_resp = requests.get(f"{API_BASE}/api/pdf-download-config", timeout=3)
+                if config_resp.ok:
+                    config_data = config_resp.json()
+                    sources = config_data.get("sources", [])
+                    enabled_sources = [s for s in sources if s.get("enabled") and s.get("available")]
+                    
+                    if enabled_sources:
+                        progress_content.extend([
+                            html.Br(),
+                            html.Br(),
+                            html.Strong("Active download mechanisms: "),
+                            html.Br(),
+                        ])
+                        for src in enabled_sources:
+                            progress_content.extend([
+                                f"  • {src['name']}: {src['description']}",
+                                html.Br(),
+                            ])
+            except Exception as e:
+                print(f"[Frontend] Could not fetch PDF config: {e}")
+            
             progress_message = dbc.Alert(
                 [
                     html.H6("PDF Download In Progress", className="alert-heading"),
                     html.Hr(),
-                    html.P([
-                        html.Strong(f"Progress: {current} / {total} DOIs processed"),
-                        html.Br(),
-                        html.Strong("Currently processing: "), current_doi or "..."
-                    ]),
+                    html.P(progress_content),
                     dbc.Progress(value=current, max=total, striped=True, animated=True, className="mb-2"),
                     html.P([
                         html.Strong("Downloaded: "), str(data.get("downloaded_count", 0)),
@@ -1816,6 +1934,176 @@ def confirm_delete_project(n_clicks, project_id, option, target_project_id, auth
             return dbc.Alert(error_msg, color="danger"), no_update, False
     except Exception as e:
         return dbc.Alert(f"Error: {str(e)}", color="danger"), no_update, False
+
+# Handle Upload PDFs button click - Open modal
+@app.callback(
+    Output("upload-pdf-modal", "is_open"),
+    Output("upload-project-id-store", "data"),
+    Output("upload-single-doi-input", "value"),
+    Output("upload-file-doi-inputs", "children"),
+    Output("upload-status-message", "children"),
+    Input({"type": "upload-project-pdfs", "index": ALL}, "n_clicks"),
+    Input("upload-pdf-cancel", "n_clicks"),
+    Input("upload-pdf-confirm", "n_clicks"),
+    State("upload-project-id-store", "data"),
+    State("upload-single-doi-input", "value"),
+    State({"type": "file-doi-input", "index": ALL}, "value"),
+    State("upload-pdf-files", "contents"),
+    State("upload-pdf-files", "filename"),
+    State("admin-auth-store", "data"),
+    State("projects-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_upload_pdf_modal(upload_clicks_list, cancel_click, confirm_click, 
+                            stored_project_id, single_doi, file_dois, file_contents, filenames, auth_data, projects):
+    if not ctx.triggered:
+        return no_update, no_update, no_update, no_update, no_update
+    
+    trigger = ctx.triggered_id
+    
+    # Cancel button closes modal
+    if trigger == "upload-pdf-cancel":
+        return False, None, "", None, None
+    
+    # Upload button opens modal
+    if isinstance(trigger, dict) and trigger.get("type") == "upload-project-pdfs":
+        if not any(upload_clicks_list):
+            return no_update, no_update, no_update, no_update, no_update
+        
+        if not auth_data:
+            return True, None, "", None, dbc.Alert("Please login first", color="danger")
+        
+        if not projects:
+            return True, None, "", None, dbc.Alert("No projects available. Please refresh.", color="warning")
+        
+        project_id = trigger["index"]
+        project = next((p for p in projects if p["id"] == project_id), None)
+        
+        if not project:
+            return no_update, no_update, no_update, no_update, no_update
+        
+        return True, project_id, "", None, None
+    
+    # Confirm button - upload files
+    if trigger == "upload-pdf-confirm":
+        if not stored_project_id or not auth_data:
+            return True, stored_project_id, single_doi, None, dbc.Alert("Authentication required", color="danger")
+        
+        if not file_contents or not filenames:
+            return True, stored_project_id, single_doi, None, dbc.Alert("Please select at least one PDF file", color="warning")
+        
+        # Determine DOIs to use for each file
+        # Priority: single_doi if provided, otherwise use individual file DOIs
+        if not isinstance(file_contents, list):
+            file_contents = [file_contents]
+            filenames = [filenames]
+        
+        dois_to_use = []
+        if single_doi and single_doi.strip():
+            # Use single DOI for all files
+            dois_to_use = [single_doi.strip()] * len(filenames)
+        elif file_dois:
+            # Use individual DOIs from file inputs
+            dois_to_use = file_dois
+        else:
+            return True, stored_project_id, single_doi, None, dbc.Alert("Please provide either a single DOI or DOI for each file", color="warning")
+        
+        # Validate we have DOI for each file
+        if len(dois_to_use) != len(filenames):
+            return True, stored_project_id, single_doi, None, dbc.Alert(f"Mismatch: {len(filenames)} files but {len(dois_to_use)} DOIs provided", color="warning")
+        
+        # Process uploads
+        upload_results = []
+        
+        
+        for idx, (content, filename, doi) in enumerate(zip(file_contents, filenames, dois_to_use)):
+            if not filename.endswith('.pdf'):
+                upload_results.append(f"❌ {filename}: Not a PDF file")
+                continue
+            
+            if not doi or not doi.strip():
+                upload_results.append(f"❌ {filename}: No DOI provided")
+                continue
+            
+            try:
+                # Decode base64 content
+                content_type, content_string = content.split(',')
+                decoded = base64.b64decode(content_string)
+                
+                # Upload to backend
+                files = {'file': (filename, decoded, 'application/pdf')}
+                data = {
+                    'email': auth_data.get('email'),
+                    'password': auth_data.get('password'),
+                    'doi': doi.strip()
+                }
+                
+                r = requests.post(
+                    f"{API_BASE}/api/admin/projects/{stored_project_id}/upload-pdf",
+                    files=files,
+                    data=data,
+                    timeout=30
+                )
+                
+                if r.ok:
+                    result = r.json()
+                    upload_results.append(f"✓ {filename}: Uploaded successfully as {result.get('filename', 'unknown')}")
+                else:
+                    try:
+                        error_data = r.json()
+                        error_msg = error_data.get("error", f"Failed: {r.status_code}")
+                    except Exception:
+                        error_msg = f"Failed: {r.status_code}"
+                    upload_results.append(f"❌ {filename}: {error_msg}")
+            
+            except Exception as e:
+                upload_results.append(f"❌ {filename}: {str(e)}")
+        
+        # Show results
+        result_message = dbc.Alert(
+            [html.P(result) for result in upload_results],
+            color="info"
+        )
+        
+        # Keep modal open to show results, but clear DOI input
+        return True, stored_project_id, "", None, result_message
+    
+    return no_update, no_update, no_update, no_update, no_update
+
+# Display DOI input fields for each selected file
+# Note: allow_duplicate=True is required because handle_upload_pdf_modal also
+# updates upload-file-doi-inputs (to clear it when opening/closing modal)
+@app.callback(
+    Output("upload-file-doi-inputs", "children", allow_duplicate=True),
+    Input("upload-pdf-files", "filename"),
+    prevent_initial_call=True,
+)
+def display_upload_file_doi_inputs(filenames):
+    if not filenames:
+        return None
+    
+    if not isinstance(filenames, list):
+        filenames = [filenames]
+    
+    # Create DOI input field for each file
+    inputs = []
+    for idx, filename in enumerate(filenames):
+        inputs.append(
+            html.Div([
+                dbc.Label(f"DOI for {filename}:"),
+                dbc.Input(
+                    id={"type": "file-doi-input", "index": idx},
+                    type="text",
+                    placeholder="10.1234/example",
+                    className="mb-2",
+                ),
+            ])
+        )
+    
+    return html.Div([
+        html.P(html.Strong("Enter DOI for each file:"), className="mb-2"),
+        html.Div(inputs)
+    ])
 
 # Populate triple editor project filter
 @app.callback(

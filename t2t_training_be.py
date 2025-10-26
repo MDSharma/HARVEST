@@ -682,10 +682,11 @@ def _run_pdf_download_task(project_id: int, doi_list: List[str], project_dir: st
                 else:
                     errors.append((doi, message))
             
-            # Update database with current progress
+            # Update database with current progress, including the last source used
             update_pdf_download_progress(DB_PATH, project_id, {
                 "current": current_idx + 1,
                 "current_doi": doi,
+                "current_source": source if source else "none",
                 "downloaded": downloaded,
                 "needs_upload": needs_upload,
                 "errors": errors
@@ -814,6 +815,7 @@ def get_pdf_download_status(project_id: int):
         "total": progress.get("total", 0),
         "current": progress.get("current", 0),
         "current_doi": progress.get("current_doi", ""),
+        "current_source": progress.get("current_source", ""),
         "downloaded_count": len(progress.get("downloaded", [])),
         "needs_upload_count": len(progress.get("needs_upload", [])),
         "errors_count": len(progress.get("errors", [])),
@@ -828,6 +830,70 @@ def get_pdf_download_status(project_id: int):
             "errors": progress.get("errors", [])
         } if progress.get("status") == "completed" else None
     })
+
+@app.get("/api/pdf-download-config")
+def get_pdf_download_config():
+    """Get PDF download configuration and available sources (public endpoint)"""
+    try:
+        from pdf_manager import (
+            UNPAYWALL_EMAIL,
+            UNPYWALL_AVAILABLE,
+            METAPUB_AVAILABLE,
+            HABANERO_AVAILABLE,
+            ENABLE_METAPUB_FALLBACK,
+            ENABLE_HABANERO_DOWNLOAD
+        )
+        
+        sources = []
+        
+        # Unpaywall (REST API) - always attempted first
+        sources.append({
+            "name": "Unpaywall (REST API)",
+            "enabled": True,
+            "available": True,
+            "order": 1,
+            "description": "Open access repository via REST API"
+        })
+        
+        # Unpywall library - optional enhancement to Unpaywall
+        if UNPYWALL_AVAILABLE:
+            sources.append({
+                "name": "Unpywall Library",
+                "enabled": True,
+                "available": True,
+                "order": 2,
+                "description": "Python library for enhanced Unpaywall access"
+            })
+        
+        # Metapub - PubMed Central, arXiv, etc.
+        sources.append({
+            "name": "Metapub",
+            "enabled": ENABLE_METAPUB_FALLBACK,
+            "available": METAPUB_AVAILABLE,
+            "order": 3,
+            "description": "PubMed Central, arXiv, and other sources"
+        })
+        
+        # Habanero - Crossref with optional institutional access
+        sources.append({
+            "name": "Habanero",
+            "enabled": ENABLE_HABANERO_DOWNLOAD,
+            "available": HABANERO_AVAILABLE,
+            "order": 4,
+            "description": "Crossref API with institutional access"
+        })
+        
+        # Count enabled sources
+        enabled_count = sum(1 for s in sources if s["enabled"] and s["available"])
+        
+        return jsonify({
+            "ok": True,
+            "sources": sources,
+            "enabled_count": enabled_count,
+            "email_configured": UNPAYWALL_EMAIL and UNPAYWALL_EMAIL != "research@example.com"
+        })
+    except Exception as e:
+        return jsonify({"error": f"Failed to get configuration: {str(e)}"}), 500
 
 @app.get("/api/projects/<int:project_id>/pdfs")
 def list_project_pdfs_endpoint(project_id: int):
