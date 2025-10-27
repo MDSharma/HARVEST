@@ -357,70 +357,53 @@ def triple_row(i, entity_options, relation_options):
     )
 
 def sidebar():
-    # Build the Markdown with explicit, balanced code fences
-    schema_json_str = json.dumps(SCHEMA_JSON, indent=2)
-    schema_md_text = (
-        "**Current schema (essential)**\n\n"
-        "```json\n" + schema_json_str + "\n```\n\n"
-        "**Tables**\n\n"
-        "```text\n"
-        "sentences(id, text, literature_link, created_at)\n"
-        "triples(id, sentence_id, source_entity_name, source_entity_attr, relation_type,\n"
-        "       sink_entity_name, sink_entity_attr, created_at)\n"
-        "entity_types(name, value)\n"
-        "relation_types(name)\n"
-        "```\n"
-    )
-    schema_md = dcc.Markdown(schema_md_text)
+    """
+    Build the sidebar with information tabs.
+    Reads content from markdown files in the assets folder.
+    """
+    # Read markdown files from assets folder
+    assets_dir = os.path.join(os.path.dirname(__file__), "assets")
+    
+    # Read help content
+    try:
+        with open(os.path.join(assets_dir, "help.md"), "r", encoding="utf-8") as f:
+            help_text = f.read()
+        help_md = dcc.Markdown(help_text)
+    except FileNotFoundError:
+        help_md = dcc.Markdown("Help content not found.")
+    
+    # Read and build schema content with dynamic JSON
+    try:
+        with open(os.path.join(assets_dir, "schema.md"), "r", encoding="utf-8") as f:
+            schema_template = f.read()
+        
+        # Build the JSON code block
+        schema_json_str = json.dumps(SCHEMA_JSON, indent=2)
+        schema_json_block = f"```json\n{schema_json_str}\n```\n\n"
+        
+        # Replace placeholder with actual JSON
+        schema_text = schema_template.replace("{SCHEMA_JSON}", schema_json_block)
+        schema_md = dcc.Markdown(schema_text)
+    except FileNotFoundError:
+        schema_md = dcc.Markdown("Schema content not found.")
+    
+    # Read Q&A content
+    try:
+        with open(os.path.join(assets_dir, "qa.md"), "r", encoding="utf-8") as f:
+            qa_text = f.read()
+        qa_md = dcc.Markdown(qa_text)
+    except FileNotFoundError:
+        qa_md = dcc.Markdown("Q&A content not found.")
+    
+    # Read DB Model content
+    try:
+        with open(os.path.join(assets_dir, "db_model.md"), "r", encoding="utf-8") as f:
+            db_model_text = f.read()
+        db_model_md = dcc.Markdown(db_model_text)
+    except FileNotFoundError:
+        db_model_md = dcc.Markdown("Database model content not found.")
+    
 
-    help_md = dcc.Markdown(
-        """
-**How to use**
-
-1. Paste a *Sentence* and (optionally) a DOI/URL in *Literature Link*.
-2. Click **Add triple** to create one or more (source, relation, sink) triples.
-3. Use dropdowns for entity types and relation; choose **Other…** if you need a new label.
-4. Click **Save** — the sentence is stored once, and all triples link to it.
-
-**Notes**
-- One sentence can have multiple triples.
-- If your backend has different endpoint paths, edit `API_*` constants at the top of the file.
-"""
-    )
-
-    qa_md = dcc.Markdown(
-        """
-**Q&A**
-
-- *Why do I see “Other…” inputs?*  
-  To allow adding new entity types or relations not in the base schema.
-
-- *Where do values come from?*  
-  The app tries `GET /api/choices` on the backend. If that fails, it falls back to the JSON schema embedded in the app.
-
-- *Can I browse saved items?*  
-  Yes — see the **Browse** tab (fetches from `/api/recent`).
-"""
-    )
-
-    # Create collapsible sections with horizontal buttons using Tabs
-    # Database model tab
-    db_model_md = dcc.Markdown(
-        """
-**Database Schema & Relationships**
-
-```text
-admin_users, projects, doi_metadata, sentences, triples
-entity_types, relation_types, user_sessions
-```
-
-**Key Relationships:**
-- **sentences → triples**: One-to-Many (one sentence → many triples)
-- **projects → triples**: One-to-Many (one project → many triples)
-- **triples** reference **entity_types** and **relation_types**
-- **doi_metadata** stores DOI hashes for PDF mapping
-"""
-    )
     
     info_tabs = dbc.Card(
         [
