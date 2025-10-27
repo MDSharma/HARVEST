@@ -3682,11 +3682,12 @@ def export_triples_callback(n_clicks, auth_data):
         return dbc.Alert("Please login first", color="danger")
     
     try:
-        # Call the export API endpoint with Authorization header
-        r = requests.get(
+        # Call the export API endpoint with POST and credentials in body
+        r = requests.post(
             f"{API_BASE}/api/admin/export/triples",
-            headers={
-                "Authorization": f"Bearer {auth_data['email']}"
+            json={
+                "email": auth_data["email"],
+                "password": auth_data["password"]
             },
             timeout=30
         )
