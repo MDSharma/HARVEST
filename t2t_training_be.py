@@ -4,9 +4,11 @@
 import os
 import re
 import requests
+import logging
 from typing import Dict, Any, List
 import threading
 import time
+from datetime import datetime
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -39,18 +41,23 @@ from t2t_store import (
 
 # Import configuration
 try:
-    from config import DB_PATH, BE_PORT as PORT, HOST
+    from config import DB_PATH, BE_PORT as PORT, HOST, ENABLE_PDF_HIGHLIGHTING
 except ImportError:
     # Fallback to environment variables if config.py doesn't exist
     DB_PATH = os.environ.get("T2T_DB", "t2t_training.db")
     PORT = int(os.environ.get("T2T_PORT", "5001"))
     HOST = os.environ.get("T2T_HOST", "0.0.0.0")
+    ENABLE_PDF_HIGHLIGHTING = True  # Default to enabled
 
 # Initialize DB on startup
 init_db(DB_PATH)
 
 app = Flask(__name__)
 CORS(app)  # allow cross-origin requests from your Dash UI
+
+# Setup logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 def slugify(s: str) -> str:
     """Simple slug for entity type 'value' column (lowercase, underscores)."""
@@ -994,6 +1001,349 @@ def serve_project_pdf(project_id: int, filename: str):
         return send_file(filepath, mimetype='application/pdf')
     except Exception as e:
         return jsonify({"error": f"Failed to serve PDF: {str(e)}"}), 500
+
+@app.post("/api/projects/<int:project_id>/pdf/<filename>/highlights")
+def add_pdf_highlights(project_id: int, filename: str):
+    """
+    Add highlights to a PDF file.
+    Expected JSON: {
+        "highlights": [
+            {
+                "page": 0,
+                "rects": [[x0, y0, x1, y1], ...],
+                "color": "#FFFF00" or [1.0, 1.0, 0.0],
+                "text": "optional highlighted text"
+            }
+        ]
+    }
+    """
+    try:
+        # Check if highlighting feature is enabled
+        if not ENABLE_PDF_HIGHLIGHTING:
+            return jsonify({"error": "PDF highlighting feature is disabled"}), 403
+        
+        from pdf_manager import get_project_pdf_dir
+        from pdf_annotator import add_highlights_to_pdf
+        import os
+        
+        # Security: only allow .pdf files and no path traversal
+        if not filename.endswith('.pdf') or '/' in filename or '\\' in filename:
+            return jsonify({"error": "Invalid filename"}), 400
+        
+        # Get JSON payload
+        try:
+            payload = request.get_json(force=True, silent=False)
+        except Exception:
+            return jsonify({"error": "Invalid JSON"}), 400
+        
+        if not payload or 'highlights' not in payload:
+            return jsonify({"error": "Missing 'highlights' in request"}), 400
+        
+        highlights = payload['highlights']
+        if not isinstance(highlights, list):
+            return jsonify({"error": "'highlights' must be a list"}), 400
+        
+        # Get PDF path
+        project_dir = get_project_pdf_dir(project_id)
+        filepath = os.path.join(project_dir, filename)
+        
+        if not os.path.exists(filepath):
+            return jsonify({"error": "PDF not found"}), 404
+        
+        # Add highlights
+        success, message = add_highlights_to_pdf(filepath, highlights)
+        
+        if success:
+            # Count highlights for response (message is safe but use sanitized version)
+            count = len(highlights)
+            return jsonify({"success": True, "message": f"Added {count} highlight(s)"}), 200
+        else:
+            return jsonify({"success": False, "error": "Failed to add highlights"}), 400
+    
+    except Exception as e:
+        logger.error(f"Error in add_pdf_highlights: {e}", exc_info=True)
+        return jsonify({"error": "Failed to add highlights"}), 500
+
+@app.get("/api/projects/<int:project_id>/pdf/<filename>/highlights")
+def get_pdf_highlights(project_id: int, filename: str):
+    """Get all highlights from a PDF file"""
+    try:
+        # Check if highlighting feature is enabled
+        if not ENABLE_PDF_HIGHLIGHTING:
+            return jsonify({"error": "PDF highlighting feature is disabled"}), 403
+        
+        from pdf_manager import get_project_pdf_dir
+        from pdf_annotator import get_highlights_from_pdf
+        import os
+        
+        # Security: only allow .pdf files and no path traversal
+        if not filename.endswith('.pdf') or '/' in filename or '\\' in filename:
+            return jsonify({"error": "Invalid filename"}), 400
+        
+        # Get PDF path
+        project_dir = get_project_pdf_dir(project_id)
+        filepath = os.path.join(project_dir, filename)
+        
+        if not os.path.exists(filepath):
+            return jsonify({"error": "PDF not found"}), 404
+        
+        # Get highlights
+        success, highlights, message = get_highlights_from_pdf(filepath)
+        
+        if success:
+            # Return highlights with sanitized message
+            count = len(highlights) if highlights else 0
+            return jsonify({
+                "success": True,
+                "highlights": highlights,
+                "message": f"Found {count} highlight(s)"
+            }), 200
+        else:
+            return jsonify({"success": False, "error": "Failed to get highlights"}), 400
+    
+    except Exception as e:
+        logger.error(f"Error in get_pdf_highlights: {e}", exc_info=True)
+        return jsonify({"error": "Failed to get highlights"}), 500
+
+@app.delete("/api/projects/<int:project_id>/pdf/<filename>/highlights")
+def delete_pdf_highlights(project_id: int, filename: str):
+    """Remove all highlights from a PDF file"""
+    try:
+        # Check if highlighting feature is enabled
+        if not ENABLE_PDF_HIGHLIGHTING:
+            return jsonify({"error": "PDF highlighting feature is disabled"}), 403
+        
+        from pdf_manager import get_project_pdf_dir
+        from pdf_annotator import clear_all_highlights
+        import os
+        
+        # Security: only allow .pdf files and no path traversal
+        if not filename.endswith('.pdf') or '/' in filename or '\\' in filename:
+            return jsonify({"error": "Invalid filename"}), 400
+        
+        # Get PDF path
+        project_dir = get_project_pdf_dir(project_id)
+        filepath = os.path.join(project_dir, filename)
+        
+        if not os.path.exists(filepath):
+            return jsonify({"error": "PDF not found"}), 404
+        
+        # Clear highlights
+        success, message = clear_all_highlights(filepath)
+        
+        if success:
+            # Use generic success message (actual count is logged but not exposed)
+            return jsonify({"success": True, "message": "Highlights cleared successfully"}), 200
+        else:
+            return jsonify({"success": False, "error": "Failed to clear highlights"}), 400
+    
+    except Exception as e:
+        logger.error(f"Error in delete_pdf_highlights: {e}", exc_info=True)
+        return jsonify({"error": "Failed to clear highlights"}), 500
+
+@app.get("/api/debug/pdf-highlighting")
+def debug_pdf_highlighting():
+    """
+    Debug endpoint to check PDF highlighting dependencies and configuration.
+    This helps diagnose issues with the PDF highlighting feature.
+    """
+    import sys
+    import traceback
+    
+    debug_info = {
+        "enabled": ENABLE_PDF_HIGHLIGHTING,
+        "python_version": sys.version,
+        "checks": {}
+    }
+    
+    # Check PyMuPDF import
+    try:
+        import fitz
+        debug_info["checks"]["pymupdf"] = {
+            "status": "installed",
+            "version": fitz.__version__
+        }
+    except ImportError as e:
+        debug_info["checks"]["pymupdf"] = {
+            "status": "missing",
+            "error": str(e)
+        }
+    
+    # Check pdf_annotator import
+    try:
+        from pdf_annotator import add_highlights_to_pdf, get_highlights_from_pdf, clear_all_highlights
+        debug_info["checks"]["pdf_annotator"] = {
+            "status": "ok",
+            "functions": ["add_highlights_to_pdf", "get_highlights_from_pdf", "clear_all_highlights"]
+        }
+    except Exception as e:
+        debug_info["checks"]["pdf_annotator"] = {
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+    
+    # Check pdf_manager import
+    try:
+        from pdf_manager import get_project_pdf_dir
+        debug_info["checks"]["pdf_manager"] = {
+            "status": "ok",
+            "functions": ["get_project_pdf_dir"]
+        }
+    except Exception as e:
+        debug_info["checks"]["pdf_manager"] = {
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+    
+    # Check if there are any test PDFs
+    try:
+        from pdf_manager import get_project_pdf_dir
+        test_project_dir = get_project_pdf_dir(1)
+        import os
+        if os.path.exists(test_project_dir):
+            pdf_files = [f for f in os.listdir(test_project_dir) if f.endswith('.pdf')]
+            debug_info["checks"]["test_pdfs"] = {
+                "directory": test_project_dir,
+                "count": len(pdf_files),
+                "files": pdf_files[:5]  # First 5 PDFs
+            }
+        else:
+            debug_info["checks"]["test_pdfs"] = {
+                "directory": test_project_dir,
+                "exists": False
+            }
+    except Exception as e:
+        debug_info["checks"]["test_pdfs"] = {
+            "status": "error",
+            "error": str(e)
+        }
+    
+    return jsonify(debug_info), 200
+
+@app.get("/api/admin/export/triples")
+def export_triples_json():
+    """
+    Export all triples from the database as JSON (admin only).
+    Returns a JSON file with all triple data including sentences, metadata, and relationships.
+    """
+    try:
+        # Verify admin authentication
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return jsonify({"error": "Missing or invalid authorization header"}), 401
+        
+        email = auth_header.replace("Bearer ", "").strip()
+        
+        # Verify admin status
+        is_admin = check_admin_status(DB_PATH, email)
+        if not is_admin:
+            return jsonify({"error": "Unauthorized: Admin access required"}), 403
+        
+        import sqlite3
+        
+        # Connect to database
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row  # Return rows as dictionaries
+        cursor = conn.cursor()
+        
+        # Export structure
+        export_data = {
+            "export_date": datetime.utcnow().isoformat() + "Z",
+            "database": DB_PATH,
+            "schema_version": "v2",
+            "triples": [],
+            "sentences": [],
+            "doi_metadata": [],
+            "projects": [],
+            "entity_types": [],
+            "relation_types": []
+        }
+        
+        # Get all triples
+        cursor.execute("""
+            SELECT id, sentence_id, subject_entity, subject_type, relation, object_entity, 
+                   object_type, contributor_email, created_at, project_id
+            FROM triples
+            ORDER BY id
+        """)
+        for row in cursor.fetchall():
+            export_data["triples"].append(dict(row))
+        
+        # Get all sentences
+        cursor.execute("""
+            SELECT id, sentence_text, doi_hash, created_at
+            FROM sentences
+            ORDER BY id
+        """)
+        for row in cursor.fetchall():
+            export_data["sentences"].append(dict(row))
+        
+        # Get all DOI metadata
+        cursor.execute("""
+            SELECT doi_hash, doi, created_at
+            FROM doi_metadata
+            ORDER BY doi_hash
+        """)
+        for row in cursor.fetchall():
+            export_data["doi_metadata"].append(dict(row))
+        
+        # Get all projects
+        cursor.execute("""
+            SELECT id, name, description, owner_email, created_at
+            FROM projects
+            ORDER BY id
+        """)
+        for row in cursor.fetchall():
+            export_data["projects"].append(dict(row))
+        
+        # Get all entity types
+        cursor.execute("""
+            SELECT id, label, value
+            FROM entity_types
+            ORDER BY id
+        """)
+        for row in cursor.fetchall():
+            export_data["entity_types"].append(dict(row))
+        
+        # Get all relation types
+        cursor.execute("""
+            SELECT id, label, value
+            FROM relation_types
+            ORDER BY id
+        """)
+        for row in cursor.fetchall():
+            export_data["relation_types"].append(dict(row))
+        
+        conn.close()
+        
+        # Add statistics
+        export_data["statistics"] = {
+            "total_triples": len(export_data["triples"]),
+            "total_sentences": len(export_data["sentences"]),
+            "total_dois": len(export_data["doi_metadata"]),
+            "total_projects": len(export_data["projects"]),
+            "entity_type_count": len(export_data["entity_types"]),
+            "relation_type_count": len(export_data["relation_types"])
+        }
+        
+        logger.info(f"Admin {email} exported triples database: {export_data['statistics']}")
+        
+        # Return JSON with appropriate headers for download
+        from flask import Response
+        response = Response(
+            json.dumps(export_data, indent=2),
+            mimetype='application/json',
+            headers={
+                'Content-Disposition': f'attachment; filename=triples_export_{datetime.utcnow().strftime("%Y%m%d_%H%M%S")}.json'
+            }
+        )
+        return response
+    
+    except Exception as e:
+        logger.error(f"Error exporting triples: {e}", exc_info=True)
+        return jsonify({"error": "Failed to export triples"}), 500
 
 if __name__ == "__main__":
     # Cleanup old progress entries on startup (older than 1 hour)

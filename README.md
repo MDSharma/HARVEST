@@ -4,11 +4,20 @@ A web-based application for annotating biological text with entity relationships
 
 ## Setup
 
+### Quick Installation
+
+For detailed installation instructions, see **[INSTALLATION.md](INSTALLATION.md)**.
+
+### Quick Start
+
 1. Install dependencies:
 ```bash
 pip install -r requirements.txt
-# or if using poetry:
-poetry install
+```
+
+**Important**: Make sure PyMuPDF is installed for PDF highlighting features:
+```bash
+pip install PyMuPDF>=1.23.0
 ```
 
 2. **Configure the application** (IMPORTANT):
@@ -171,6 +180,46 @@ Other customizable settings in `config.py`:
 - `ADMIN_EMAILS`: Additional admin email addresses
 - `ENABLE_PDF_DOWNLOAD`: Toggle PDF download feature
 - `ENABLE_PDF_VIEWER`: Toggle embedded PDF viewer
+- `ENABLE_PDF_HIGHLIGHTING`: Toggle PDF highlighting/annotation feature (requires ENABLE_PDF_VIEWER=True)
+
+### PDF Viewer with Highlighting
+
+The application includes an integrated PDF viewer with text highlighting capabilities. This feature can be enabled/disabled using the `ENABLE_PDF_HIGHLIGHTING` setting in `config.py`.
+
+**When enabled**, the viewer allows you to:
+
+- **Highlight text** in PDFs using a highlighter pen-like tool
+- **Choose highlight colors** from a color picker
+- **Save highlights** directly to the PDF file for permanent storage
+- **View saved highlights** when reopening the PDF
+- **Clear all highlights** if needed
+
+**Security Features:**
+- Maximum of 50 highlights per save operation (prevents abuse)
+- Highlight text limited to 10,000 characters each
+- File size validation (100 MB limit)
+- Input sanitization and validation on all highlight data
+- Protection against path traversal attacks
+
+**How to Use the Highlighting Feature:**
+
+1. Select a DOI from a project to load its PDF in the viewer
+2. Click the "🖍️ Highlight" button to enable highlighting mode
+3. Click and drag on the PDF to create a highlight
+4. Change the highlight color using the color picker if desired
+5. Click "💾 Save" to permanently store highlights in the PDF file
+6. Use "🗑️ Clear All" to remove all highlights from the PDF
+
+**Keyboard Shortcuts:**
+- `H`: Toggle highlight mode
+- `Ctrl+S`: Save highlights
+- Arrow keys or Page Up/Down: Navigate pages
+
+**Technical Details:**
+- Highlights are stored as PDF annotations using the PyMuPDF library
+- The viewer uses PDF.js for rendering with a custom overlay for highlighting
+- All highlights are validated and sanitized before being saved
+- Highlights persist in the PDF file and are readable by other PDF viewers
 
 ### Automatic PDF Download
 

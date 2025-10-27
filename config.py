@@ -29,6 +29,7 @@ PDF_STORAGE_DIR = "project_pdfs"  # Directory for storing project PDFs
 # Feature Flags
 ENABLE_PDF_DOWNLOAD = True  # Enable automatic PDF downloading
 ENABLE_PDF_VIEWER = True  # Enable embedded PDF viewer on Annotate tab
+ENABLE_PDF_HIGHLIGHTING = True  # Enable PDF highlighting/annotation feature in PDF viewer
 ENABLE_LITERATURE_SEARCH = True  # Enable Literature Search tab (requires admin authentication)
 
 # PDF Download Options

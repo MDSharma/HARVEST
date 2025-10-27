@@ -23,11 +23,12 @@ logger = logging.getLogger(__name__)
 
 # Import configuration
 try:
-    from config import PARTNER_LOGOS, ENABLE_LITERATURE_SEARCH
+    from config import PARTNER_LOGOS, ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING
 except ImportError:
     # Fallback if config not available
     PARTNER_LOGOS = []
     ENABLE_LITERATURE_SEARCH = True  # Default to enabled
+    ENABLE_PDF_HIGHLIGHTING = True  # Default to enabled
 
 # -----------------------
 # Config
@@ -1349,6 +1350,110 @@ def proxy_pdf(project_id: int, filename: str):
             mimetype='application/json'
         )
 
+@server.route('/pdf-viewer')
+def pdf_viewer():
+    """
+    Serve the custom PDF viewer HTML page with highlighting capabilities.
+    """
+    try:
+        viewer_path = os.path.join(os.path.dirname(__file__), 'assets', 'pdf_viewer.html')
+        with open(viewer_path, 'r') as f:
+            html_content = f.read()
+        return Response(html_content, mimetype='text/html')
+    except Exception as e:
+        logger.error(f"Error loading PDF viewer: {e}", exc_info=True)
+        return Response(
+            "<html><body><h1>Error loading PDF viewer</h1><p>Please try again later.</p></body></html>",
+            status=500,
+            mimetype='text/html'
+        )
+
+@server.route('/proxy/highlights/<int:project_id>/<filename>', methods=['GET', 'POST', 'DELETE'])
+def proxy_highlights(project_id: int, filename: str):
+    """
+    Proxy route for PDF highlights API to avoid CORS issues.
+    Forwards GET/POST/DELETE requests to the backend API.
+    """
+    try:
+        # Validate parameters
+        if not _validate_pdf_params(project_id, filename):
+            return Response(
+                json.dumps({"error": "Invalid project_id or filename"}),
+                status=400,
+                mimetype='application/json'
+            )
+        
+        # Construct backend URL
+        backend_url = f"{API_BASE}/api/projects/{project_id}/pdf/{filename}/highlights"
+        
+        # Forward the request to backend
+        try:
+            if flask_request.method == 'GET':
+                response = requests.get(backend_url, timeout=10)
+            elif flask_request.method == 'POST':
+                # Get the JSON data from request
+                json_data = flask_request.get_json(silent=True)
+                if json_data is None:
+                    return Response(
+                        json.dumps({"error": "Invalid JSON in request"}),
+                        status=400,
+                        mimetype='application/json'
+                    )
+                response = requests.post(
+                    backend_url,
+                    json=json_data,
+                    headers={'Content-Type': 'application/json'},
+                    timeout=10
+                )
+            elif flask_request.method == 'DELETE':
+                response = requests.delete(backend_url, timeout=10)
+            else:
+                return Response(
+                    json.dumps({"error": "Method not allowed"}),
+                    status=405,
+                    mimetype='application/json'
+                )
+            
+            # Return backend response
+            return Response(
+                response.content,
+                status=response.status_code,
+                mimetype='application/json'
+            )
+        
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout connecting to backend: {backend_url}")
+            return Response(
+                json.dumps({"error": "Backend request timeout"}),
+                status=502,
+                mimetype='application/json'
+            )
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Cannot connect to backend for highlights: {e}", exc_info=True)
+            logger.error(f"Backend URL: {backend_url}, API_BASE: {API_BASE}")
+            return Response(
+                json.dumps({"error": "Cannot connect to backend"}),
+                status=502,
+                mimetype='application/json'
+            )
+        except Exception as e:
+            logger.error(f"Error proxying highlights request: {e}", exc_info=True)
+            logger.error(f"Backend URL was: {backend_url}")
+            logger.error(f"Request method: {flask_request.method}")
+            return Response(
+                json.dumps({"error": "Backend request failed"}),
+                status=502,
+                mimetype='application/json'
+            )
+    
+    except Exception as e:
+        logger.error(f"Error in proxy_highlights: {e}", exc_info=True)
+        return Response(
+            json.dumps({"error": "Internal server error"}),
+            status=500,
+            mimetype='application/json'
+        )
+
 # -----------------------
 # Callbacks
 # -----------------------
@@ -2544,22 +2649,34 @@ def update_pdf_viewer(selected_doi, project_id):
         pdf_filename = f"{doi_hash}.pdf"
         # Use internal backend URL for server-side check
         backend_pdf_url = f"{API_BASE}/api/projects/{project_id}/pdf/{pdf_filename}"
-        # Use proxy URL for client-side iframe (keeps backend private)
-        proxy_pdf_url = f"/proxy/pdf/{project_id}/{pdf_filename}"
         
         # Check if PDF exists by trying to fetch it from backend
         try:
             r = requests.head(backend_pdf_url, timeout=5)
             if r.ok:
-                # PDF exists, show iframe viewer with proxy URL
-                return html.Iframe(
-                    src=proxy_pdf_url,
-                    style={
-                        "width": "100%",
-                        "height": "980px",
-                        "border": "none"
-                    }
-                )
+                # PDF exists - check if highlighting is enabled
+                if ENABLE_PDF_HIGHLIGHTING:
+                    # Show custom viewer with highlighting capability
+                    viewer_url = f"/pdf-viewer?project_id={project_id}&filename={pdf_filename}&api_base={API_BASE}"
+                    return html.Iframe(
+                        src=viewer_url,
+                        style={
+                            "width": "100%",
+                            "height": "980px",
+                            "border": "none"
+                        }
+                    )
+                else:
+                    # Show simple PDF viewer without highlighting
+                    proxy_pdf_url = f"/proxy/pdf/{project_id}/{pdf_filename}"
+                    return html.Iframe(
+                        src=proxy_pdf_url,
+                        style={
+                            "width": "100%",
+                            "height": "980px",
+                            "border": "none"
+                        }
+                    )
             else:
                 # PDF doesn't exist
                 return html.Div([

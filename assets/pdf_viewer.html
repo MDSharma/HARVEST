@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Viewer with Highlighting</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            overflow: hidden;
+        }
+        
+        #toolbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 50px;
+            background: #2c3e50;
+            color: white;
+            display: flex;
+            align-items: center;
+            padding: 0 15px;
+            gap: 10px;
+            z-index: 1000;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        
+        #toolbar button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        
+        #toolbar button:hover {
+            background: #2980b9;
+        }
+        
+        #toolbar button:active {
+            background: #21618c;
+        }
+        
+        #toolbar button.active {
+            background: #f39c12;
+        }
+        
+        #toolbar button.active:hover {
+            background: #e67e22;
+        }
+        
+        #toolbar button:disabled {
+            background: #7f8c8d;
+            cursor: not-allowed;
+        }
+        
+        #toolbar .separator {
+            width: 1px;
+            height: 30px;
+            background: #34495e;
+            margin: 0 5px;
+        }
+        
+        #toolbar #pageInfo {
+            margin-left: 10px;
+            font-size: 14px;
+        }
+        
+        #toolbar #status {
+            margin-left: auto;
+            font-size: 12px;
+            color: #ecf0f1;
+        }
+        
+        #colorPicker {
+            width: 40px;
+            height: 32px;
+            border: 2px solid white;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        #viewerContainer {
+            position: absolute;
+            top: 50px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            overflow: auto;
+            background: #525252;
+        }
+        
+        #pdfCanvas {
+            display: block;
+            margin: 20px auto;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            background: white;
+        }
+        
+        .highlight-overlay {
+            position: absolute;
+            background: rgba(255, 255, 0, 0.3);
+            border: 1px solid rgba(255, 255, 0, 0.5);
+            pointer-events: none;
+        }
+        
+        #canvasWrapper {
+            position: relative;
+            display: inline-block;
+            margin: 20px auto;
+        }
+        
+        .selection-overlay {
+            position: absolute;
+            background: rgba(100, 149, 237, 0.2);
+            border: 1px solid rgba(100, 149, 237, 0.5);
+            pointer-events: none;
+        }
+        
+        .textLayer {
+            position: absolute;
+            text-align: initial;
+            left: 0;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            overflow: hidden;
+            opacity: 0.2;
+            line-height: 1.0;
+        }
+        
+        .textLayer > span {
+            color: transparent;
+            position: absolute;
+            white-space: pre;
+            cursor: text;
+            transform-origin: 0% 0%;
+        }
+        
+        .textLayer ::selection {
+            background: rgba(0, 123, 255, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div id="toolbar">
+        <button id="prevBtn" title="Previous Page">← Prev</button>
+        <button id="nextBtn" title="Next Page">Next →</button>
+        <div class="separator"></div>
+        <span id="pageInfo">Page: <span id="pageNum">1</span> / <span id="pageCount">-</span></span>
+        <div class="separator"></div>
+        <button id="highlightBtn" title="Highlight Selected Text">🖍️ Highlight Selection</button>
+        <input type="color" id="colorPicker" value="#FFFF00" title="Highlight Color">
+        <button id="saveBtn" title="Save Highlights to PDF">💾 Save</button>
+        <button id="clearBtn" title="Clear All Highlights">🗑️ Clear All</button>
+        <span id="status"></span>
+    </div>
+    
+    <div id="viewerContainer">
+        <div id="canvasWrapper">
+            <canvas id="pdfCanvas"></canvas>
+        </div>
+    </div>
+
+    <!-- Define error handler before loading external script -->
+    <script>
+        // Handle script loading errors gracefully
+        function handleScriptLoadError() {
+            const statusSpan = document.getElementById('status');
+            if (statusSpan) {
+                statusSpan.textContent = 'Unable to load PDF viewer. Please check your internet connection or contact support.';
+                statusSpan.style.color = '#e74c3c';
+            }
+            // Hide viewer controls since they won't work
+            const toolbar = document.getElementById('toolbar');
+            if (toolbar) toolbar.style.display = 'none';
+            const wrapper = document.getElementById('canvasWrapper');
+            if (wrapper) {
+                wrapper.innerHTML = '<div style="text-align: center; padding: 50px; color: #7f8c8d;">' +
+                    '<h3>PDF Viewer Unavailable</h3>' +
+                    '<p>The PDF viewer library could not be loaded. This may be due to:</p>' +
+                    '<ul style="text-align: left; display: inline-block;">' +
+                    '<li>Network connectivity issues</li>' +
+                    '<li>CDN access restrictions</li>' +
+                    '<li>Browser security settings</li>' +
+                    '</ul>' +
+                    '<p>Please try accessing the PDF directly or contact your administrator.</p>' +
+                    '</div>';
+            }
+        }
+    </script>
+    
+    <!-- Load PDF.js with Subresource Integrity (SRI) check for security -->
+    <!-- Updated SRI hash to match current CDN content -->
+    <!-- If CDN fails or SRI check fails, handleScriptLoadError() is called -->
+    <script 
+        src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" 
+        integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" 
+        crossorigin="anonymous"
+        onerror="handleScriptLoadError()"></script>
+    <script>
+        
+        // PDF.js setup with SRI protection
+        // Wait for script to load before checking
+        window.addEventListener('load', function() {
+            if (typeof pdfjsLib !== 'undefined') {
+                // Use worker from same trusted CDN
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+                // Initialize viewer
+                initViewer();
+            } else {
+                // Script tag loaded but library not available
+                handleScriptLoadError();
+            }
+        });
+        
+        // Get URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const projectId = urlParams.get('project_id');
+        const filename = urlParams.get('filename');
+        const apiBase = urlParams.get('api_base') || 'http://127.0.0.1:5001';
+        
+        if (!projectId || !filename) {
+            document.getElementById('status').textContent = 'Error: Missing project_id or filename';
+            throw new Error('Missing required parameters');
+        }
+        
+        // State
+        let pdfDoc = null;
+        let pageNum = 1;
+        let pageRendering = false;
+        let pageNumPending = null;
+        let scale = 1.5;
+        let highlightMode = false;
+        let highlights = [];
+        let currentSelection = null;
+        
+        // Elements
+        const canvas = document.getElementById('pdfCanvas');
+        const ctx = canvas.getContext('2d');
+        const canvasWrapper = document.getElementById('canvasWrapper');
+        const pageNumSpan = document.getElementById('pageNum');
+        const pageCountSpan = document.getElementById('pageCount');
+        const highlightBtn = document.getElementById('highlightBtn');
+        const colorPicker = document.getElementById('colorPicker');
+        const saveBtn = document.getElementById('saveBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const statusSpan = document.getElementById('status');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        
+        function initViewer() {
+            if (typeof pdfjsLib === 'undefined') {
+                setTimeout(initViewer, 100);
+                return;
+            }
+            loadPDF();
+        }
+        
+        // Load PDF using proxy route to avoid CORS issues
+        // The proxy route is same-origin and forwards to the backend
+        const pdfUrl = `/proxy/pdf/${projectId}/${filename}`;
+        
+        // API URLs for highlight operations - use proxy to avoid CORS
+        const highlightsApiUrl = `/proxy/highlights/${projectId}/${filename}`;
+        
+        function showStatus(message, isError = false) {
+            statusSpan.textContent = message;
+            statusSpan.style.color = isError ? '#e74c3c' : '#2ecc71';
+            setTimeout(() => {
+                statusSpan.textContent = '';
+            }, 3000);
+        }
+        
+        function renderPage(num) {
+            pageRendering = true;
+            
+            pdfDoc.getPage(num).then(page => {
+                const viewport = page.getViewport({ scale: scale });
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                
+                // Set canvas wrapper size
+                canvasWrapper.style.width = viewport.width + 'px';
+                canvasWrapper.style.height = viewport.height + 'px';
+                
+                const renderContext = {
+                    canvasContext: ctx,
+                    viewport: viewport
+                };
+                
+                const renderTask = page.render(renderContext);
+                
+                renderTask.promise.then(() => {
+                    pageRendering = false;
+                    if (pageNumPending !== null) {
+                        renderPage(pageNumPending);
+                        pageNumPending = null;
+                    }
+                    
+                    // Render text layer for text selection
+                    return page.getTextContent();
+                }).then(textContent => {
+                    // Remove old text layer if exists
+                    const oldTextLayer = canvasWrapper.querySelector('.textLayer');
+                    if (oldTextLayer) {
+                        oldTextLayer.remove();
+                    }
+                    
+                    // Create text layer div
+                    const textLayerDiv = document.createElement('div');
+                    textLayerDiv.className = 'textLayer';
+                    textLayerDiv.style.position = 'absolute';
+                    textLayerDiv.style.left = '0';
+                    textLayerDiv.style.top = '0';
+                    textLayerDiv.style.width = viewport.width + 'px';
+                    textLayerDiv.style.height = viewport.height + 'px';
+                    textLayerDiv.style.overflow = 'hidden';
+                    textLayerDiv.style.opacity = '0.2';
+                    textLayerDiv.style.lineHeight = '1.0';
+                    // Set the scale factor CSS variable required by PDF.js
+                    textLayerDiv.style.setProperty('--scale-factor', scale);
+                    canvasWrapper.appendChild(textLayerDiv);
+                    
+                    // Render text layer using renderTextLayer function
+                    pdfjsLib.renderTextLayer({
+                        textContentSource: textContent,
+                        container: textLayerDiv,
+                        viewport: viewport,
+                        textDivs: []
+                    });
+                    
+                    // Render existing highlights for this page
+                    renderHighlights();
+                }).catch(err => {
+                    console.error('Error rendering text layer:', err);
+                    // Still render highlights even if text layer fails
+                    renderHighlights();
+                });
+            });
+            
+            pageNumSpan.textContent = num;
+        }
+        
+        function queueRenderPage(num) {
+            if (pageRendering) {
+                pageNumPending = num;
+            } else {
+                renderPage(num);
+            }
+        }
+        
+        function onPrevPage() {
+            if (pageNum <= 1) return;
+            pageNum--;
+            queueRenderPage(pageNum);
+        }
+        
+        function onNextPage() {
+            if (pageNum >= pdfDoc.numPages) return;
+            pageNum++;
+            queueRenderPage(pageNum);
+        }
+        
+        prevBtn.addEventListener('click', onPrevPage);
+        nextBtn.addEventListener('click', onNextPage);
+        
+        // Load and render PDF
+        function loadPDF() {
+            pdfjsLib.getDocument(pdfUrl).promise.then(pdf => {
+                pdfDoc = pdf;
+                pageCountSpan.textContent = pdf.numPages;
+                renderPage(pageNum);
+                
+                // Load existing highlights
+                loadHighlights();
+            }).catch(err => {
+                showStatus('Error loading PDF: ' + err.message, true);
+                console.error('Error loading PDF:', err);
+            });
+        }
+        
+        // Highlight button - highlights currently selected text
+        highlightBtn.addEventListener('click', () => {
+            const selection = window.getSelection();
+            if (!selection || selection.rangeCount === 0) {
+                showStatus('Please select some text first', true);
+                return;
+            }
+            
+            const range = selection.getRangeAt(0);
+            if (range.collapsed) {
+                showStatus('Please select some text first', true);
+                return;
+            }
+            
+            // Get the selected text
+            const selectedText = selection.toString();
+            if (!selectedText || selectedText.trim().length === 0) {
+                showStatus('Please select some text first', true);
+                return;
+            }
+            
+            // Get all ranges/rectangles for the selection
+            const rects = range.getClientRects();
+            if (rects.length === 0) {
+                showStatus('Could not get selection bounds', true);
+                return;
+            }
+            
+            // Convert client rectangles to PDF coordinates
+            const canvasRect = canvas.getBoundingClientRect();
+            const wrapperRect = canvasWrapper.getBoundingClientRect();
+            const pdfRects = [];
+            
+            for (let i = 0; i < rects.length; i++) {
+                const rect = rects[i];
+                // Calculate position relative to canvas
+                const x0 = (rect.left - wrapperRect.left) / scale;
+                const y0 = (rect.top - wrapperRect.top) / scale;
+                const x1 = (rect.right - wrapperRect.left) / scale;
+                const y1 = (rect.bottom - wrapperRect.top) / scale;
+                
+                pdfRects.push([x0, y0, x1, y1]);
+            }
+            
+            if (pdfRects.length > 0) {
+                const color = colorPicker.value;
+                
+                // Add highlight
+                highlights.push({
+                    page: pageNum - 1,  // 0-indexed for backend
+                    rects: pdfRects,
+                    color: color,
+                    text: selectedText.substring(0, 500)  // Limit text length
+                });
+                
+                showStatus('Highlight added. Click Save to store it.');
+                renderHighlights();
+                
+                // Clear selection
+                selection.removeAllRanges();
+            } else {
+                showStatus('Could not create highlight', true);
+            }
+        });
+        
+        // Remove old mouse-based highlighting code
+        // (No longer needed as we use text selection)
+        
+        function renderHighlights() {
+            // Remove old highlight overlays
+            const oldHighlights = canvasWrapper.querySelectorAll('.highlight-overlay');
+            oldHighlights.forEach(h => h.remove());
+            
+            // Render highlights for current page
+            const pageHighlights = highlights.filter(h => h.page === pageNum - 1);
+            
+            pageHighlights.forEach(highlight => {
+                highlight.rects.forEach(rect => {
+                    const div = document.createElement('div');
+                    div.className = 'highlight-overlay';
+                    div.style.left = (rect[0] * scale) + 'px';
+                    div.style.top = (rect[1] * scale) + 'px';
+                    div.style.width = ((rect[2] - rect[0]) * scale) + 'px';
+                    div.style.height = ((rect[3] - rect[1]) * scale) + 'px';
+                    
+                    // Convert hex color to rgba
+                    const color = highlight.color;
+                    let bgColor;
+                    if (color.startsWith('#')) {
+                        const r = parseInt(color.substr(1, 2), 16);
+                        const g = parseInt(color.substr(3, 2), 16);
+                        const b = parseInt(color.substr(5, 2), 16);
+                        bgColor = `rgba(${r}, ${g}, ${b}, 0.3)`;
+                    } else {
+                        bgColor = 'rgba(255, 255, 0, 0.3)';
+                    }
+                    div.style.background = bgColor;
+                    
+                    canvasWrapper.appendChild(div);
+                });
+            });
+        }
+        
+        // Load existing highlights from PDF
+        async function loadHighlights() {
+            try {
+                const response = await fetch(highlightsApiUrl);
+                const data = await response.json();
+                
+                if (data.success && data.highlights) {
+                    highlights = data.highlights;
+                    renderHighlights();
+                    if (highlights.length > 0) {
+                        showStatus(`Loaded ${highlights.length} existing highlight(s)`);
+                    }
+                }
+            } catch (err) {
+                console.error('Error loading highlights:', err);
+                // Don't show error to user - file might not have highlights yet
+            }
+        }
+        
+        // Save highlights to PDF
+        saveBtn.addEventListener('click', async () => {
+            if (highlights.length === 0) {
+                showStatus('No highlights to save', true);
+                return;
+            }
+            
+            saveBtn.disabled = true;
+            showStatus('Saving highlights...');
+            
+            try {
+                const response = await fetch(highlightsApiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ highlights: highlights })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showStatus(data.message);
+                } else {
+                    showStatus('Error: ' + (data.error || 'Unknown error'), true);
+                }
+            } catch (err) {
+                showStatus('Error saving highlights: ' + err.message, true);
+                console.error('Error saving highlights:', err);
+            } finally {
+                saveBtn.disabled = false;
+            }
+        });
+        
+        // Clear all highlights
+        clearBtn.addEventListener('click', async () => {
+            if (!confirm('Clear all highlights from this PDF? This will remove both unsaved and saved highlights.')) {
+                return;
+            }
+            
+            clearBtn.disabled = true;
+            showStatus('Clearing highlights...');
+            
+            try {
+                // Clear from server
+                const response = await fetch(highlightsApiUrl, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Clear local highlights
+                    highlights = [];
+                    renderHighlights();
+                    showStatus(data.message);
+                } else {
+                    showStatus('Error: ' + (data.error || 'Unknown error'), true);
+                }
+            } catch (err) {
+                showStatus('Error clearing highlights: ' + err.message, true);
+                console.error('Error clearing highlights:', err);
+            } finally {
+                clearBtn.disabled = false;
+            }
+        });
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+                e.preventDefault();
+                onPrevPage();
+            } else if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+                e.preventDefault();
+                onNextPage();
+            } else if (e.key === 'h' || e.key === 'H') {
+                highlightBtn.click();
+            } else if (e.ctrlKey && e.key === 's') {
+                e.preventDefault();
+                saveBtn.click();
+            }
+        });
+    </script>
+</body>
+</html>
