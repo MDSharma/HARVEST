@@ -403,8 +403,6 @@ def sidebar():
     except FileNotFoundError:
         db_model_md = dcc.Markdown("Database model content not found.")
     
-
-    
     info_tabs = dbc.Card(
         [
             dbc.Tabs(
