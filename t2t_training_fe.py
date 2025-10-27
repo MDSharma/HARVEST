@@ -3710,7 +3710,7 @@ def export_triples_callback(n_clicks, auth_data):
                     try:
                         dt = datetime.fromisoformat(export_timestamp.replace('Z', '+00:00'))
                         filename_timestamp = dt.strftime('%Y%m%d_%H%M%S')
-                    except:
+                    except (ValueError, AttributeError):
                         filename_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                 else:
                     filename_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
