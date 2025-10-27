@@ -1199,6 +1199,20 @@ app.layout = dbc.Container(
                                                             className="mb-3",
                                                         ),
                                                         html.Div(id="triple-edit-message"),
+                                                        
+                                                        html.Hr(className="mt-4"),
+                                                        html.H6("Database Export", className="mb-3"),
+                                                        html.P("Export all triples from the database as JSON.", className="text-muted mb-3"),
+                                                        dbc.Button(
+                                                            [
+                                                                html.I(className="bi bi-download me-2"),
+                                                                "Export Triples Database"
+                                                            ],
+                                                            id="btn-export-triples",
+                                                            color="info",
+                                                            className="mb-3"
+                                                        ),
+                                                        html.Div(id="export-triples-message"),
                                                     ],
                                                 ),
                                             ],
@@ -3654,6 +3668,69 @@ def edit_triple_callback(update_clicks, delete_clicks, triple_id, src_name, src_
         return dbc.Alert(f"Error: {str(e)}", color="danger")
     
     return no_update
+
+# Export triples database
+@app.callback(
+    Output("export-triples-message", "children"),
+    Input("btn-export-triples", "n_clicks"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def export_triples_callback(n_clicks, auth_data):
+    """Handle exporting triples database as JSON"""
+    if not auth_data:
+        return dbc.Alert("Please login first", color="danger")
+    
+    try:
+        # Call the export API endpoint
+        r = requests.get(
+            f"{API_BASE}/api/admin/export/triples",
+            params={
+                "email": auth_data["email"],
+                "password": auth_data["password"]
+            },
+            timeout=30
+        )
+        
+        if r.ok:
+            result = r.json()
+            if result.get("ok"):
+                # Create download link with the JSON data
+                json_str = json.dumps(result.get("data", {}), indent=2)
+                
+                # Create a data URI for download
+                import base64
+                b64_data = base64.b64encode(json_str.encode()).decode()
+                download_href = f"data:application/json;base64,{b64_data}"
+                
+                stats = result.get("data", {}).get("statistics", {})
+                timestamp = result.get("data", {}).get("export_timestamp", "")
+                
+                return html.Div([
+                    dbc.Alert([
+                        html.Strong("✓ Export successful!"),
+                        html.Br(),
+                        html.Small(f"Exported {stats.get('total_triples', 0)} triples from {stats.get('total_projects', 0)} projects"),
+                        html.Br(),
+                        html.Small(f"Export time: {timestamp}"),
+                    ], color="success", className="mb-2"),
+                    html.A(
+                        dbc.Button(
+                            [html.I(className="bi bi-download me-2"), "Download JSON"],
+                            color="primary",
+                            size="sm"
+                        ),
+                        href=download_href,
+                        download=f"triples_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    )
+                ])
+            else:
+                return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger")
+        else:
+            return dbc.Alert(f"Failed: {r.status_code} - {r.text[:200]}", color="danger")
+    
+    except Exception as e:
+        return dbc.Alert(f"Error: {str(e)}", color="danger")
 
 # -----------------------
 # Main
