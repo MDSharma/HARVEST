@@ -489,7 +489,7 @@ entity_types, relation_types, user_sessions
 # App & Layout
 # -----------------------
 external_stylesheets = [dbc.themes.BOOTSTRAP]
-app: Dash = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+app: Dash = dash.Dash(__name__, external_stylesheets=external_stylesheets, suppress_callback_exceptions=True)
 app.title = APP_TITLE
 server = app.server  # for gunicorn, if needed
 
