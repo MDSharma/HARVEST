@@ -3682,12 +3682,11 @@ def export_triples_callback(n_clicks, auth_data):
         return dbc.Alert("Please login first", color="danger")
     
     try:
-        # Call the export API endpoint
+        # Call the export API endpoint with Authorization header
         r = requests.get(
             f"{API_BASE}/api/admin/export/triples",
-            params={
-                "email": auth_data["email"],
-                "password": auth_data["password"]
+            headers={
+                "Authorization": f"Bearer {auth_data['email']}"
             },
             timeout=30
         )
@@ -3699,12 +3698,22 @@ def export_triples_callback(n_clicks, auth_data):
                 json_str = json.dumps(result.get("data", {}), indent=2)
                 
                 # Create a data URI for download
-                import base64
                 b64_data = base64.b64encode(json_str.encode()).decode()
                 download_href = f"data:application/json;base64,{b64_data}"
                 
                 stats = result.get("data", {}).get("statistics", {})
-                timestamp = result.get("data", {}).get("export_timestamp", "")
+                export_timestamp = result.get("data", {}).get("export_timestamp", "")
+                
+                # Use timestamp from API response for filename, fallback to current time
+                if export_timestamp:
+                    # Parse ISO timestamp and format for filename
+                    try:
+                        dt = datetime.fromisoformat(export_timestamp.replace('Z', '+00:00'))
+                        filename_timestamp = dt.strftime('%Y%m%d_%H%M%S')
+                    except:
+                        filename_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                else:
+                    filename_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                 
                 return html.Div([
                     dbc.Alert([
@@ -3712,7 +3721,7 @@ def export_triples_callback(n_clicks, auth_data):
                         html.Br(),
                         html.Small(f"Exported {stats.get('total_triples', 0)} triples from {stats.get('total_projects', 0)} projects"),
                         html.Br(),
-                        html.Small(f"Export time: {timestamp}"),
+                        html.Small(f"Export time: {export_timestamp}"),
                     ], color="success", className="mb-2"),
                     html.A(
                         dbc.Button(
@@ -3721,7 +3730,7 @@ def export_triples_callback(n_clicks, auth_data):
                             size="sm"
                         ),
                         href=download_href,
-                        download=f"triples_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                        download=f"triples_export_{filename_timestamp}.json",
                     )
                 ])
             else:
