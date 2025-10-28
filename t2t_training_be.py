@@ -1280,7 +1280,7 @@ def export_triples_json():
         
         # Get all sentences
         cursor.execute("""
-            SELECT id, sentence_text, doi_hash, created_at
+            SELECT id, text, literature_link, doi_hash, created_at
             FROM sentences
             ORDER BY id
         """)
@@ -1298,7 +1298,7 @@ def export_triples_json():
         
         # Get all projects
         cursor.execute("""
-            SELECT id, name, description, owner_email, created_at
+            SELECT id, name, description, doi_list, created_by, created_at
             FROM projects
             ORDER BY id
         """)
@@ -1307,18 +1307,18 @@ def export_triples_json():
         
         # Get all entity types
         cursor.execute("""
-            SELECT id, label, value
+            SELECT name, value
             FROM entity_types
-            ORDER BY id
+            ORDER BY name
         """)
         for row in cursor.fetchall():
             export_data["entity_types"].append(dict(row))
         
         # Get all relation types
         cursor.execute("""
-            SELECT id, label, value
+            SELECT name
             FROM relation_types
-            ORDER BY id
+            ORDER BY name
         """)
         for row in cursor.fetchall():
             export_data["relation_types"].append(dict(row))
