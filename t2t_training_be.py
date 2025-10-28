@@ -1270,8 +1270,8 @@ def export_triples_json():
         
         # Get all triples
         cursor.execute("""
-            SELECT id, sentence_id, subject_entity, subject_type, relation, object_entity, 
-                   object_type, contributor_email, created_at, project_id
+            SELECT id, sentence_id, source_entity_name, source_entity_attr, relation_type, 
+                   sink_entity_name, sink_entity_attr, contributor_email, created_at, project_id
             FROM triples
             ORDER BY id
         """)
