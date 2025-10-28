@@ -162,7 +162,7 @@
         <button id="highlightBtn" title="Highlight Selected Text">🖍️ Highlight Selection</button>
         <input type="color" id="colorPicker" value="#FFFF00" title="Highlight Color">
         <button id="saveBtn" title="Save Highlights to PDF">💾 Save</button>
-        <button id="clearBtn" title="Clear All Highlights">🗑️ Clear All</button>
+        <button id="clearBtn" title="Clear All Highlights (including saved ones from previous sessions)">🗑️ Clear All</button>
         <span id="status"></span>
     </div>
     
@@ -475,15 +475,23 @@
                     div.style.width = ((rect[2] - rect[0]) * scale) + 'px';
                     div.style.height = ((rect[3] - rect[1]) * scale) + 'px';
                     
-                    // Convert hex color to rgba
+                    // Convert color to rgba
                     const color = highlight.color;
                     let bgColor;
-                    if (color.startsWith('#')) {
+                    if (typeof color === 'string' && color.startsWith('#')) {
+                        // Hex color format
                         const r = parseInt(color.substr(1, 2), 16);
                         const g = parseInt(color.substr(3, 2), 16);
                         const b = parseInt(color.substr(5, 2), 16);
                         bgColor = `rgba(${r}, ${g}, ${b}, 0.3)`;
+                    } else if (Array.isArray(color) && color.length === 3) {
+                        // RGB array format (values 0-1)
+                        const r = Math.round(color[0] * 255);
+                        const g = Math.round(color[1] * 255);
+                        const b = Math.round(color[2] * 255);
+                        bgColor = `rgba(${r}, ${g}, ${b}, 0.3)`;
                     } else {
+                        // Default to yellow
                         bgColor = 'rgba(255, 255, 0, 0.3)';
                     }
                     div.style.background = bgColor;

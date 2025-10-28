@@ -357,70 +357,51 @@ def triple_row(i, entity_options, relation_options):
     )
 
 def sidebar():
-    # Build the Markdown with explicit, balanced code fences
-    schema_json_str = json.dumps(SCHEMA_JSON, indent=2)
-    schema_md_text = (
-        "**Current schema (essential)**\n\n"
-        "```json\n" + schema_json_str + "\n```\n\n"
-        "**Tables**\n\n"
-        "```text\n"
-        "sentences(id, text, literature_link, created_at)\n"
-        "triples(id, sentence_id, source_entity_name, source_entity_attr, relation_type,\n"
-        "       sink_entity_name, sink_entity_attr, created_at)\n"
-        "entity_types(name, value)\n"
-        "relation_types(name)\n"
-        "```\n"
-    )
-    schema_md = dcc.Markdown(schema_md_text)
-
-    help_md = dcc.Markdown(
-        """
-**How to use**
-
-1. Paste a *Sentence* and (optionally) a DOI/URL in *Literature Link*.
-2. Click **Add triple** to create one or more (source, relation, sink) triples.
-3. Use dropdowns for entity types and relation; choose **Other…** if you need a new label.
-4. Click **Save** — the sentence is stored once, and all triples link to it.
-
-**Notes**
-- One sentence can have multiple triples.
-- If your backend has different endpoint paths, edit `API_*` constants at the top of the file.
-"""
-    )
-
-    qa_md = dcc.Markdown(
-        """
-**Q&A**
-
-- *Why do I see “Other…” inputs?*  
-  To allow adding new entity types or relations not in the base schema.
-
-- *Where do values come from?*  
-  The app tries `GET /api/choices` on the backend. If that fails, it falls back to the JSON schema embedded in the app.
-
-- *Can I browse saved items?*  
-  Yes — see the **Browse** tab (fetches from `/api/recent`).
-"""
-    )
-
-    # Create collapsible sections with horizontal buttons using Tabs
-    # Database model tab
-    db_model_md = dcc.Markdown(
-        """
-**Database Schema & Relationships**
-
-```text
-admin_users, projects, doi_metadata, sentences, triples
-entity_types, relation_types, user_sessions
-```
-
-**Key Relationships:**
-- **sentences → triples**: One-to-Many (one sentence → many triples)
-- **projects → triples**: One-to-Many (one project → many triples)
-- **triples** reference **entity_types** and **relation_types**
-- **doi_metadata** stores DOI hashes for PDF mapping
-"""
-    )
+    """
+    Build the sidebar with information tabs.
+    Reads content from markdown files in the assets folder.
+    """
+    # Read markdown files from assets folder
+    assets_dir = os.path.join(os.path.dirname(__file__), "assets")
+    
+    # Read help content
+    try:
+        with open(os.path.join(assets_dir, "help.md"), "r", encoding="utf-8") as f:
+            help_text = f.read()
+        help_md = dcc.Markdown(help_text)
+    except FileNotFoundError:
+        help_md = dcc.Markdown("Help content not found.")
+    
+    # Read and build schema content with dynamic JSON
+    try:
+        with open(os.path.join(assets_dir, "schema.md"), "r", encoding="utf-8") as f:
+            schema_template = f.read()
+        
+        # Build the JSON code block
+        schema_json_str = json.dumps(SCHEMA_JSON, indent=2)
+        schema_json_block = f"```json\n{schema_json_str}\n```\n\n"
+        
+        # Replace placeholder with actual JSON
+        schema_text = schema_template.replace("{SCHEMA_JSON}", schema_json_block)
+        schema_md = dcc.Markdown(schema_text)
+    except FileNotFoundError:
+        schema_md = dcc.Markdown("Schema content not found.")
+    
+    # Read Q&A content
+    try:
+        with open(os.path.join(assets_dir, "qa.md"), "r", encoding="utf-8") as f:
+            qa_text = f.read()
+        qa_md = dcc.Markdown(qa_text)
+    except FileNotFoundError:
+        qa_md = dcc.Markdown("Q&A content not found.")
+    
+    # Read DB Model content
+    try:
+        with open(os.path.join(assets_dir, "db_model.md"), "r", encoding="utf-8") as f:
+            db_model_text = f.read()
+        db_model_md = dcc.Markdown(db_model_text)
+    except FileNotFoundError:
+        db_model_md = dcc.Markdown("Database model content not found.")
     
     info_tabs = dbc.Card(
         [
@@ -489,7 +470,7 @@ entity_types, relation_types, user_sessions
 # App & Layout
 # -----------------------
 external_stylesheets = [dbc.themes.BOOTSTRAP]
-app: Dash = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+app: Dash = dash.Dash(__name__, external_stylesheets=external_stylesheets, suppress_callback_exceptions=True)
 app.title = APP_TITLE
 server = app.server  # for gunicorn, if needed
 
@@ -1199,6 +1180,20 @@ app.layout = dbc.Container(
                                                             className="mb-3",
                                                         ),
                                                         html.Div(id="triple-edit-message"),
+                                                        
+                                                        html.Hr(className="mt-4"),
+                                                        html.H6("Database Export", className="mb-3"),
+                                                        html.P("Export all triples from the database as JSON.", className="text-muted mb-3"),
+                                                        dbc.Button(
+                                                            [
+                                                                html.I(className="bi bi-download me-2"),
+                                                                "Export Triples Database"
+                                                            ],
+                                                            id="btn-export-triples",
+                                                            color="info",
+                                                            className="mb-3"
+                                                        ),
+                                                        html.Div(id="export-triples-message"),
                                                     ],
                                                 ),
                                             ],
@@ -3654,6 +3649,79 @@ def edit_triple_callback(update_clicks, delete_clicks, triple_id, src_name, src_
         return dbc.Alert(f"Error: {str(e)}", color="danger")
     
     return no_update
+
+# Export triples database
+@app.callback(
+    Output("export-triples-message", "children"),
+    Input("btn-export-triples", "n_clicks"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def export_triples_callback(n_clicks, auth_data):
+    """Handle exporting triples database as JSON"""
+    if not auth_data:
+        return dbc.Alert("Please login first", color="danger")
+    
+    try:
+        # Call the export API endpoint with POST and credentials in body
+        r = requests.post(
+            f"{API_BASE}/api/admin/export/triples",
+            json={
+                "email": auth_data["email"],
+                "password": auth_data["password"]
+            },
+            timeout=30
+        )
+        
+        if r.ok:
+            result = r.json()
+            if result.get("ok"):
+                # Create download link with the JSON data
+                json_str = json.dumps(result.get("data", {}), indent=2)
+                
+                # Create a data URI for download
+                b64_data = base64.b64encode(json_str.encode()).decode()
+                download_href = f"data:application/json;base64,{b64_data}"
+                
+                stats = result.get("data", {}).get("statistics", {})
+                export_timestamp = result.get("data", {}).get("export_timestamp", "")
+                
+                # Use timestamp from API response for filename, fallback to current time
+                if export_timestamp:
+                    # Parse ISO timestamp and format for filename
+                    try:
+                        dt = datetime.fromisoformat(export_timestamp.replace('Z', '+00:00'))
+                        filename_timestamp = dt.strftime('%Y%m%d_%H%M%S')
+                    except (ValueError, AttributeError):
+                        filename_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                else:
+                    filename_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                
+                return html.Div([
+                    dbc.Alert([
+                        html.Strong("✓ Export successful!"),
+                        html.Br(),
+                        html.Small(f"Exported {stats.get('total_triples', 0)} triples from {stats.get('total_projects', 0)} projects"),
+                        html.Br(),
+                        html.Small(f"Export time: {export_timestamp}"),
+                    ], color="success", className="mb-2"),
+                    html.A(
+                        dbc.Button(
+                            [html.I(className="bi bi-download me-2"), "Download JSON"],
+                            color="primary",
+                            size="sm"
+                        ),
+                        href=download_href,
+                        download=f"triples_export_{filename_timestamp}.json",
+                    )
+                ])
+            else:
+                return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger")
+        else:
+            return dbc.Alert(f"Failed: {r.status_code} - {r.text[:200]}", color="danger")
+    
+    except Exception as e:
+        return dbc.Alert(f"Error: {str(e)}", color="danger")
 
 # -----------------------
 # Main

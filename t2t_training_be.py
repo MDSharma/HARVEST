@@ -3,6 +3,7 @@
 
 import os
 import re
+import json
 import requests
 import logging
 from typing import Dict, Any, List
@@ -1222,22 +1223,28 @@ def debug_pdf_highlighting():
     
     return jsonify(debug_info), 200
 
-@app.get("/api/admin/export/triples")
+@app.post("/api/admin/export/triples")
 def export_triples_json():
     """
     Export all triples from the database as JSON (admin only).
+    Expected JSON: { "email": "admin@example.com", "password": "secret" }
     Returns a JSON file with all triple data including sentences, metadata, and relationships.
     """
     try:
-        # Verify admin authentication
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            return jsonify({"error": "Missing or invalid authorization header"}), 401
-        
-        email = auth_header.replace("Bearer ", "").strip()
-        
+        # Get credentials from JSON body
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+    
+    email = (payload.get("email") or "").strip()
+    password = payload.get("password") or ""
+    
+    if not email or not password:
+        return jsonify({"error": "Email and password required"}), 400
+    
+    try:
         # Verify admin status
-        is_admin = check_admin_status(DB_PATH, email)
+        is_admin = check_admin_status(DB_PATH, email, password)
         if not is_admin:
             return jsonify({"error": "Unauthorized: Admin access required"}), 403
         
@@ -1250,7 +1257,7 @@ def export_triples_json():
         
         # Export structure
         export_data = {
-            "export_date": datetime.utcnow().isoformat() + "Z",
+            "export_timestamp": datetime.utcnow().isoformat() + "Z",
             "database": DB_PATH,
             "schema_version": "v2",
             "triples": [],
@@ -1263,8 +1270,8 @@ def export_triples_json():
         
         # Get all triples
         cursor.execute("""
-            SELECT id, sentence_id, subject_entity, subject_type, relation, object_entity, 
-                   object_type, contributor_email, created_at, project_id
+            SELECT id, sentence_id, source_entity_name, source_entity_attr, relation_type, 
+                   sink_entity_name, sink_entity_attr, contributor_email, created_at, project_id
             FROM triples
             ORDER BY id
         """)
@@ -1273,7 +1280,7 @@ def export_triples_json():
         
         # Get all sentences
         cursor.execute("""
-            SELECT id, sentence_text, doi_hash, created_at
+            SELECT id, text, literature_link, doi_hash, created_at
             FROM sentences
             ORDER BY id
         """)
@@ -1291,7 +1298,7 @@ def export_triples_json():
         
         # Get all projects
         cursor.execute("""
-            SELECT id, name, description, owner_email, created_at
+            SELECT id, name, description, doi_list, created_by, created_at
             FROM projects
             ORDER BY id
         """)
@@ -1300,18 +1307,18 @@ def export_triples_json():
         
         # Get all entity types
         cursor.execute("""
-            SELECT id, label, value
+            SELECT name, value
             FROM entity_types
-            ORDER BY id
+            ORDER BY name
         """)
         for row in cursor.fetchall():
             export_data["entity_types"].append(dict(row))
         
         # Get all relation types
         cursor.execute("""
-            SELECT id, label, value
+            SELECT name
             FROM relation_types
-            ORDER BY id
+            ORDER BY name
         """)
         for row in cursor.fetchall():
             export_data["relation_types"].append(dict(row))
@@ -1330,20 +1337,15 @@ def export_triples_json():
         
         logger.info(f"Admin {email} exported triples database: {export_data['statistics']}")
         
-        # Return JSON with appropriate headers for download
-        from flask import Response
-        response = Response(
-            json.dumps(export_data, indent=2),
-            mimetype='application/json',
-            headers={
-                'Content-Disposition': f'attachment; filename=triples_export_{datetime.utcnow().strftime("%Y%m%d_%H%M%S")}.json'
-            }
-        )
-        return response
+        # Return JSON response in standard format
+        return jsonify({
+            "ok": True,
+            "data": export_data
+        })
     
     except Exception as e:
         logger.error(f"Error exporting triples: {e}", exc_info=True)
-        return jsonify({"error": "Failed to export triples"}), 500
+        return jsonify({"ok": False, "error": "Failed to export triples"}), 500
 
 if __name__ == "__main__":
     # Cleanup old progress entries on startup (older than 1 hour)
