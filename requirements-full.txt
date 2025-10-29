@@ -1,0 +1,8 @@
+# Full Requirements for Text2Trait Training Application
+# Includes all optional dependencies for maximum functionality
+
+# Include all standard requirements
+-r requirements-standard.txt
+
+# PubMed/PMC Access (requires NCBI API key)
+metapub>=0.6.4  # Access to PubMed Central and biomedical literature

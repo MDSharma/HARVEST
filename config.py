@@ -58,7 +58,7 @@ ENABLE_PDF_VIEWER = True  # Enable embedded PDF viewer on Annotate tab
 ENABLE_PDF_HIGHLIGHTING = True  # Enable PDF highlighting/annotation feature in PDF viewer
 ENABLE_LITERATURE_SEARCH = True  # Enable Literature Search tab (requires admin authentication)
 
-# PDF Download Options
+# PDF Download Options - Legacy Sources
 ENABLE_METAPUB_FALLBACK = False  # Try metapub if Unpaywall fails (requires NCBI_API_KEY environment variable)
 ENABLE_HABANERO_DOWNLOAD = True  # Try habanero/institutional access (works within institutional networks)
 HABANERO_PROXY_URL = ""  # Optional: Proxy URL for institutional access (e.g., "http://proxy.university.edu:8080")
@@ -69,6 +69,42 @@ HABANERO_PROXY_URL = ""  # Optional: Proxy URL for institutional access (e.g., "
 # After creating an account, go to Settings > API Key Management to generate a key
 # Example: NCBI_API_KEY = "279xxxxxxxxd504e09"
 NCBI_API_KEY = ""  # Enter your NCBI API key here if using metapub
+
+# Enhanced PDF Download System Configuration
+# The new enhanced system uses a separate database (pdf_downloads.db) for tracking
+# and provides multiple additional sources with smart selection
+ENABLE_ENHANCED_PDF_DOWNLOAD = True  # Use enhanced multi-source PDF download system
+PDF_DOWNLOAD_DB_PATH = "pdf_downloads.db"  # Path to PDF download tracking database
+
+# Additional PDF Source Configuration
+# Europe PMC - Biomedical literature (no dependencies required)
+ENABLE_EUROPE_PMC = True  # Enable Europe PMC source (REST API, no extra dependencies)
+
+# CORE.ac.uk - Open access research papers
+ENABLE_CORE = True  # Enable CORE.ac.uk source (REST API, no extra dependencies)
+CORE_API_KEY = ""  # Optional: Get free API key at https://core.ac.uk/services/api for better results
+
+# Semantic Scholar - Academic paper metadata and PDFs
+ENABLE_SEMANTIC_SCHOLAR = True  # Enable Semantic Scholar source (REST API, no extra dependencies)
+
+# Publisher Direct Access - Predictable URLs for open access publishers
+ENABLE_PUBLISHER_DIRECT = True  # Enable direct publisher URL construction (no extra dependencies)
+
+# SciHub - Optional last resort (use responsibly, may not be legal in all jurisdictions)
+# DISABLED BY DEFAULT - Enable only if you understand the legal implications
+ENABLE_SCIHUB = False  # Enable SciHub source (use with caution, check local laws)
+
+# Smart Download Configuration
+# These settings control the intelligent source selection and retry logic
+PDF_SMART_RETRY_ENABLED = True  # Enable automatic retry queue for temporary failures
+PDF_SMART_RETRY_MAX_ATTEMPTS = 3  # Maximum retry attempts for temporary failures
+PDF_SMART_RETRY_BASE_DELAY_MINUTES = 60  # Base delay before first retry (uses exponential backoff)
+PDF_RATE_LIMIT_DELAY_SECONDS = 1  # Delay between API requests to respect rate limits
+PDF_CLEANUP_RETENTION_DAYS = 90  # Days to keep download attempt history before cleanup
+
+# User Agent Rotation
+# Rotate User-Agent headers to avoid being blocked by some sources
+PDF_USER_AGENT_ROTATION = True  # Enable rotating User-Agent strings
 
 # Partner Logos Configuration
 # Local logo files (jpg or png) in the document root

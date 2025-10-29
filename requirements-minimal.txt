@@ -1,0 +1,20 @@
+# Minimal Requirements for Text2Trait Training Application
+# This is the bare minimum to run the core application with basic PDF download
+# Additional sources can be enabled by installing requirements-standard.txt or requirements-full.txt
+
+# Core Web Framework
+flask>=3.0.0
+flask-cors>=4.0.0
+dash>=2.17.0
+dash-bootstrap-components>=1.6.0
+
+# Essential Utilities
+requests>=2.31.0  # Required for all HTTP requests and PDF downloads
+bcrypt>=3.2.0     # Required for password hashing
+
+# PDF Processing
+PyMuPDF>=1.23.0   # Required for PDF annotation and highlighting
+
+# Enhanced PDF Download System
+# All new sources (Europe PMC, CORE, Semantic Scholar, Publisher Direct) work with just 'requests'
+# No additional dependencies required for these sources!
