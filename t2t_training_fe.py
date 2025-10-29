@@ -23,17 +23,39 @@ logger = logging.getLogger(__name__)
 
 # Import configuration
 try:
-    from config import PARTNER_LOGOS, ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING
+    from config import (
+        PARTNER_LOGOS, ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING,
+        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL
+    )
 except ImportError:
     # Fallback if config not available
     PARTNER_LOGOS = []
     ENABLE_LITERATURE_SEARCH = True  # Default to enabled
     ENABLE_PDF_HIGHLIGHTING = True  # Default to enabled
+    DEPLOYMENT_MODE = os.getenv("T2T_DEPLOYMENT_MODE", "internal")
+    BACKEND_PUBLIC_URL = os.getenv("T2T_BACKEND_PUBLIC_URL", "")
+
+# Override config with environment variables if present
+DEPLOYMENT_MODE = os.getenv("T2T_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
+BACKEND_PUBLIC_URL = os.getenv("T2T_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
+
+# Validate deployment mode
+if DEPLOYMENT_MODE not in ["internal", "nginx"]:
+    raise ValueError(f"Invalid DEPLOYMENT_MODE: {DEPLOYMENT_MODE}. Must be 'internal' or 'nginx'")
+
+if DEPLOYMENT_MODE == "nginx" and not BACKEND_PUBLIC_URL:
+    raise ValueError("BACKEND_PUBLIC_URL must be set when DEPLOYMENT_MODE is 'nginx'")
 
 # -----------------------
 # Config
 # -----------------------
-API_BASE = os.getenv("T2T_API_BASE", "http://127.0.0.1:5001")
+# Determine API base URL based on deployment mode
+if DEPLOYMENT_MODE == "nginx":
+    # In nginx mode, use the public backend URL
+    API_BASE = BACKEND_PUBLIC_URL
+else:
+    # In internal mode, use localhost backend
+    API_BASE = os.getenv("T2T_API_BASE", "http://127.0.0.1:5001")
 API_CHOICES = f"{API_BASE}/api/choices"
 API_SAVE = f"{API_BASE}/api/save"
 API_RECENT = f"{API_BASE}/api/recent"
@@ -1238,6 +1260,8 @@ app.layout = dbc.Container(
 # -----------------------
 # These routes proxy PDF requests from the frontend to the internal backend (127.0.0.1:5001)
 # This keeps the backend private and unexposed to remote clients
+# Note: These routes are only active in "internal" deployment mode
+# In "nginx" mode, the frontend makes direct requests to the backend
 
 @lru_cache(maxsize=100)
 def _validate_pdf_params(project_id: int, filename: str) -> bool:
@@ -1271,7 +1295,18 @@ def proxy_pdf(project_id: int, filename: str):
     - Fetches PDF from internal backend (127.0.0.1:5001)
     - Streams response with proper error handling
     - Returns 400 for invalid input, 502 for backend errors, 404 for not found
+
+    Note: This route only works in "internal" deployment mode.
+    In "nginx" mode, this returns a 404 and clients should use direct backend URLs.
     """
+    # In nginx mode, proxy routes are disabled
+    if DEPLOYMENT_MODE == "nginx":
+        return Response(
+            json.dumps({"error": "Proxy routes disabled in nginx mode. Use direct backend URL."}),
+            status=404,
+            mimetype='application/json'
+        )
+
     try:
         # Validate parameters
         if not _validate_pdf_params(project_id, filename):
@@ -1368,7 +1403,18 @@ def proxy_highlights(project_id: int, filename: str):
     """
     Proxy route for PDF highlights API to avoid CORS issues.
     Forwards GET/POST/DELETE requests to the backend API.
+
+    Note: This route only works in "internal" deployment mode.
+    In "nginx" mode, this returns a 404 and clients should use direct backend URLs.
     """
+    # In nginx mode, proxy routes are disabled
+    if DEPLOYMENT_MODE == "nginx":
+        return Response(
+            json.dumps({"error": "Proxy routes disabled in nginx mode. Use direct backend URL."}),
+            status=404,
+            mimetype='application/json'
+        )
+
     try:
         # Validate parameters
         if not _validate_pdf_params(project_id, filename):
@@ -2652,7 +2698,8 @@ def update_pdf_viewer(selected_doi, project_id):
                 # PDF exists - check if highlighting is enabled
                 if ENABLE_PDF_HIGHLIGHTING:
                     # Show custom viewer with highlighting capability
-                    viewer_url = f"/pdf-viewer?project_id={project_id}&filename={pdf_filename}&api_base={API_BASE}"
+                    # Pass deployment mode to viewer for proper URL handling
+                    viewer_url = f"/pdf-viewer?project_id={project_id}&filename={pdf_filename}&api_base={API_BASE}&deployment_mode={DEPLOYMENT_MODE}"
                     return html.Iframe(
                         src=viewer_url,
                         style={
@@ -2663,15 +2710,28 @@ def update_pdf_viewer(selected_doi, project_id):
                     )
                 else:
                     # Show simple PDF viewer without highlighting
-                    proxy_pdf_url = f"/proxy/pdf/{project_id}/{pdf_filename}"
-                    return html.Iframe(
-                        src=proxy_pdf_url,
-                        style={
-                            "width": "100%",
-                            "height": "980px",
-                            "border": "none"
-                        }
-                    )
+                    if DEPLOYMENT_MODE == "nginx":
+                        # In nginx mode, use direct backend URL
+                        direct_pdf_url = f"{API_BASE}/api/projects/{project_id}/pdf/{pdf_filename}"
+                        return html.Iframe(
+                            src=direct_pdf_url,
+                            style={
+                                "width": "100%",
+                                "height": "980px",
+                                "border": "none"
+                            }
+                        )
+                    else:
+                        # In internal mode, use proxy route
+                        proxy_pdf_url = f"/proxy/pdf/{project_id}/{pdf_filename}"
+                        return html.Iframe(
+                            src=proxy_pdf_url,
+                            style={
+                                "width": "100%",
+                                "height": "980px",
+                                "border": "none"
+                            }
+                        )
             else:
                 # PDF doesn't exist
                 return html.Div([

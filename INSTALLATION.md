@@ -53,6 +53,21 @@ By default, the frontend runs on port 8050.
 
 ## Configuration
 
+### Deployment Mode
+
+The application supports two deployment modes. Edit `config.py`:
+
+```python
+# Internal mode (default) - simple setup, no reverse proxy needed
+DEPLOYMENT_MODE = "internal"
+
+# Nginx mode - production deployment with reverse proxy
+DEPLOYMENT_MODE = "nginx"
+BACKEND_PUBLIC_URL = "https://api.yourdomain.com"  # Required for nginx mode
+```
+
+**For detailed deployment configuration, see [DEPLOYMENT.md](DEPLOYMENT.md)**
+
 ### Enable/Disable PDF Highlighting
 
 Edit `config.py` and set:
@@ -104,12 +119,24 @@ Then restart the backend server.
 
 **Symptom**: Cross-Origin Request Blocked errors in browser console.
 
-**Cause**: Outdated code or incorrect proxy routes.
+**Cause**: Incorrect deployment mode or proxy configuration.
 
-**Solution**: 
-- Ensure you're using the latest code with proxy routes
-- All API calls should go through `/proxy/pdf/` and `/proxy/highlights/` routes
-- Never call backend API directly from frontend JavaScript
+**Solution**:
+- Check your `DEPLOYMENT_MODE` setting in `config.py`
+- In **internal mode**: All API calls use `/proxy/` routes (default behavior)
+- In **nginx mode**: Direct backend URLs are used, ensure `BACKEND_PUBLIC_URL` is correct
+- Restart both backend and frontend after changing deployment mode
+
+### Configuration Validation Errors
+
+**Symptom**: Application fails to start with configuration errors.
+
+**Cause**: Invalid or missing deployment configuration.
+
+**Solution**:
+- Ensure `DEPLOYMENT_MODE` is either "internal" or "nginx"
+- If using nginx mode, `BACKEND_PUBLIC_URL` must be set
+- Check `launch_t2t.py` output for specific configuration issues
 
 ## Testing
 

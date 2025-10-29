@@ -42,19 +42,45 @@ from t2t_store import (
 
 # Import configuration
 try:
-    from config import DB_PATH, BE_PORT as PORT, HOST, ENABLE_PDF_HIGHLIGHTING
+    from config import (
+        DB_PATH, BE_PORT as PORT, HOST, ENABLE_PDF_HIGHLIGHTING,
+        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL
+    )
 except ImportError:
     # Fallback to environment variables if config.py doesn't exist
     DB_PATH = os.environ.get("T2T_DB", "t2t_training.db")
     PORT = int(os.environ.get("T2T_PORT", "5001"))
     HOST = os.environ.get("T2T_HOST", "0.0.0.0")
     ENABLE_PDF_HIGHLIGHTING = True  # Default to enabled
+    DEPLOYMENT_MODE = os.environ.get("T2T_DEPLOYMENT_MODE", "internal")
+    BACKEND_PUBLIC_URL = os.environ.get("T2T_BACKEND_PUBLIC_URL", "")
+
+# Override config with environment variables if present
+DEPLOYMENT_MODE = os.environ.get("T2T_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
+BACKEND_PUBLIC_URL = os.environ.get("T2T_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
+
+# Validate deployment mode
+if DEPLOYMENT_MODE not in ["internal", "nginx"]:
+    raise ValueError(f"Invalid DEPLOYMENT_MODE: {DEPLOYMENT_MODE}. Must be 'internal' or 'nginx'")
+
+if DEPLOYMENT_MODE == "nginx" and not BACKEND_PUBLIC_URL:
+    raise ValueError("BACKEND_PUBLIC_URL must be set when DEPLOYMENT_MODE is 'nginx'")
 
 # Initialize DB on startup
 init_db(DB_PATH)
 
 app = Flask(__name__)
-CORS(app)  # allow cross-origin requests from your Dash UI
+
+# Configure CORS based on deployment mode
+if DEPLOYMENT_MODE == "nginx":
+    # In nginx mode, allow CORS from any origin since requests come directly from client
+    # The reverse proxy should handle origin restrictions
+    CORS(app, origins="*", supports_credentials=True)
+    logger.info(f"CORS enabled for nginx mode (allowing all origins)")
+else:
+    # In internal mode, only allow localhost origins
+    CORS(app, origins=["http://localhost:*", "http://127.0.0.1:*", "http://0.0.0.0:*"])
+    logger.info(f"CORS enabled for internal mode (localhost only)")
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -68,7 +94,12 @@ def slugify(s: str) -> str:
 
 @app.get("/api/health")
 def health():
-    return jsonify({"ok": True, "db": DB_PATH})
+    return jsonify({
+        "ok": True,
+        "db": DB_PATH,
+        "deployment_mode": DEPLOYMENT_MODE,
+        "backend_url": BACKEND_PUBLIC_URL if DEPLOYMENT_MODE == "nginx" else "internal"
+    })
 
 @app.get("/api/choices")
 def choices():

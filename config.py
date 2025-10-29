@@ -10,6 +10,32 @@ HOST = "127.0.0.1"  # Host address for the server
 PORT = 8050  # Port for the Dash frontend
 BE_PORT = 5001  # Port for the Flask backend
 
+# Deployment Mode Configuration
+# Choose between "internal" (default) or "nginx" deployment modes
+#
+# "internal" mode (default):
+#   - Frontend proxies all backend requests through /proxy/* routes
+#   - Backend runs on 127.0.0.1 (localhost only, not accessible externally)
+#   - Ideal for: Development, single-server deployments, simplified setup
+#   - Security: Backend is protected from direct external access
+#
+# "nginx" mode:
+#   - Frontend makes direct requests to backend API
+#   - Backend must be accessible at BACKEND_PUBLIC_URL
+#   - Requires reverse proxy (nginx, Apache, etc.) for routing
+#   - Ideal for: Production deployments, multiple instances, SSL termination, load balancing
+#   - Security: Requires proper firewall rules and reverse proxy configuration
+#
+DEPLOYMENT_MODE = "internal"  # Options: "internal" or "nginx"
+
+# Backend Public URL (required for nginx mode, ignored for internal mode)
+# This is the externally accessible URL where the backend API can be reached
+# Examples:
+#   - "https://api.yourdomain.com" (production with SSL)
+#   - "http://yourdomain.com/api" (behind reverse proxy at /api path)
+#   - "http://backend.internal:5001" (internal network with DNS)
+BACKEND_PUBLIC_URL = ""  # Only used when DEPLOYMENT_MODE = "nginx"
+
 # Database Configuration
 DB_PATH = "t2t_training.db"  # Path to SQLite database file
 

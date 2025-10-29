@@ -26,6 +26,17 @@ FRONTEND_PORT = int(os.getenv("PORT", "8050"))
 BACKEND_HOST = os.getenv("T2T_HOST", "127.0.0.1")
 FRONTEND_HOST = os.getenv("FRONTEND_HOST", "127.0.0.1")
 
+# Load deployment configuration
+try:
+    from config import DEPLOYMENT_MODE, BACKEND_PUBLIC_URL
+except ImportError:
+    DEPLOYMENT_MODE = os.getenv("T2T_DEPLOYMENT_MODE", "internal")
+    BACKEND_PUBLIC_URL = os.getenv("T2T_BACKEND_PUBLIC_URL", "")
+
+# Override with environment variables if present
+DEPLOYMENT_MODE = os.getenv("T2T_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
+BACKEND_PUBLIC_URL = os.getenv("T2T_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
+
 # Health check settings
 HEALTH_CHECK_TIMEOUT = 30  # seconds
 HEALTH_CHECK_INTERVAL = 1  # seconds
@@ -35,10 +46,47 @@ backend_process: Optional[subprocess.Popen] = None
 frontend_process: Optional[subprocess.Popen] = None
 
 
+def validate_deployment_config():
+    """Validate deployment configuration and print warnings if needed."""
+    if DEPLOYMENT_MODE not in ["internal", "nginx"]:
+        print(f"✗ Error: Invalid DEPLOYMENT_MODE: {DEPLOYMENT_MODE}")
+        print("  Must be 'internal' or 'nginx'")
+        return False
+
+    if DEPLOYMENT_MODE == "nginx":
+        if not BACKEND_PUBLIC_URL:
+            print(f"✗ Error: BACKEND_PUBLIC_URL must be set when DEPLOYMENT_MODE is 'nginx'")
+            return False
+
+        # Warn if backend host is localhost in nginx mode
+        if BACKEND_HOST in ["127.0.0.1", "localhost"]:
+            print()
+            print("⚠ Warning: Backend is configured to run on localhost (127.0.0.1)")
+            print("  In 'nginx' deployment mode, the backend should be accessible externally.")
+            print(f"  Consider setting T2T_HOST=0.0.0.0 or ensure {BACKEND_PUBLIC_URL}")
+            print("  can reach the backend through your reverse proxy.")
+            print()
+
+    if DEPLOYMENT_MODE == "internal":
+        # Recommend localhost binding for internal mode
+        if BACKEND_HOST == "0.0.0.0":
+            print()
+            print("⚠ Warning: Backend is configured to bind to 0.0.0.0 (all interfaces)")
+            print("  In 'internal' deployment mode, binding to 127.0.0.1 is more secure")
+            print("  as the backend should only accept connections from localhost.")
+            print()
+
+    return True
+
+
 def print_banner():
     """Print a welcome banner."""
     print("=" * 60)
     print("Text2Trait: Training data builder")
+    print("=" * 60)
+    print(f"Deployment Mode: {DEPLOYMENT_MODE}")
+    if DEPLOYMENT_MODE == "nginx":
+        print(f"Backend Public URL: {BACKEND_PUBLIC_URL}")
     print("=" * 60)
     print()
 
@@ -267,11 +315,16 @@ def monitor_processes():
 def main():
     """Main entry point for the launcher."""
     global backend_process, frontend_process
-    
+
     # Set up signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    
+
+    # Validate deployment configuration
+    if not validate_deployment_config():
+        print("\n✗ Configuration validation failed. Please fix the errors above and try again.")
+        sys.exit(1)
+
     print_banner()
     
     # Start backend

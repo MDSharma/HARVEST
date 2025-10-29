@@ -229,11 +229,19 @@
         const projectId = urlParams.get('project_id');
         const filename = urlParams.get('filename');
         const apiBase = urlParams.get('api_base') || 'http://127.0.0.1:5001';
-        
+        const deploymentMode = urlParams.get('deployment_mode') || 'internal';
+
         if (!projectId || !filename) {
             document.getElementById('status').textContent = 'Error: Missing project_id or filename';
             throw new Error('Missing required parameters');
         }
+
+        console.log('PDF Viewer Configuration:', {
+            projectId,
+            filename,
+            apiBase,
+            deploymentMode
+        });
         
         // State
         let pdfDoc = null;
@@ -267,12 +275,20 @@
             loadPDF();
         }
         
-        // Load PDF using proxy route to avoid CORS issues
-        // The proxy route is same-origin and forwards to the backend
-        const pdfUrl = `/proxy/pdf/${projectId}/${filename}`;
-        
-        // API URLs for highlight operations - use proxy to avoid CORS
-        const highlightsApiUrl = `/proxy/highlights/${projectId}/${filename}`;
+        // Determine PDF and API URLs based on deployment mode
+        let pdfUrl, highlightsApiUrl;
+
+        if (deploymentMode === 'nginx') {
+            // In nginx mode, use direct backend URLs
+            pdfUrl = `${apiBase}/api/projects/${projectId}/pdf/${filename}`;
+            highlightsApiUrl = `${apiBase}/api/projects/${projectId}/pdf/${filename}/highlights`;
+        } else {
+            // In internal mode, use proxy routes to avoid CORS issues
+            pdfUrl = `/proxy/pdf/${projectId}/${filename}`;
+            highlightsApiUrl = `/proxy/highlights/${projectId}/${filename}`;
+        }
+
+        console.log('PDF URLs:', { pdfUrl, highlightsApiUrl });
         
         function showStatus(message, isError = false) {
             statusSpan.textContent = message;

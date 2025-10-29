@@ -97,6 +97,26 @@ You can customize the ports and hosts using environment variables:
 - `FRONTEND_HOST`: Frontend host (default: 127.0.0.1)
 - `T2T_DB`: Database file path (default: t2t.db)
 - `T2T_ADMIN_EMAILS`: Comma-separated list of admin emails (optional)
+- `T2T_DEPLOYMENT_MODE`: Deployment mode - "internal" or "nginx" (default: internal)
+- `T2T_BACKEND_PUBLIC_URL`: Backend URL for nginx mode (required when mode is "nginx")
+
+## Deployment
+
+The application supports two deployment modes:
+
+### Internal Mode (Default)
+- Simple setup for development and single-server deployments
+- Backend runs on localhost only, protected from external access
+- Frontend proxies all backend requests internally
+- No reverse proxy required
+
+### Nginx Mode
+- Production-ready deployment with reverse proxy
+- Supports load balancing, SSL termination, and advanced routing
+- Backend accessible at configured public URL
+- Ideal for scaled deployments
+
+**For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md)**
 
 ## Admin Features
 
