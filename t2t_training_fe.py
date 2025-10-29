@@ -43,7 +43,7 @@ API_PROJECTS = f"{API_BASE}/api/projects"
 API_ADMIN_PROJECTS = f"{API_BASE}/api/admin/projects"
 API_ADMIN_TRIPLE = f"{API_BASE}/api/admin/triple"
 
-APP_TITLE = "Text2Trait: Training data builder"
+APP_TITLE = "HARVEST: Human-in-the-loop Actionable Research and Vocabulary Extraction Technology"
 
 # -----------------------
 # Local fallback schema (used if /api/choices is not reachable)
