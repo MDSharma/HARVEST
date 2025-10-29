@@ -1,4 +1,4 @@
-# Text2Trait: Training data builder
+# HARVEST: Human-in-the-loop Actionable Research and Vocabulary Extraction Technology
 
 A web-based application for annotating biological text with entity relationships and metadata.
 
