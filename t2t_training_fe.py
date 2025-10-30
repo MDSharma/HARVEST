@@ -2895,12 +2895,12 @@ def create_project_callback(n_clicks, name, description, doi_list_text, auth_dat
 @app.callback(
     Output("projects-list", "children"),
     Input("btn-refresh-projects", "n_clicks"),
-    Input("btn-create-project", "n_clicks"),
+    Input("project-message", "children"),  # Trigger refresh when project message changes
     Input("delete-project-confirm", "n_clicks"),
     State("admin-auth-store", "data"),
     prevent_initial_call=False,
 )
-def display_projects_list(refresh_clicks, create_clicks, delete_clicks, auth_data):
+def display_projects_list(refresh_clicks, project_message, delete_clicks, auth_data):
     if not auth_data:
         return dbc.Alert("Please login to view projects", color="info")
     
