@@ -69,6 +69,10 @@ if DEPLOYMENT_MODE == "nginx" and not BACKEND_PUBLIC_URL:
 # Initialize DB on startup
 init_db(DB_PATH)
 
+# Setup logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
 app = Flask(__name__)
 
 # Configure CORS based on deployment mode
@@ -81,10 +85,6 @@ else:
     # In internal mode, only allow localhost origins
     CORS(app, origins=["http://localhost:*", "http://127.0.0.1:*", "http://0.0.0.0:*"])
     logger.info(f"CORS enabled for internal mode (localhost only)")
-
-# Setup logging
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 def slugify(s: str) -> str:
     """Simple slug for entity type 'value' column (lowercase, underscores)."""
