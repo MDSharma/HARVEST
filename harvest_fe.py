@@ -846,11 +846,11 @@ app.layout = dbc.Container(
                         # Logo and title section
                         html.Div([
                             html.Img(
-                                src=app.get_asset_url("HARVEST_logo.svg"),
+                                src=app.get_asset_url("HARVEST.png"),
                                 alt="HARVEST",
                                 style={
-                                    "height": "60px",
-                                    "marginBottom": "20px"
+                                    "height": "120px",
+                                    "marginBottom": "10px"
                                 },
                                 id="harvest-logo"
                             ),
