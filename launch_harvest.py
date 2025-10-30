@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Wrapper script to launch both the Text2Trait frontend and backend services.
+Wrapper script to launch both the HARVEST frontend and backend services.
 
 This script:
 1. Starts the backend API server (Flask on port 5001)
@@ -19,23 +19,23 @@ import requests
 from typing import Optional, Tuple
 
 # Configuration
-BACKEND_SCRIPT = "t2t_training_be.py"
-FRONTEND_SCRIPT = "t2t_training_fe.py"
-BACKEND_PORT = int(os.getenv("T2T_PORT", "5001"))
+BACKEND_SCRIPT = "harvest_be.py"
+FRONTEND_SCRIPT = "harvest_fe.py"
+BACKEND_PORT = int(os.getenv("HARVEST_PORT", "5001"))
 FRONTEND_PORT = int(os.getenv("PORT", "8050"))
-BACKEND_HOST = os.getenv("T2T_HOST", "127.0.0.1")
+BACKEND_HOST = os.getenv("HARVEST_HOST", "127.0.0.1")
 FRONTEND_HOST = os.getenv("FRONTEND_HOST", "127.0.0.1")
 
 # Load deployment configuration
 try:
     from config import DEPLOYMENT_MODE, BACKEND_PUBLIC_URL
 except ImportError:
-    DEPLOYMENT_MODE = os.getenv("T2T_DEPLOYMENT_MODE", "internal")
-    BACKEND_PUBLIC_URL = os.getenv("T2T_BACKEND_PUBLIC_URL", "")
+    DEPLOYMENT_MODE = os.getenv("HARVEST_DEPLOYMENT_MODE", "internal")
+    BACKEND_PUBLIC_URL = os.getenv("HARVEST_BACKEND_PUBLIC_URL", "")
 
 # Override with environment variables if present
-DEPLOYMENT_MODE = os.getenv("T2T_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
-BACKEND_PUBLIC_URL = os.getenv("T2T_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
+DEPLOYMENT_MODE = os.getenv("HARVEST_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
+BACKEND_PUBLIC_URL = os.getenv("HARVEST_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
 
 # Health check settings
 HEALTH_CHECK_TIMEOUT = 30  # seconds
@@ -59,7 +59,7 @@ def validate_deployment_config():
             print()
             print("⚠ Warning: Backend is configured to run on localhost (127.0.0.1)")
             print("  In 'nginx' deployment mode, the backend should be accessible externally.")
-            print("  Consider setting T2T_HOST=0.0.0.0 for external access through nginx.")
+            print("  Consider setting HARVEST_HOST=0.0.0.0 for external access through nginx.")
             print()
 
     if DEPLOYMENT_MODE == "internal":
@@ -77,7 +77,7 @@ def validate_deployment_config():
 def print_banner():
     """Print a welcome banner."""
     print("=" * 60)
-    print("Text2Trait: Training data builder")
+    print("HARVEST: Training data builder")
     print("=" * 60)
     print(f"Deployment Mode: {DEPLOYMENT_MODE}")
     if DEPLOYMENT_MODE == "nginx":
@@ -139,7 +139,7 @@ def start_backend() -> Tuple[bool, Optional[subprocess.Popen]]:
     
     if not check_port_available(BACKEND_PORT):
         print(f"✗ Error: Port {BACKEND_PORT} is already in use!")
-        print(f"  Please stop the process using port {BACKEND_PORT} or set T2T_PORT environment variable.")
+        print(f"  Please stop the process using port {BACKEND_PORT} or set HARVEST_PORT environment variable.")
         return False, None
     
     try:

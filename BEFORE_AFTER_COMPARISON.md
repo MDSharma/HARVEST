@@ -36,7 +36,7 @@ Nginx location / tries to serve from: /var/www/text2trait.com/_dash-component-su
 DEPLOYMENT_MODE = "internal"  # or "nginx" without subpath support
 BACKEND_PUBLIC_URL = ""
 
-# t2t_training_fe.py
+# harvest_fe.py
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 # No url_base_pathname configured → Dash assumes root deployment
 ```
@@ -90,7 +90,7 @@ DEPLOYMENT_MODE = "nginx"
 BACKEND_PUBLIC_URL = "https://www.text2trait.com/harvest/api"
 URL_BASE_PATHNAME = "/harvest/"  # NEW! Tells Dash about the subpath
 
-# t2t_training_fe.py
+# harvest_fe.py
 from config import URL_BASE_PATHNAME
 
 # Validate pathname

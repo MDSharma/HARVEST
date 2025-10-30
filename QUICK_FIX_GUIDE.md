@@ -44,7 +44,7 @@ sudo systemctl restart harvest-frontend
 
 # Or if using the launcher:
 cd /home/runner/work/HARVEST/HARVEST
-python3 launch_t2t.py
+python3 launch_harvest.py
 ```
 
 ### Step 3: Clear Browser Cache and Test
@@ -60,10 +60,10 @@ python3 launch_t2t.py
 Instead of editing `config.py`, you can set environment variables:
 
 ```bash
-export T2T_DEPLOYMENT_MODE="nginx"
-export T2T_BACKEND_PUBLIC_URL="https://www.text2trait.com/harvest/api"
-export T2T_URL_BASE_PATHNAME="/harvest/"
-python3 launch_t2t.py
+export HARVEST_DEPLOYMENT_MODE="nginx"
+export HARVEST_BACKEND_PUBLIC_URL="https://www.text2trait.com/harvest/api"
+export HARVEST_URL_BASE_PATHNAME="/harvest/"
+python3 launch_harvest.py
 ```
 
 ## Verification
@@ -177,8 +177,8 @@ This error should be resolved with the latest fix. The frontend now connects to 
    ```bash
    # Stop both services
    # Then restart:
-   python3 t2t_training_be.py  # Terminal 1
-   python3 t2t_training_fe.py  # Terminal 2
+   python3 harvest_be.py  # Terminal 1
+   python3 harvest_fe.py  # Terminal 2
    ```
 
 ## Need Help?

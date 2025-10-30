@@ -35,7 +35,7 @@ ADMIN_EMAILS = "admin@example.com,researcher@university.edu"
 HOST = "127.0.0.1"
 PORT = 8050
 BE_PORT = 5001
-DB_PATH = "t2t_training.db"
+DB_PATH = "harvest.db"
 ```
 
 **IMPORTANT**: The `UNPAYWALL_EMAIL` must be set to a valid email address before using PDF download features. This is required by the Unpaywall API.
@@ -61,7 +61,7 @@ This will safely update your database schema while preserving existing data.
 The easiest way to start the application is using the included launcher script, which handles both the backend and frontend:
 
 ```bash
-python3 launch_t2t.py
+python3 launch_harvest.py
 ```
 
 This will:
@@ -78,12 +78,12 @@ Alternatively, you can manually start each service in separate terminals:
 
 1. Run the backend:
 ```bash
-python3 t2t_training_be.py
+python3 harvest_be.py
 ```
 
 2. Run the frontend (in a separate terminal):
 ```bash
-python3 t2t_training_fe.py
+python3 harvest_fe.py
 ```
 
 3. Access the application at `http://localhost:8050`
@@ -91,15 +91,15 @@ python3 t2t_training_fe.py
 ### Configuration
 
 You can customize the ports and hosts using environment variables:
-- `T2T_PORT`: Backend API port (default: 5001)
+- `HARVEST_PORT`: Backend API port (default: 5001)
 - `PORT`: Frontend UI port (default: 8050)
-- `T2T_HOST`: Backend host (default: 127.0.0.1)
+- `HARVEST_HOST`: Backend host (default: 127.0.0.1)
 - `FRONTEND_HOST`: Frontend host (default: 127.0.0.1)
-- `T2T_DB`: Database file path (default: t2t.db)
-- `T2T_ADMIN_EMAILS`: Comma-separated list of admin emails (optional)
-- `T2T_DEPLOYMENT_MODE`: Deployment mode - "internal" or "nginx" (default: internal)
-- `T2T_BACKEND_PUBLIC_URL`: Backend URL for nginx mode (required when mode is "nginx")
-- `T2T_URL_BASE_PATHNAME`: URL base pathname for subpath deployments (default: "/", e.g., "/harvest/")
+- `HARVEST_DB`: Database file path (default: harvest.db)
+- `HARVEST_ADMIN_EMAILS`: Comma-separated list of admin emails (optional)
+- `HARVEST_DEPLOYMENT_MODE`: Deployment mode - "internal" or "nginx" (default: internal)
+- `HARVEST_BACKEND_PUBLIC_URL`: Backend URL for nginx mode (required when mode is "nginx")
+- `HARVEST_URL_BASE_PATHNAME`: URL base pathname for subpath deployments (default: "/", e.g., "/harvest/")
 
 ## Deployment
 
@@ -135,7 +135,7 @@ This will prompt you for an email and password. The password will be securely ha
 
 Alternatively, you can set admin emails via environment variable:
 ```bash
-export T2T_ADMIN_EMAILS="admin1@example.com,admin2@example.com"
+export HARVEST_ADMIN_EMAILS="admin1@example.com,admin2@example.com"
 ```
 
 ### Admin Panel

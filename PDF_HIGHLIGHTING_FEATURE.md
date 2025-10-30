@@ -1,7 +1,7 @@
 # PDF Highlighting Feature - Implementation Summary
 
 ## Overview
-This document provides a summary of the PDF highlighting feature that has been added to the Text2Trait Training Data Builder application.
+This document provides a summary of the PDF highlighting feature that has been added to the HARVEST Training Data Builder application.
 
 ## Features Implemented
 
@@ -22,7 +22,7 @@ A comprehensive Python module for managing PDF highlights using PyMuPDF (fitz):
 - Input sanitization and validation
 - Path traversal protection
 
-### 2. Backend API Endpoints (`t2t_training_be.py`)
+### 2. Backend API Endpoints (`harvest_be.py`)
 Three new REST API endpoints for highlight management:
 
 **POST** `/api/projects/<project_id>/pdf/<filename>/highlights`
@@ -61,7 +61,7 @@ An interactive PDF viewer with highlighting capabilities:
 - Color picker for highlight customization
 - Canvas overlay for highlight rendering
 
-### 4. Frontend Integration (`t2t_training_fe.py`)
+### 4. Frontend Integration (`harvest_fe.py`)
 Integration with the main Dash application:
 
 - Added route `/pdf-viewer` to serve the custom viewer
@@ -145,12 +145,12 @@ success, message = add_highlights_to_pdf('path/to/file.pdf', highlights)
 
 ### File Structure
 ```
-t2t_training_dev/
+harvest/
 ├── pdf_annotator.py           # PDF annotation module
 ├── assets/
 │   └── pdf_viewer.html        # Custom PDF viewer with highlighting
-├── t2t_training_be.py         # Backend API (modified)
-├── t2t_training_fe.py         # Frontend routes (modified)
+├── harvest_be.py         # Backend API (modified)
+├── harvest_fe.py         # Frontend routes (modified)
 ├── test_pdf_annotation.py     # Test suite
 ├── requirements.txt           # Updated with PyMuPDF
 └── README.md                  # Updated documentation
@@ -200,4 +200,4 @@ The PDF highlighting feature has been successfully implemented with:
 - ✓ Documentation updates
 - ✓ All tests passing
 
-The feature is ready for use and provides a robust, secure way to highlight and annotate PDFs within the Text2Trait application.
+The feature is ready for use and provides a robust, secure way to highlight and annotate PDFs within the HARVEST application.

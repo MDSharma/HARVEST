@@ -13,16 +13,16 @@ import os
 import sys
 from datetime import datetime
 
-# Import generate_doi_hash from t2t_store
+# Import generate_doi_hash from harvest_store
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from t2t_store import generate_doi_hash
+from harvest_store import generate_doi_hash
 
 # Import configuration
 try:
     from config import DB_PATH
 except ImportError:
     # Fallback to environment variable if config.py doesn't exist
-    DB_PATH = os.environ.get("T2T_DB", "t2t_training.db")
+    DB_PATH = os.environ.get("HARVEST_DB", "harvest.db")
 
 def migrate_database_v2():
     print(f"Migrating database v2: {DB_PATH}")

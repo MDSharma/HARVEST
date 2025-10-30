@@ -70,11 +70,11 @@ HOST = "127.0.0.1"  # Backend binds to localhost only
 
 ```bash
 # Using the launcher (recommended)
-python3 launch_t2t.py
+python3 launch_harvest.py
 
 # Or manually
-python3 t2t_training_be.py  # Terminal 1
-python3 t2t_training_fe.py  # Terminal 2
+python3 harvest_be.py  # Terminal 1
+python3 harvest_fe.py  # Terminal 2
 ```
 
 Access the application at `http://localhost:8050`
@@ -118,9 +118,9 @@ HOST = "0.0.0.0"  # Backend binds to all interfaces
 Or use environment variables:
 
 ```bash
-export T2T_DEPLOYMENT_MODE="nginx"
-export T2T_BACKEND_PUBLIC_URL="https://api.yourdomain.com"
-export T2T_HOST="0.0.0.0"
+export HARVEST_DEPLOYMENT_MODE="nginx"
+export HARVEST_BACKEND_PUBLIC_URL="https://api.yourdomain.com"
+export HARVEST_HOST="0.0.0.0"
 ```
 
 ### Nginx Setup
@@ -128,13 +128,13 @@ export T2T_HOST="0.0.0.0"
 1. **Copy the example configuration:**
 
 ```bash
-sudo cp nginx.conf.example /etc/nginx/sites-available/t2t
+sudo cp nginx.conf.example /etc/nginx/sites-available/harvest
 ```
 
 2. **Edit the configuration:**
 
 ```bash
-sudo nano /etc/nginx/sites-available/t2t
+sudo nano /etc/nginx/sites-available/harvest
 ```
 
 Update:
@@ -145,7 +145,7 @@ Update:
 3. **Enable the site:**
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/t2t /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/harvest /etc/nginx/sites-enabled/
 sudo nginx -t  # Test configuration
 sudo systemctl reload nginx
 ```
@@ -153,7 +153,7 @@ sudo systemctl reload nginx
 4. **Start the application:**
 
 ```bash
-python3 launch_t2t.py
+python3 launch_harvest.py
 ```
 
 ### How Requests Flow
@@ -204,16 +204,16 @@ Override configuration at runtime:
 
 ```bash
 # Set deployment mode
-export T2T_DEPLOYMENT_MODE="nginx"
+export HARVEST_DEPLOYMENT_MODE="nginx"
 
 # Set backend public URL
-export T2T_BACKEND_PUBLIC_URL="https://api.yourdomain.com"
+export HARVEST_BACKEND_PUBLIC_URL="https://api.yourdomain.com"
 
 # Backend host binding
-export T2T_HOST="0.0.0.0"
+export HARVEST_HOST="0.0.0.0"
 
 # Ports
-export T2T_PORT="5001"  # Backend
+export HARVEST_PORT="5001"  # Backend
 export PORT="8050"  # Frontend
 ```
 
@@ -222,7 +222,7 @@ export PORT="8050"  # Frontend
 The launcher script validates your configuration:
 
 ```bash
-python3 launch_t2t.py
+python3 launch_harvest.py
 ```
 
 It will:
@@ -245,7 +245,7 @@ BE_PORT = 5001
 
 **Run:**
 ```bash
-python3 launch_t2t.py
+python3 launch_harvest.py
 ```
 
 **Access:**
@@ -282,7 +282,7 @@ server {
 
 **Run:**
 ```bash
-python3 launch_t2t.py
+python3 launch_harvest.py
 ```
 
 **Access:**
@@ -332,7 +332,7 @@ BACKEND_PUBLIC_URL = "https://yourdomain.com/api"
 
 **nginx.conf:**
 ```nginx
-upstream t2t_backend {
+upstream harvest_backend {
     server 127.0.0.1:5001;
     server 127.0.0.1:5002;
     server 127.0.0.1:5003;
@@ -343,17 +343,17 @@ server {
     server_name yourdomain.com;
 
     location /api/ {
-        proxy_pass http://t2t_backend;
+        proxy_pass http://harvest_backend;
     }
 }
 ```
 
 **Run multiple backend instances:**
 ```bash
-T2T_PORT=5001 python3 t2t_training_be.py &
-T2T_PORT=5002 python3 t2t_training_be.py &
-T2T_PORT=5003 python3 t2t_training_be.py &
-python3 t2t_training_fe.py
+HARVEST_PORT=5001 python3 harvest_be.py &
+HARVEST_PORT=5002 python3 harvest_be.py &
+HARVEST_PORT=5003 python3 harvest_be.py &
+python3 harvest_fe.py
 ```
 
 ---
@@ -366,20 +366,20 @@ version: '3.8'
 services:
   backend:
     build: .
-    command: python3 t2t_training_be.py
+    command: python3 harvest_be.py
     environment:
-      - T2T_DEPLOYMENT_MODE=nginx
-      - T2T_HOST=0.0.0.0
-      - T2T_PORT=5001
+      - HARVEST_DEPLOYMENT_MODE=nginx
+      - HARVEST_HOST=0.0.0.0
+      - HARVEST_PORT=5001
     ports:
       - "5001:5001"
 
   frontend:
     build: .
-    command: python3 t2t_training_fe.py
+    command: python3 harvest_fe.py
     environment:
-      - T2T_DEPLOYMENT_MODE=nginx
-      - T2T_BACKEND_PUBLIC_URL=http://nginx/api
+      - HARVEST_DEPLOYMENT_MODE=nginx
+      - HARVEST_BACKEND_PUBLIC_URL=http://nginx/api
       - PORT=8050
     ports:
       - "8050:8050"
@@ -527,7 +527,7 @@ location /api/ {
 
 3. Restart application:
    ```bash
-   python3 launch_t2t.py
+   python3 launch_harvest.py
    ```
 
 ### From Nginx to Internal Mode
@@ -540,7 +540,7 @@ location /api/ {
 
 2. Restart application (nginx no longer needed):
    ```bash
-   python3 launch_t2t.py
+   python3 launch_harvest.py
    ```
 
 ## Support
@@ -549,4 +549,4 @@ For issues or questions:
 - Check this guide first
 - Review `nginx.conf.example` for configuration examples
 - Check application logs
-- Verify configuration with `python3 launch_t2t.py`
+- Verify configuration with `python3 launch_harvest.py`

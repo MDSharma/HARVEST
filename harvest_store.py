@@ -48,7 +48,7 @@ def generate_doi_hash(doi: str) -> str:
         return ""
     return hashlib.sha256(doi.encode('utf-8')).hexdigest()[:16]
 
-ADMIN_EMAILS = set(os.environ.get("T2T_ADMIN_EMAILS", "").split(","))
+ADMIN_EMAILS = set(os.environ.get("HARVEST_ADMIN_EMAILS", "").split(","))
 
 def is_admin_user(email: str) -> bool:
     """Check if an email is in the admin list."""

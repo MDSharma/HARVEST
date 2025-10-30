@@ -13,7 +13,7 @@ try:
     from config import DB_PATH
 except ImportError:
     # Fallback to environment variable if config.py doesn't exist
-    DB_PATH = os.environ.get("T2T_DB", "t2t_training.db")
+    DB_PATH = os.environ.get("HARVEST_DB", "harvest.db")
 
 def cleanup_orphaned_sentences(dry_run=True):
     """
@@ -159,7 +159,7 @@ if __name__ == "__main__":
     dry_run = not args.execute
     
     print("=" * 70)
-    print("Text2Trait Database Cleanup Utility")
+    print("HARVEST Database Cleanup Utility")
     print("=" * 70)
     
     # Step 1: Clean up orphaned sentences

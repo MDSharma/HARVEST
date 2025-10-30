@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This script tests the PDF download workflow for the t2t_training application. It helps diagnose which PDF sources (Unpaywall, Metapub, Habanero) are working correctly for different DOIs.
+This script tests the PDF download workflow for the HARVEST application. It helps diagnose which PDF sources (Unpaywall, Metapub, Habanero) are working correctly for different DOIs.
 
 ## Usage
 

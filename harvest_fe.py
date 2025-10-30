@@ -1,4 +1,4 @@
-# t2t_frontend.py
+# harvest_fe.py
 import os
 import json
 import hashlib
@@ -32,14 +32,14 @@ except ImportError:
     PARTNER_LOGOS = []
     ENABLE_LITERATURE_SEARCH = True  # Default to enabled
     ENABLE_PDF_HIGHLIGHTING = True  # Default to enabled
-    DEPLOYMENT_MODE = os.getenv("T2T_DEPLOYMENT_MODE", "internal")
-    BACKEND_PUBLIC_URL = os.getenv("T2T_BACKEND_PUBLIC_URL", "")
-    URL_BASE_PATHNAME = os.getenv("T2T_URL_BASE_PATHNAME", "/")
+    DEPLOYMENT_MODE = os.getenv("HARVEST_DEPLOYMENT_MODE", "internal")
+    BACKEND_PUBLIC_URL = os.getenv("HARVEST_BACKEND_PUBLIC_URL", "")
+    URL_BASE_PATHNAME = os.getenv("HARVEST_URL_BASE_PATHNAME", "/")
 
 # Override config with environment variables if present
-DEPLOYMENT_MODE = os.getenv("T2T_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
-BACKEND_PUBLIC_URL = os.getenv("T2T_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
-URL_BASE_PATHNAME = os.getenv("T2T_URL_BASE_PATHNAME", URL_BASE_PATHNAME)
+DEPLOYMENT_MODE = os.getenv("HARVEST_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
+BACKEND_PUBLIC_URL = os.getenv("HARVEST_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
+URL_BASE_PATHNAME = os.getenv("HARVEST_URL_BASE_PATHNAME", URL_BASE_PATHNAME)
 
 # Validate deployment mode
 if DEPLOYMENT_MODE not in ["internal", "nginx"]:
@@ -67,7 +67,7 @@ else:
 # Determine API base URL for server-side requests
 # In both modes, the frontend server connects to backend via localhost
 # BACKEND_PUBLIC_URL is only used for documentation/reference, not actual requests
-API_BASE = os.getenv("T2T_API_BASE", "http://127.0.0.1:5001")
+API_BASE = os.getenv("HARVEST_API_BASE", "http://127.0.0.1:5001")
 API_CHOICES = f"{API_BASE}/api/choices"
 API_SAVE = f"{API_BASE}/api/save"
 API_RECENT = f"{API_BASE}/api/recent"
@@ -127,6 +127,132 @@ FETCH_COOLDOWN_SECONDS = 2  # Minimum seconds between fetches
 
 # Helper constant for no_update returns with many outputs
 NO_UPDATE_15 = tuple([no_update] * 15)
+
+# -----------------------
+# Markdown File Cache with Watchdog
+# -----------------------
+class MarkdownCache:
+    """
+    Thread-safe cache for markdown files with automatic reloading.
+    Monitors the assets/ directory for .md file changes using watchdog.
+    """
+    def __init__(self, assets_dir):
+        self.assets_dir = assets_dir
+        self.cache = {}  # filename -> {'content': str, 'mtime': float, 'rendered': component}
+        self.lock = threading.Lock()
+        self.observer = None
+        self._update_flag = threading.Event()
+        
+        # Initialize cache
+        self._load_all_markdown_files()
+        
+        # Start watchdog observer
+        self._start_watchdog()
+    
+    def _load_all_markdown_files(self):
+        """Load all markdown files from assets directory"""
+        md_files = ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md']
+        for filename in md_files:
+            filepath = os.path.join(self.assets_dir, filename)
+            if os.path.exists(filepath):
+                self._load_file(filename, filepath)
+    
+    def _load_file(self, filename, filepath):
+        """Load a single markdown file into cache"""
+        try:
+            mtime = os.path.getmtime(filepath)
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Special handling for schema.md with JSON placeholder
+            if filename == 'schema.md':
+                schema_json_str = json.dumps(SCHEMA_JSON, indent=2)
+                schema_json_block = f"```json\n{schema_json_str}\n```\n\n"
+                content = content.replace("{SCHEMA_JSON}", schema_json_block)
+            
+            rendered = dcc.Markdown(content)
+            
+            with self.lock:
+                self.cache[filename] = {
+                    'content': content,
+                    'mtime': mtime,
+                    'rendered': rendered
+                }
+            
+            logger.info(f"Loaded markdown file: {filename}")
+        except Exception as e:
+            logger.error(f"Failed to load markdown file {filename}: {e}", exc_info=True)
+            with self.lock:
+                self.cache[filename] = {
+                    'content': f"{filename} not found.",
+                    'mtime': 0,
+                    'rendered': dcc.Markdown(f"{filename} not found.")
+                }
+    
+    def _start_watchdog(self):
+        """Start watchdog observer for monitoring file changes"""
+        try:
+            from watchdog.observers import Observer
+            from watchdog.events import FileSystemEventHandler
+            
+            class MarkdownEventHandler(FileSystemEventHandler):
+                def __init__(self, cache):
+                    self.cache = cache
+                
+                def on_modified(self, event):
+                    if not event.is_directory and event.src_path.endswith('.md'):
+                        filename = os.path.basename(event.src_path)
+                        if filename in ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md']:
+                            logger.info(f"Detected change in {filename}, reloading...")
+                            self.cache._load_file(filename, event.src_path)
+                            self.cache._update_flag.set()
+                
+                def on_created(self, event):
+                    if not event.is_directory and event.src_path.endswith('.md'):
+                        filename = os.path.basename(event.src_path)
+                        if filename in ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md']:
+                            logger.info(f"Detected new file {filename}, loading...")
+                            self.cache._load_file(filename, event.src_path)
+                            self.cache._update_flag.set()
+            
+            event_handler = MarkdownEventHandler(self)
+            self.observer = Observer()
+            self.observer.schedule(event_handler, self.assets_dir, recursive=False)
+            self.observer.daemon = True  # Make it a daemon thread
+            self.observer.start()
+            logger.info(f"Started watchdog observer for markdown files in {self.assets_dir}")
+        except ImportError:
+            logger.warning("watchdog package not installed. Markdown auto-reload disabled.")
+            logger.warning("Install with: pip install watchdog")
+        except Exception as e:
+            logger.error(f"Failed to start watchdog observer: {e}", exc_info=True)
+    
+    def get(self, filename, default_content="Content not found."):
+        """Get rendered markdown component for a file"""
+        with self.lock:
+            if filename in self.cache:
+                return self.cache[filename]['rendered']
+            else:
+                return dcc.Markdown(default_content)
+    
+    def has_updates(self):
+        """Check if there are pending updates"""
+        return self._update_flag.is_set()
+    
+    def clear_update_flag(self):
+        """Clear the update flag"""
+        self._update_flag.clear()
+    
+    def stop(self):
+        """Stop the watchdog observer"""
+        if self.observer:
+            self.observer.stop()
+            self.observer.join()
+
+# Initialize markdown cache
+assets_dir = os.path.join(os.path.dirname(__file__), "assets")
+markdown_cache = MarkdownCache(assets_dir)
+
 
 
 def create_execution_log_display(execution_log):
@@ -392,62 +518,84 @@ def triple_row(i, entity_options, relation_options):
 
 def sidebar():
     """
-    Build the sidebar with information tabs.
-    Reads content from markdown files in the assets folder.
+    Build the sidebar with information tabs in a horizontal layout.
+    Uses cached markdown content with automatic reloading on file changes.
+    Displays content in horizontally arranged tabs with scrollable areas for better space management.
     """
-    # Read markdown files from assets folder
-    assets_dir = os.path.join(os.path.dirname(__file__), "assets")
+    # Get markdown content from cache
+    annotator_guide_md = markdown_cache.get('annotator_guide.md', "Annotator guide not found.")
+    schema_md = markdown_cache.get('schema.md', "Schema content not found.")
+    admin_guide_md = markdown_cache.get('admin_guide.md', "Admin guide not found.")
+    db_model_md = markdown_cache.get('db_model.md', "Database model content not found.")
     
-    # Read help content
-    try:
-        with open(os.path.join(assets_dir, "help.md"), "r", encoding="utf-8") as f:
-            help_text = f.read()
-        help_md = dcc.Markdown(help_text)
-    except FileNotFoundError:
-        help_md = dcc.Markdown("Help content not found.")
-    
-    # Read and build schema content with dynamic JSON
-    try:
-        with open(os.path.join(assets_dir, "schema.md"), "r", encoding="utf-8") as f:
-            schema_template = f.read()
-        
-        # Build the JSON code block
-        schema_json_str = json.dumps(SCHEMA_JSON, indent=2)
-        schema_json_block = f"```json\n{schema_json_str}\n```\n\n"
-        
-        # Replace placeholder with actual JSON
-        schema_text = schema_template.replace("{SCHEMA_JSON}", schema_json_block)
-        schema_md = dcc.Markdown(schema_text)
-    except FileNotFoundError:
-        schema_md = dcc.Markdown("Schema content not found.")
-    
-    # Read Q&A content
-    try:
-        with open(os.path.join(assets_dir, "qa.md"), "r", encoding="utf-8") as f:
-            qa_text = f.read()
-        qa_md = dcc.Markdown(qa_text)
-    except FileNotFoundError:
-        qa_md = dcc.Markdown("Q&A content not found.")
-    
-    # Read DB Model content
-    try:
-        with open(os.path.join(assets_dir, "db_model.md"), "r", encoding="utf-8") as f:
-            db_model_text = f.read()
-        db_model_md = dcc.Markdown(db_model_text)
-    except FileNotFoundError:
-        db_model_md = dcc.Markdown("Database model content not found.")
-    
+    # Create tabs with horizontal layout and scrollable content
     info_tabs = dbc.Card(
         [
             dbc.Tabs(
                 [
-                    dbc.Tab(help_md, label="Help", tab_id="help"),
-                    dbc.Tab(schema_md, label="Schema", tab_id="schema"),
-                    dbc.Tab(qa_md, label="Q&A", tab_id="qa"),
-                    dbc.Tab(db_model_md, label="DB Model", tab_id="dbmodel"),
+                    dbc.Tab(
+                        html.Div(
+                            annotator_guide_md,
+                            style={
+                                "maxHeight": "500px",
+                                "overflowY": "auto",
+                                "padding": "15px",
+                                "backgroundColor": "#f8f9fa",
+                                "borderRadius": "4px"
+                            },
+                            id="annotator-guide-content"
+                        ),
+                        label="👥 Annotator Guide",
+                        tab_id="annotator-guide",
+                    ),
+                    dbc.Tab(
+                        html.Div(
+                            schema_md,
+                            style={
+                                "maxHeight": "500px",
+                                "overflowY": "auto",
+                                "padding": "15px",
+                                "backgroundColor": "#f8f9fa",
+                                "borderRadius": "4px"
+                            },
+                            id="schema-tab-content"
+                        ),
+                        label="📋 Schema",
+                        tab_id="schema",
+                    ),
+                    dbc.Tab(
+                        html.Div(
+                            admin_guide_md,
+                            style={
+                                "maxHeight": "500px",
+                                "overflowY": "auto",
+                                "padding": "15px",
+                                "backgroundColor": "#f8f9fa",
+                                "borderRadius": "4px"
+                            },
+                            id="admin-guide-content"
+                        ),
+                        label="🔧 Admin Guide",
+                        tab_id="admin-guide",
+                    ),
+                    dbc.Tab(
+                        html.Div(
+                            db_model_md,
+                            style={
+                                "maxHeight": "500px",
+                                "overflowY": "auto",
+                                "padding": "15px",
+                                "backgroundColor": "#f8f9fa",
+                                "borderRadius": "4px"
+                            },
+                            id="dbmodel-tab-content"
+                        ),
+                        label="🗄️ Database Model",
+                        tab_id="dbmodel",
+                    ),
                 ],
                 id="info-tabs",
-                active_tab="help",
+                active_tab="annotator-guide",
             )
         ],
         body=True,
@@ -529,6 +677,7 @@ app.layout = dbc.Container(
         dcc.Store(id="lit-search-selected-papers", data=[]),  # Store selected papers
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
         dcc.Interval(id="pdf-download-progress-interval", interval=2000, disabled=True),  # Poll every 2 seconds
+        dcc.Interval(id="markdown-reload-interval", interval=5000, disabled=False),  # Check for markdown updates every 5 seconds
         
         # Modal for exporting DOIs from literature search
         dbc.Modal(
@@ -1265,7 +1414,7 @@ app.layout = dbc.Container(
         html.Footer(
             dbc.Row(
                 dbc.Col(
-                    html.Small(f"© {datetime.now().year} Text2Trait"),
+                    html.Small(f"© {datetime.now().year} HARVEST"),
                     className="text-center text-muted my-3",
                 )
             )
@@ -3790,9 +3939,42 @@ def export_triples_callback(n_clicks, auth_data):
         return dbc.Alert(f"Error: {str(e)}", color="danger")
 
 # -----------------------
+# Markdown Auto-Reload Callback
+# -----------------------
+@app.callback(
+    [
+        Output("annotator-guide-content", "children"),
+        Output("schema-tab-content", "children"),
+        Output("admin-guide-content", "children"),
+        Output("dbmodel-tab-content", "children"),
+    ],
+    Input("markdown-reload-interval", "n_intervals"),
+    prevent_initial_call=True
+)
+def reload_markdown_on_change(n_intervals):
+    """
+    Check for markdown file changes and reload accordion sections if needed.
+    This callback runs periodically to check if any .md files have been modified.
+    """
+    if markdown_cache.has_updates():
+        logger.info("Markdown files updated, refreshing accordion content...")
+        markdown_cache.clear_update_flag()
+        
+        # Return updated content for all sections
+        return (
+            markdown_cache.get('annotator_guide.md', "Annotator guide not found."),
+            markdown_cache.get('schema.md', "Schema content not found."),
+            markdown_cache.get('admin_guide.md', "Admin guide not found."),
+            markdown_cache.get('db_model.md', "Database model content not found."),
+        )
+    
+    # No updates, return no_update for all outputs
+    return no_update, no_update, no_update, no_update
+
+# -----------------------
 # Main
 # -----------------------
 if __name__ == "__main__":
-    # Run:  python t2t_frontend.py
+    # Run:  python harvest_fe.py
     # Then open http://127.0.0.1:8050
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8050")), debug=False)

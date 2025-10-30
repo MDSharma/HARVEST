@@ -30,11 +30,11 @@ URL_BASE_PATHNAME = "/"  # Default: "/" for root deployment
 ```
 
 ### 2. Updated Frontend to Use url_base_pathname
-**File: `t2t_training_fe.py`**
+**File: `harvest_fe.py`**
 
 Modified the Dash app initialization to:
 - Import `URL_BASE_PATHNAME` from config
-- Support environment variable override via `T2T_URL_BASE_PATHNAME`
+- Support environment variable override via `HARVEST_URL_BASE_PATHNAME`
 - Validate that the pathname starts and ends with `/`
 - Pass the pathname to Dash's `url_base_pathname` parameter
 
@@ -43,7 +43,7 @@ Modified the Dash app initialization to:
 from config import URL_BASE_PATHNAME
 
 # Override with environment variable if present
-URL_BASE_PATHNAME = os.getenv("T2T_URL_BASE_PATHNAME", URL_BASE_PATHNAME)
+URL_BASE_PATHNAME = os.getenv("HARVEST_URL_BASE_PATHNAME", URL_BASE_PATHNAME)
 
 # Validate URL_BASE_PATHNAME
 if not URL_BASE_PATHNAME.startswith("/") or not URL_BASE_PATHNAME.endswith("/"):
@@ -66,7 +66,7 @@ Added a comprehensive example for subpath deployment showing the exact configura
 ```nginx
 # Frontend at /harvest/ subpath
 location /harvest/ {
-    proxy_pass http://t2t_frontend/;
+    proxy_pass http://harvest_frontend/;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -83,7 +83,7 @@ location /harvest/ {
 # Backend API at /harvest/api/
 location /harvest/api/ {
     rewrite ^/harvest/api/(.*) /api/$1 break;
-    proxy_pass http://t2t_backend;
+    proxy_pass http://harvest_backend;
     # ... other proxy settings
 }
 ```
@@ -103,7 +103,7 @@ Created a detailed guide covering:
 **File: `README.md`**
 
 - Added reference to the new DEPLOYMENT_SUBPATH.md guide
-- Added `T2T_URL_BASE_PATHNAME` to the environment variables list
+- Added `HARVEST_URL_BASE_PATHNAME` to the environment variables list
 
 ## How to Use
 
@@ -120,14 +120,14 @@ URL_BASE_PATHNAME = "/harvest/"
 
 2. **Or set environment variables:**
 ```bash
-export T2T_DEPLOYMENT_MODE="nginx"
-export T2T_BACKEND_PUBLIC_URL="https://www.text2trait.com/harvest/api"
-export T2T_URL_BASE_PATHNAME="/harvest/"
+export HARVEST_DEPLOYMENT_MODE="nginx"
+export HARVEST_BACKEND_PUBLIC_URL="https://www.text2trait.com/harvest/api"
+export HARVEST_URL_BASE_PATHNAME="/harvest/"
 ```
 
 3. **Restart the application:**
 ```bash
-python3 launch_t2t.py
+python3 launch_harvest.py
 ```
 
 The nginx configuration provided by the user is already correct and compatible with this solution.
@@ -136,7 +136,7 @@ The nginx configuration provided by the user is already correct and compatible w
 
 - `URL_BASE_PATHNAME` must start and end with `/` (e.g., `/harvest/`, not `/harvest`)
 - The value should match the location path in your nginx configuration
-- Environment variable `T2T_URL_BASE_PATHNAME` can override the config file
+- Environment variable `HARVEST_URL_BASE_PATHNAME` can override the config file
 - Works with any subpath, including nested paths like `/app/harvest/`
 
 ## Testing
@@ -155,7 +155,7 @@ Comprehensive tests were run to verify:
 ## Files Changed
 
 1. `config.py` - Added URL_BASE_PATHNAME configuration
-2. `t2t_training_fe.py` - Updated to use url_base_pathname
+2. `harvest_fe.py` - Updated to use url_base_pathname
 3. `nginx.conf.example` - Added subpath deployment example
 4. `DEPLOYMENT_SUBPATH.md` - New comprehensive deployment guide
 5. `README.md` - Updated with new documentation links

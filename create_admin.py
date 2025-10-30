@@ -8,14 +8,14 @@ Usage: python3 create_admin.py
 import os
 import sys
 import getpass
-from t2t_store import create_admin_user, init_db
+from harvest_store import create_admin_user, init_db
 
 # Import configuration
 try:
     from config import DB_PATH
 except ImportError:
     # Fallback to environment variable if config.py doesn't exist
-    DB_PATH = os.environ.get("T2T_DB", "t2t_training.db")
+    DB_PATH = os.environ.get("HARVEST_DB", "harvest.db")
 
 def main():
     print("=== Create Admin User ===\n")

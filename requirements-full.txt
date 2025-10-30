@@ -1,4 +1,4 @@
-# Full Requirements for Text2Trait Training Application
+# Full Requirements for HARVEST Training Application
 # Includes all optional dependencies for maximum functionality
 
 # Include all standard requirements

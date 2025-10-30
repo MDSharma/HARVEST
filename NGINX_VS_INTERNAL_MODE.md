@@ -90,7 +90,7 @@ This matches your nginx configuration where:
 
 ## Expected Behavior After Fix
 
-1. Run `python3 t2t_training_fe.py`
+1. Run `python3 harvest_fe.py`
 2. You'll see: `Dash is running on http://0.0.0.0:8050/`
    - Note: No `/harvest/` in the URL - Flask is listening at root
 3. Access `https://text2trait.com/harvest/`

@@ -1,4 +1,4 @@
-# Standard Requirements for Text2Trait Training Application
+# Standard Requirements for HARVEST Training Application
 # Includes minimal requirements plus commonly used optional libraries
 
 # Include all minimal requirements
