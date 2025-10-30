@@ -2718,7 +2718,8 @@ def update_pdf_viewer(selected_doi, project_id):
                 if ENABLE_PDF_HIGHLIGHTING:
                     # Show custom viewer with highlighting capability
                     # Pass deployment mode to viewer for proper URL handling
-                    viewer_url = f"/pdf-viewer?project_id={project_id}&filename={pdf_filename}&api_base={API_BASE}&deployment_mode={DEPLOYMENT_MODE}"
+                    # Include pathname prefix for correct routing in nginx mode
+                    viewer_url = f"{DASH_REQUESTS_PATHNAME_PREFIX.rstrip('/')}/pdf-viewer?project_id={project_id}&filename={pdf_filename}&api_base={API_BASE}&deployment_mode={DEPLOYMENT_MODE}"
                     return html.Iframe(
                         src=viewer_url,
                         style={
