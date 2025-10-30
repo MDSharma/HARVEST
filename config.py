@@ -28,19 +28,16 @@ BE_PORT = 5001  # Port for the Flask backend
 #
 DEPLOYMENT_MODE = "internal"  # Options: "internal" or "nginx"
 
-# Backend Public URL (required for nginx mode, ignored for internal mode)
-# This is the externally accessible BASE URL (without /api suffix) where the backend can be reached
-# The application will append /api/... paths to this URL
+# Backend Public URL (for documentation/reference in nginx mode)
+# NOTE: This is currently NOT used by the application code.
+# The frontend server always connects to the backend via localhost (127.0.0.1:5001)
+# for server-side API requests, regardless of deployment mode.
 #
-# Examples:
-#   - "https://yourdomain.com/harvest" → API calls go to https://yourdomain.com/harvest/api/...
-#   - "https://api.yourdomain.com" → API calls go to https://api.yourdomain.com/api/...
-#   - "http://yourdomain.com" (root) → API calls go to http://yourdomain.com/api/...
+# This setting is kept for reference to document the public-facing backend URL
+# in your nginx configuration, but it does not affect actual connections.
 #
-# IMPORTANT: Do NOT include /api at the end - it will be added automatically
-# ✓ Correct: "https://yourdomain.com/harvest"
-# ✗ Wrong: "https://yourdomain.com/harvest/api" (will result in /harvest/api/api/...)
-BACKEND_PUBLIC_URL = ""  # Only used when DEPLOYMENT_MODE = "nginx"
+# Example: If your nginx config has 'location /harvest/api/', document it here:
+BACKEND_PUBLIC_URL = ""  # For reference only (e.g., "https://yourdomain.com/harvest")
 
 # URL Base Pathname (required when app is served at a subpath)
 # This is the base path where the application is mounted in the URL structure

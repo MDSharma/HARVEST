@@ -24,18 +24,15 @@ This separation allows nginx to handle the path routing while Flask serves conte
 Edit `/home/runner/work/HARVEST/HARVEST/config.py` and set:
 
 ```python
-# Change these three settings:
+# Change these settings:
 DEPLOYMENT_MODE = "nginx"
-BACKEND_PUBLIC_URL = "https://www.text2trait.com/harvest"  # WITHOUT /api suffix!
 URL_BASE_PATHNAME = "/harvest/"
 ```
 
 **Critical Notes:** 
 - `URL_BASE_PATHNAME` must start AND end with a forward slash.
-- `BACKEND_PUBLIC_URL` is the BASE URL without `/api` (it will be added automatically).
-  - ✓ Correct: `"https://www.text2trait.com/harvest"` → APIs at `/harvest/api/...`
-  - ✗ Wrong: `"https://www.text2trait.com/harvest/api"` → Results in `/harvest/api/api/...`
-- If you get "Exceeded 30 redirects" error, verify `BACKEND_PUBLIC_URL` is correct.
+- `BACKEND_PUBLIC_URL` is not used by the application (can be left empty or used for documentation).
+- The frontend server connects to the backend via localhost (127.0.0.1:5001) for all server-side API requests.
 
 ### Step 2: Restart the Application
 
@@ -161,50 +158,28 @@ If you see 404 errors for assets like `https://www.text2trait.com/assets/UM.jpg`
 
 ### "Exceeded 30 redirects" Error?
 
-This error indicates a redirect loop, typically caused by incorrect `BACKEND_PUBLIC_URL`:
+This error should be resolved with the latest fix. The frontend now connects to the backend via localhost for all server-side requests.
 
-1. **Understanding BACKEND_PUBLIC_URL:**
-   The application adds `/api/` to `BACKEND_PUBLIC_URL` automatically.
-   
-   Example with your nginx config:
-   ```nginx
-   location /harvest/api/ {
-       rewrite ^/harvest/api/(.*) /api/$1 break;
-       proxy_pass http://harvest_backend;
-   }
-   ```
-   
-   Your `BACKEND_PUBLIC_URL` should be: `"https://text2trait.com/harvest"`
-   
-   Then API calls become:
-   - `API_ADMIN_AUTH = "https://text2trait.com/harvest/api/admin/auth"` ✓
-   - Browser requests: `https://text2trait.com/harvest/api/admin/auth`
-   - Nginx matches: `location /harvest/api/`
-   - Nginx rewrites to: `/api/admin/auth`
-   - Backend receives: `http://127.0.0.1:5001/api/admin/auth` ✓
+**If you still see this error:**
 
-2. **Common mistakes:**
-   
-   ✗ **Wrong:** `BACKEND_PUBLIC_URL = "https://text2trait.com/api"`
-   Results in: `https://text2trait.com/api/api/admin/auth` (double /api/)
-   
-   ✗ **Wrong:** `BACKEND_PUBLIC_URL = "https://text2trait.com/harvest/api"`
-   Results in: `https://text2trait.com/harvest/api/api/admin/auth` (double /api/)
-   
-   ✓ **Correct:** `BACKEND_PUBLIC_URL = "https://text2trait.com/harvest"`
-   Results in: `https://text2trait.com/harvest/api/admin/auth`
-
-3. **Test backend directly:**
+1. **Verify backend is running:**
    ```bash
    curl -I http://127.0.0.1:5001/api/health
    ```
    Should return 200 OK
 
-4. **Test through nginx:**
+2. **Check nginx logs for issues:**
    ```bash
-   curl -I https://text2trait.com/harvest/api/health
+   tail -f /var/log/nginx/harvest_error.log
    ```
-   Should also return 200 OK (not redirect)
+
+3. **Restart both services:**
+   ```bash
+   # Stop both services
+   # Then restart:
+   python3 t2t_training_be.py  # Terminal 1
+   python3 t2t_training_fe.py  # Terminal 2
+   ```
 
 ## Need Help?
 

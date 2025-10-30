@@ -45,9 +45,6 @@ URL_BASE_PATHNAME = os.getenv("T2T_URL_BASE_PATHNAME", URL_BASE_PATHNAME)
 if DEPLOYMENT_MODE not in ["internal", "nginx"]:
     raise ValueError(f"Invalid DEPLOYMENT_MODE: {DEPLOYMENT_MODE}. Must be 'internal' or 'nginx'")
 
-if DEPLOYMENT_MODE == "nginx" and not BACKEND_PUBLIC_URL:
-    raise ValueError("BACKEND_PUBLIC_URL must be set when DEPLOYMENT_MODE is 'nginx'")
-
 # Validate URL_BASE_PATHNAME
 if not URL_BASE_PATHNAME.startswith("/") or not URL_BASE_PATHNAME.endswith("/"):
     raise ValueError(f"URL_BASE_PATHNAME must start and end with '/'. Got: {URL_BASE_PATHNAME}")
@@ -67,13 +64,10 @@ else:
 # -----------------------
 # Config
 # -----------------------
-# Determine API base URL based on deployment mode
-if DEPLOYMENT_MODE == "nginx":
-    # In nginx mode, use the public backend URL
-    API_BASE = BACKEND_PUBLIC_URL
-else:
-    # In internal mode, use localhost backend
-    API_BASE = os.getenv("T2T_API_BASE", "http://127.0.0.1:5001")
+# Determine API base URL for server-side requests
+# In both modes, the frontend server connects to backend via localhost
+# BACKEND_PUBLIC_URL is only used for documentation/reference, not actual requests
+API_BASE = os.getenv("T2T_API_BASE", "http://127.0.0.1:5001")
 API_CHOICES = f"{API_BASE}/api/choices"
 API_SAVE = f"{API_BASE}/api/save"
 API_RECENT = f"{API_BASE}/api/recent"
