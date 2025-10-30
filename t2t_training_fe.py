@@ -1315,17 +1315,10 @@ def proxy_pdf(project_id: int, filename: str):
     - Streams response with proper error handling
     - Returns 400 for invalid input, 502 for backend errors, 404 for not found
 
-    Note: This route only works in "internal" deployment mode.
-    In "nginx" mode, this returns a 404 and clients should use direct backend URLs.
+    Note: Works in all deployment modes to avoid CORS issues.
+    In nginx mode, the browser requests /harvest/proxy/pdf/..., nginx strips the prefix,
+    and Flask receives the request at /proxy/pdf/... which proxies to the backend.
     """
-    # In nginx mode, proxy routes are disabled
-    if DEPLOYMENT_MODE == "nginx":
-        return Response(
-            json.dumps({"error": "Proxy routes disabled in nginx mode. Use direct backend URL."}),
-            status=404,
-            mimetype='application/json'
-        )
-
     try:
         # Validate parameters
         if not _validate_pdf_params(project_id, filename):
@@ -1423,17 +1416,10 @@ def proxy_highlights(project_id: int, filename: str):
     Proxy route for PDF highlights API to avoid CORS issues.
     Forwards GET/POST/DELETE requests to the backend API.
 
-    Note: This route only works in "internal" deployment mode.
-    In "nginx" mode, this returns a 404 and clients should use direct backend URLs.
+    Note: Works in all deployment modes to avoid CORS issues.
+    In nginx mode, the browser requests /harvest/proxy/highlights/..., nginx strips the prefix,
+    and Flask receives the request at /proxy/highlights/... which proxies to the backend.
     """
-    # In nginx mode, proxy routes are disabled
-    if DEPLOYMENT_MODE == "nginx":
-        return Response(
-            json.dumps({"error": "Proxy routes disabled in nginx mode. Use direct backend URL."}),
-            status=404,
-            mimetype='application/json'
-        )
-
     try:
         # Validate parameters
         if not _validate_pdf_params(project_id, filename):
