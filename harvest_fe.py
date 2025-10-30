@@ -518,8 +518,9 @@ def triple_row(i, entity_options, relation_options):
 
 def sidebar():
     """
-    Build the sidebar with information tabs.
+    Build the sidebar with information accordion sections.
     Uses cached markdown content with automatic reloading on file changes.
+    Displays content in collapsible accordion items for better space management.
     """
     # Get markdown content from cache
     help_md = markdown_cache.get('help.md', "Help content not found.")
@@ -527,21 +528,75 @@ def sidebar():
     qa_md = markdown_cache.get('qa.md', "Q&A content not found.")
     db_model_md = markdown_cache.get('db_model.md', "Database model content not found.")
     
-    info_tabs = dbc.Card(
+    # Create accordion with collapsible sections for better content management
+    info_accordion = dbc.Accordion(
         [
-            dbc.Tabs(
-                [
-                    dbc.Tab(help_md, label="Help", tab_id="help", id="help-tab-content"),
-                    dbc.Tab(schema_md, label="Schema", tab_id="schema", id="schema-tab-content"),
-                    dbc.Tab(qa_md, label="Q&A", tab_id="qa", id="qa-tab-content"),
-                    dbc.Tab(db_model_md, label="DB Model", tab_id="dbmodel", id="dbmodel-tab-content"),
-                ],
-                id="info-tabs",
-                active_tab="help",
-            )
+            dbc.AccordionItem(
+                html.Div(
+                    help_md,
+                    style={
+                        "maxHeight": "500px",
+                        "overflowY": "auto",
+                        "padding": "15px",
+                        "backgroundColor": "#f8f9fa",
+                        "borderRadius": "4px"
+                    },
+                    id="help-tab-content"
+                ),
+                title="📖 Help Guide",
+                item_id="help",
+            ),
+            dbc.AccordionItem(
+                html.Div(
+                    schema_md,
+                    style={
+                        "maxHeight": "500px",
+                        "overflowY": "auto",
+                        "padding": "15px",
+                        "backgroundColor": "#f8f9fa",
+                        "borderRadius": "4px"
+                    },
+                    id="schema-tab-content"
+                ),
+                title="📋 Schema",
+                item_id="schema",
+            ),
+            dbc.AccordionItem(
+                html.Div(
+                    qa_md,
+                    style={
+                        "maxHeight": "500px",
+                        "overflowY": "auto",
+                        "padding": "15px",
+                        "backgroundColor": "#f8f9fa",
+                        "borderRadius": "4px"
+                    },
+                    id="qa-tab-content"
+                ),
+                title="❓ Q&A",
+                item_id="qa",
+            ),
+            dbc.AccordionItem(
+                html.Div(
+                    db_model_md,
+                    style={
+                        "maxHeight": "500px",
+                        "overflowY": "auto",
+                        "padding": "15px",
+                        "backgroundColor": "#f8f9fa",
+                        "borderRadius": "4px"
+                    },
+                    id="dbmodel-tab-content"
+                ),
+                title="🗄️ Database Model",
+                item_id="dbmodel",
+            ),
         ],
-        body=True,
-        className="mb-3"
+        id="info-accordion",
+        start_collapsed=True,  # All sections start collapsed
+        always_open=False,  # Only one section open at a time
+        className="mb-3",
+        flush=True  # Remove default borders for cleaner look
     )
     
     # Create partner logos card if logos are configured
@@ -587,9 +642,9 @@ def sidebar():
             className="mb-3"
         )
         
-        return html.Div([info_tabs, logos_card])
+        return html.Div([info_accordion, logos_card])
     
-    return info_tabs
+    return info_accordion
 
 # -----------------------
 # App & Layout
