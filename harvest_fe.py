@@ -846,7 +846,7 @@ app.layout = dbc.Container(
                         # Logo and title section
                         html.Div([
                             html.Img(
-                                src="/assets/HARVEST_logo.svg",
+                                src=app.get_asset_url("HARVEST_logo.svg"),
                                 alt="HARVEST",
                                 style={
                                     "height": "60px",
@@ -1429,6 +1429,23 @@ app.layout = dbc.Container(
                     className="text-center text-muted my-3",
                 )
             )
+        ),
+        # JavaScript to listen for messages from PDF viewer iframe
+        html.Script(
+            """
+            window.addEventListener('message', function(event) {
+                // Listen for messages from PDF viewer iframe
+                if (event.data && event.data.type === 'pdf-text-selected') {
+                    const sentenceTextarea = document.getElementById('sentence-text');
+                    if (sentenceTextarea) {
+                        sentenceTextarea.value = event.data.text;
+                        // Trigger change event so Dash detects the change
+                        const changeEvent = new Event('input', { bubbles: true });
+                        sentenceTextarea.dispatchEvent(changeEvent);
+                    }
+                }
+            });
+            """
         ),
     ],
     fluid=True,

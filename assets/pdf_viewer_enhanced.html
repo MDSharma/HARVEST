@@ -881,6 +881,17 @@
                 showStatus('Highlight added. Click Save to store it.');
                 renderHighlights();
                 updateHighlightCount();
+                
+                // Send selected text to parent window (for populating Sentence field)
+                try {
+                    window.parent.postMessage({
+                        type: 'pdf-text-selected',
+                        text: selectedText.trim()
+                    }, '*');
+                } catch (e) {
+                    console.log('Could not send message to parent:', e);
+                }
+                
                 selection.removeAllRanges();
             } else {
                 showStatus('Could not create highlight', true);
