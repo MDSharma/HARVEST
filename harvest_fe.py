@@ -518,9 +518,9 @@ def triple_row(i, entity_options, relation_options):
 
 def sidebar():
     """
-    Build the sidebar with information accordion sections.
+    Build the sidebar with information tabs in a horizontal layout.
     Uses cached markdown content with automatic reloading on file changes.
-    Displays content in collapsible accordion items for better space management.
+    Displays content in horizontally arranged tabs with scrollable areas for better space management.
     """
     # Get markdown content from cache
     annotator_guide_md = markdown_cache.get('annotator_guide.md', "Annotator guide not found.")
@@ -528,75 +528,78 @@ def sidebar():
     admin_guide_md = markdown_cache.get('admin_guide.md', "Admin guide not found.")
     db_model_md = markdown_cache.get('db_model.md', "Database model content not found.")
     
-    # Create accordion with collapsible sections for better content management
-    info_accordion = dbc.Accordion(
+    # Create tabs with horizontal layout and scrollable content
+    info_tabs = dbc.Card(
         [
-            dbc.AccordionItem(
-                html.Div(
-                    annotator_guide_md,
-                    style={
-                        "maxHeight": "500px",
-                        "overflowY": "auto",
-                        "padding": "15px",
-                        "backgroundColor": "#f8f9fa",
-                        "borderRadius": "4px"
-                    },
-                    id="annotator-guide-content"
-                ),
-                title="👥 Annotator Guide",
-                item_id="annotator-guide",
-            ),
-            dbc.AccordionItem(
-                html.Div(
-                    schema_md,
-                    style={
-                        "maxHeight": "500px",
-                        "overflowY": "auto",
-                        "padding": "15px",
-                        "backgroundColor": "#f8f9fa",
-                        "borderRadius": "4px"
-                    },
-                    id="schema-tab-content"
-                ),
-                title="📋 Schema",
-                item_id="schema",
-            ),
-            dbc.AccordionItem(
-                html.Div(
-                    admin_guide_md,
-                    style={
-                        "maxHeight": "500px",
-                        "overflowY": "auto",
-                        "padding": "15px",
-                        "backgroundColor": "#f8f9fa",
-                        "borderRadius": "4px"
-                    },
-                    id="admin-guide-content"
-                ),
-                title="🔧 Admin Guide",
-                item_id="admin-guide",
-            ),
-            dbc.AccordionItem(
-                html.Div(
-                    db_model_md,
-                    style={
-                        "maxHeight": "500px",
-                        "overflowY": "auto",
-                        "padding": "15px",
-                        "backgroundColor": "#f8f9fa",
-                        "borderRadius": "4px"
-                    },
-                    id="dbmodel-tab-content"
-                ),
-                title="🗄️ Database Model",
-                item_id="dbmodel",
-            ),
+            dbc.Tabs(
+                [
+                    dbc.Tab(
+                        html.Div(
+                            annotator_guide_md,
+                            style={
+                                "maxHeight": "500px",
+                                "overflowY": "auto",
+                                "padding": "15px",
+                                "backgroundColor": "#f8f9fa",
+                                "borderRadius": "4px"
+                            },
+                            id="annotator-guide-content"
+                        ),
+                        label="👥 Annotator Guide",
+                        tab_id="annotator-guide",
+                    ),
+                    dbc.Tab(
+                        html.Div(
+                            schema_md,
+                            style={
+                                "maxHeight": "500px",
+                                "overflowY": "auto",
+                                "padding": "15px",
+                                "backgroundColor": "#f8f9fa",
+                                "borderRadius": "4px"
+                            },
+                            id="schema-tab-content"
+                        ),
+                        label="📋 Schema",
+                        tab_id="schema",
+                    ),
+                    dbc.Tab(
+                        html.Div(
+                            admin_guide_md,
+                            style={
+                                "maxHeight": "500px",
+                                "overflowY": "auto",
+                                "padding": "15px",
+                                "backgroundColor": "#f8f9fa",
+                                "borderRadius": "4px"
+                            },
+                            id="admin-guide-content"
+                        ),
+                        label="🔧 Admin Guide",
+                        tab_id="admin-guide",
+                    ),
+                    dbc.Tab(
+                        html.Div(
+                            db_model_md,
+                            style={
+                                "maxHeight": "500px",
+                                "overflowY": "auto",
+                                "padding": "15px",
+                                "backgroundColor": "#f8f9fa",
+                                "borderRadius": "4px"
+                            },
+                            id="dbmodel-tab-content"
+                        ),
+                        label="🗄️ Database Model",
+                        tab_id="dbmodel",
+                    ),
+                ],
+                id="info-tabs",
+                active_tab="annotator-guide",
+            )
         ],
-        id="info-accordion",
-        start_collapsed=True,  # All sections start collapsed
-        always_open=False,  # Only one section open at a time
-        className="mb-3",
-        flush=True  # Remove default borders for cleaner look
+        body=True,
+        className="mb-3"
     )
     
     # Create partner logos card if logos are configured
@@ -642,9 +645,9 @@ def sidebar():
             className="mb-3"
         )
         
-        return html.Div([info_accordion, logos_card])
+        return html.Div([info_tabs, logos_card])
     
-    return info_accordion
+    return info_tabs
 
 # -----------------------
 # App & Layout
