@@ -1,4 +1,4 @@
-# t2t_frontend.py
+# harvest_fe.py
 import os
 import json
 import hashlib
@@ -3793,6 +3793,6 @@ def export_triples_callback(n_clicks, auth_data):
 # Main
 # -----------------------
 if __name__ == "__main__":
-    # Run:  python t2t_frontend.py
+    # Run:  python harvest_fe.py
     # Then open http://127.0.0.1:8050
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8050")), debug=False)

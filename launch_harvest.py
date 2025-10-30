@@ -59,7 +59,7 @@ def validate_deployment_config():
             print()
             print("⚠ Warning: Backend is configured to run on localhost (127.0.0.1)")
             print("  In 'nginx' deployment mode, the backend should be accessible externally.")
-            print("  Consider setting T2T_HOST=0.0.0.0 for external access through nginx.")
+            print("  Consider setting HARVEST_HOST=0.0.0.0 for external access through nginx.")
             print()
 
     if DEPLOYMENT_MODE == "internal":
@@ -139,7 +139,7 @@ def start_backend() -> Tuple[bool, Optional[subprocess.Popen]]:
     
     if not check_port_available(BACKEND_PORT):
         print(f"✗ Error: Port {BACKEND_PORT} is already in use!")
-        print(f"  Please stop the process using port {BACKEND_PORT} or set T2T_PORT environment variable.")
+        print(f"  Please stop the process using port {BACKEND_PORT} or set HARVEST_PORT environment variable.")
         return False, None
     
     try:

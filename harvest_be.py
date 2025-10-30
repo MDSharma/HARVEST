@@ -285,7 +285,7 @@ def delete_triple(triple_id: int):
     # Check admin status
     is_admin = check_admin_status(DB_PATH, requester_email, password)
 
-    from t2t_store import get_conn
+    from harvest_store import get_conn
     try:
         conn = get_conn(DB_PATH)
         cur = conn.cursor()
@@ -333,7 +333,7 @@ def rows():
     Note: Article metadata (title, authors, year) are not stored and would need to be fetched on-demand from CrossRef.
     Supports filtering by project_id via query parameter: /api/rows?project_id=1
     """
-    from t2t_store import get_conn
+    from harvest_store import get_conn
     try:
         project_id = request.args.get('project_id', type=int)
         
@@ -619,7 +619,7 @@ def delete_existing_project(project_id: int):
         return jsonify({"error": "target_project_id required when handle_triples is 'reassign'"}), 400
 
     try:
-        from t2t_store import get_conn
+        from harvest_store import get_conn
         conn = get_conn(DB_PATH)
         cur = conn.cursor()
         
