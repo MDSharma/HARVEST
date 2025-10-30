@@ -63,9 +63,6 @@ BACKEND_PUBLIC_URL = os.environ.get("T2T_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL
 if DEPLOYMENT_MODE not in ["internal", "nginx"]:
     raise ValueError(f"Invalid DEPLOYMENT_MODE: {DEPLOYMENT_MODE}. Must be 'internal' or 'nginx'")
 
-if DEPLOYMENT_MODE == "nginx" and not BACKEND_PUBLIC_URL:
-    raise ValueError("BACKEND_PUBLIC_URL must be set when DEPLOYMENT_MODE is 'nginx'")
-
 # Initialize DB on startup
 init_db(DB_PATH)
 
