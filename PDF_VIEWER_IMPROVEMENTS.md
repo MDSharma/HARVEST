@@ -123,7 +123,7 @@ The PDF viewer has been significantly enhanced with improved user interface, bet
 
 ### Option 1: Use Enhanced Viewer (Recommended)
 
-Update the backend route in `t2t_training_be.py`:
+Update the backend route in `harvest_be.py`:
 
 ```python
 @server.route('/pdf-viewer')

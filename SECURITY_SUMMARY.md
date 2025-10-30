@@ -6,7 +6,7 @@
 ### Developer: GitHub Copilot
 
 ## Overview
-This document provides a security assessment of the PDF highlighting feature added to the Text2Trait application.
+This document provides a security assessment of the PDF highlighting feature added to the HARVEST application.
 
 ## Security Measures Implemented
 
@@ -53,7 +53,7 @@ This document provides a security assessment of the PDF highlighting feature add
 
 ### Remaining Alert Analysis
 
-**Alert**: Stack trace information flows to external user (line 1086 in t2t_training_be.py)
+**Alert**: Stack trace information flows to external user (line 1086 in harvest_be.py)
 
 **Assessment**: **FALSE POSITIVE**
 

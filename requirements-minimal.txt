@@ -1,4 +1,4 @@
-# Minimal Requirements for Text2Trait Training Application
+# Minimal Requirements for HARVEST Training Application
 # This is the bare minimum to run the core application with basic PDF download
 # Additional sources can be enabled by installing requirements-standard.txt or requirements-full.txt
 

@@ -28,7 +28,7 @@ All planned features have been implemented and tested:
 
 **Default:** Internal mode (current behavior) - backward compatible
 
-### 2. Backend Updates (t2t_training_be.py)
+### 2. Backend Updates (harvest_be.py)
 
 **Modified:**
 - Deployment configuration imports
@@ -38,7 +38,7 @@ All planned features have been implemented and tested:
 - Enhanced health endpoint with deployment info
 - Configuration validation on startup
 
-### 3. Frontend Updates (t2t_training_fe.py)
+### 3. Frontend Updates (harvest_fe.py)
 
 **Modified:**
 - Deployment configuration imports
@@ -58,7 +58,7 @@ All planned features have been implemented and tested:
   - Nginx mode: Use direct backend URLs
 - Console logging for debugging
 
-### 5. Launch Script (launch_t2t.py)
+### 5. Launch Script (launch_harvest.py)
 
 **Enhanced:**
 - Deployment configuration loading
@@ -149,9 +149,9 @@ All planned features have been implemented and tested:
 
 ### Core Application
 1. `config.py` - Configuration options
-2. `t2t_training_be.py` - Backend CORS and validation
-3. `t2t_training_fe.py` - Frontend API and proxy routes
-4. `launch_t2t.py` - Validation and startup
+2. `harvest_be.py` - Backend CORS and validation
+3. `harvest_fe.py` - Frontend API and proxy routes
+4. `launch_harvest.py` - Validation and startup
 5. `assets/pdf_viewer.html` - PDF viewer URLs
 
 ### Documentation
@@ -170,9 +170,9 @@ All planned features have been implemented and tested:
 ### Syntax Validation
 ✅ All Python files compile without errors
 - config.py
-- t2t_training_be.py
-- t2t_training_fe.py
-- launch_t2t.py
+- harvest_be.py
+- harvest_fe.py
+- launch_harvest.py
 
 ### Configuration Loading
 ✅ Configuration loads correctly with defaults:
@@ -191,7 +191,7 @@ All planned features have been implemented and tested:
 
 ### Quick Start (No Changes Needed)
 ```bash
-python3 launch_t2t.py
+python3 launch_harvest.py
 # Access: http://localhost:8050
 ```
 
@@ -205,21 +205,21 @@ HOST = "0.0.0.0"
 
 ```bash
 # Setup nginx
-sudo cp nginx.conf.example /etc/nginx/sites-available/t2t
-sudo nano /etc/nginx/sites-available/t2t  # Edit
-sudo ln -s /etc/nginx/sites-available/t2t /etc/nginx/sites-enabled/
+sudo cp nginx.conf.example /etc/nginx/sites-available/harvest
+sudo nano /etc/nginx/sites-available/harvest  # Edit
+sudo ln -s /etc/nginx/sites-available/harvest /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 
 # Run application
-python3 launch_t2t.py
+python3 launch_harvest.py
 ```
 
 ### Environment Variables (Docker/Container)
 ```bash
-export T2T_DEPLOYMENT_MODE="nginx"
-export T2T_BACKEND_PUBLIC_URL="http://nginx/api"
-export T2T_HOST="0.0.0.0"
-python3 launch_t2t.py
+export HARVEST_DEPLOYMENT_MODE="nginx"
+export HARVEST_BACKEND_PUBLIC_URL="http://nginx/api"
+export HARVEST_HOST="0.0.0.0"
+python3 launch_harvest.py
 ```
 
 ## Configuration Options
@@ -288,7 +288,7 @@ No action needed - current configuration works as-is.
    - Customize nginx.conf.example if needed
 
 4. **Test**
-   - Run validation: `python3 launch_t2t.py`
+   - Run validation: `python3 launch_harvest.py`
    - Check for warnings
    - Verify configuration
 

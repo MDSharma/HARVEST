@@ -18,8 +18,8 @@ BACKEND_PUBLIC_URL = ""  # Example: "https://api.yourdomain.com"
 
 ### Environment Variables
 
-- `T2T_DEPLOYMENT_MODE`: Override deployment mode
-- `T2T_BACKEND_PUBLIC_URL`: Override backend public URL
+- `HARVEST_DEPLOYMENT_MODE`: Override deployment mode
+- `HARVEST_BACKEND_PUBLIC_URL`: Override backend public URL
 
 ## Deployment Modes
 
@@ -46,21 +46,21 @@ BACKEND_PUBLIC_URL = ""  # Example: "https://api.yourdomain.com"
    - Added `BACKEND_PUBLIC_URL` configuration
    - Added comprehensive documentation
 
-2. **t2t_training_be.py**
+2. **harvest_be.py**
    - Import deployment configuration
    - Conditional CORS configuration based on deployment mode
    - Nginx mode: Allow all origins (proxy handles restriction)
    - Internal mode: Restrict to localhost origins only
    - Updated health endpoint to return deployment info
 
-3. **t2t_training_fe.py**
+3. **harvest_fe.py**
    - Import deployment configuration
    - Dynamic API base URL selection based on mode
    - Conditional proxy routes (disabled in nginx mode)
    - Updated PDF viewer to pass deployment mode
    - Updated iframe URLs for deployment mode awareness
 
-4. **launch_t2t.py**
+4. **launch_harvest.py**
    - Import deployment configuration
    - Added `validate_deployment_config()` function
    - Configuration validation on startup
@@ -157,7 +157,7 @@ Existing deployments will continue to work without changes:
 
 3. Restart application:
    ```bash
-   python3 launch_t2t.py
+   python3 launch_harvest.py
    ```
 
 4. Verify configuration in startup banner
@@ -178,7 +178,7 @@ Existing deployments will continue to work without changes:
 
 All Python files compile without errors:
 ```bash
-python3 -m py_compile config.py t2t_training_be.py t2t_training_fe.py launch_t2t.py
+python3 -m py_compile config.py harvest_be.py harvest_fe.py launch_harvest.py
 ```
 
 Configuration loads correctly:

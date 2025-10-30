@@ -14,7 +14,7 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-from t2t_store import (
+from harvest_store import (
     init_db,
     fetch_entity_dropdown_options,
     fetch_relation_dropdown_options,
@@ -48,17 +48,17 @@ try:
     )
 except ImportError:
     # Fallback to environment variables if config.py doesn't exist
-    DB_PATH = os.environ.get("T2T_DB", "t2t_training.db")
-    PORT = int(os.environ.get("T2T_PORT", "5001"))
-    HOST = os.environ.get("T2T_HOST", "0.0.0.0")
+    DB_PATH = os.environ.get("HARVEST_DB", "harvest.db")
+    PORT = int(os.environ.get("HARVEST_PORT", "5001"))
+    HOST = os.environ.get("HARVEST_HOST", "0.0.0.0")
     ENABLE_PDF_HIGHLIGHTING = True  # Default to enabled
-    DEPLOYMENT_MODE = os.environ.get("T2T_DEPLOYMENT_MODE", "internal")
-    BACKEND_PUBLIC_URL = os.environ.get("T2T_BACKEND_PUBLIC_URL", "")
+    DEPLOYMENT_MODE = os.environ.get("HARVEST_DEPLOYMENT_MODE", "internal")
+    BACKEND_PUBLIC_URL = os.environ.get("HARVEST_BACKEND_PUBLIC_URL", "")
     ENABLE_ENHANCED_PDF_DOWNLOAD = False  # Default to standard PDF download
 
 # Override config with environment variables if present
-DEPLOYMENT_MODE = os.environ.get("T2T_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
-BACKEND_PUBLIC_URL = os.environ.get("T2T_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
+DEPLOYMENT_MODE = os.environ.get("HARVEST_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
+BACKEND_PUBLIC_URL = os.environ.get("HARVEST_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
 
 # Validate deployment mode
 if DEPLOYMENT_MODE not in ["internal", "nginx"]:

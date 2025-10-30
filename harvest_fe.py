@@ -32,14 +32,14 @@ except ImportError:
     PARTNER_LOGOS = []
     ENABLE_LITERATURE_SEARCH = True  # Default to enabled
     ENABLE_PDF_HIGHLIGHTING = True  # Default to enabled
-    DEPLOYMENT_MODE = os.getenv("T2T_DEPLOYMENT_MODE", "internal")
-    BACKEND_PUBLIC_URL = os.getenv("T2T_BACKEND_PUBLIC_URL", "")
-    URL_BASE_PATHNAME = os.getenv("T2T_URL_BASE_PATHNAME", "/")
+    DEPLOYMENT_MODE = os.getenv("HARVEST_DEPLOYMENT_MODE", "internal")
+    BACKEND_PUBLIC_URL = os.getenv("HARVEST_BACKEND_PUBLIC_URL", "")
+    URL_BASE_PATHNAME = os.getenv("HARVEST_URL_BASE_PATHNAME", "/")
 
 # Override config with environment variables if present
-DEPLOYMENT_MODE = os.getenv("T2T_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
-BACKEND_PUBLIC_URL = os.getenv("T2T_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
-URL_BASE_PATHNAME = os.getenv("T2T_URL_BASE_PATHNAME", URL_BASE_PATHNAME)
+DEPLOYMENT_MODE = os.getenv("HARVEST_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
+BACKEND_PUBLIC_URL = os.getenv("HARVEST_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
+URL_BASE_PATHNAME = os.getenv("HARVEST_URL_BASE_PATHNAME", URL_BASE_PATHNAME)
 
 # Validate deployment mode
 if DEPLOYMENT_MODE not in ["internal", "nginx"]:
@@ -67,7 +67,7 @@ else:
 # Determine API base URL for server-side requests
 # In both modes, the frontend server connects to backend via localhost
 # BACKEND_PUBLIC_URL is only used for documentation/reference, not actual requests
-API_BASE = os.getenv("T2T_API_BASE", "http://127.0.0.1:5001")
+API_BASE = os.getenv("HARVEST_API_BASE", "http://127.0.0.1:5001")
 API_CHOICES = f"{API_BASE}/api/choices"
 API_SAVE = f"{API_BASE}/api/save"
 API_RECENT = f"{API_BASE}/api/recent"
@@ -1265,7 +1265,7 @@ app.layout = dbc.Container(
         html.Footer(
             dbc.Row(
                 dbc.Col(
-                    html.Small(f"© {datetime.now().year} Text2Trait"),
+                    html.Small(f"© {datetime.now().year} HARVEST"),
                     className="text-center text-muted my-3",
                 )
             )

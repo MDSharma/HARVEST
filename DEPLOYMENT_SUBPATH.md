@@ -141,11 +141,11 @@ server {
 
 ```bash
 # Using the launcher script
-python3 launch_t2t.py
+python3 launch_harvest.py
 
 # Or manually
-python3 t2t_training_be.py  # Terminal 1
-python3 t2t_training_fe.py  # Terminal 2
+python3 harvest_be.py  # Terminal 1
+python3 harvest_fe.py  # Terminal 2
 ```
 
 ### 4. Verify the Configuration
@@ -160,10 +160,10 @@ python3 t2t_training_fe.py  # Terminal 2
 You can also configure these settings using environment variables instead of editing `config.py`:
 
 ```bash
-export T2T_DEPLOYMENT_MODE="nginx"
-export T2T_BACKEND_PUBLIC_URL="https://www.yourdomain.com/harvest/api"
-export T2T_URL_BASE_PATHNAME="/harvest/"
-python3 launch_t2t.py
+export HARVEST_DEPLOYMENT_MODE="nginx"
+export HARVEST_BACKEND_PUBLIC_URL="https://www.yourdomain.com/harvest/api"
+export HARVEST_URL_BASE_PATHNAME="/harvest/"
+python3 launch_harvest.py
 ```
 
 ## Troubleshooting

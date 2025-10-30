@@ -1,7 +1,7 @@
 [project]
-name = "t2t-training"
+name = "harvest"
 version = "0.1.0"
-description = ""
+description = "Human-in-the-loop Actionable Research and Vocabulary Extraction Technology"
 authors = [
     {name = "MD Sharma",email = "M.D.Sharma@exeter.ac.uk"}
 ]

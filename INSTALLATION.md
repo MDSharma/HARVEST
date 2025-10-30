@@ -36,7 +36,7 @@ pip install PyMuPDF>=1.23.0
 The backend server must be running for PDF highlighting to work:
 
 ```bash
-python t2t_training_be.py
+python harvest_be.py
 ```
 
 By default, the backend runs on port 5001. Check the console output to verify.
@@ -46,7 +46,7 @@ By default, the backend runs on port 5001. Check the console output to verify.
 In a separate terminal, start the frontend:
 
 ```bash
-python t2t_training_fe.py
+python harvest_fe.py
 ```
 
 By default, the frontend runs on port 8050.
@@ -100,7 +100,7 @@ Then restart the backend server.
 **Cause**: Backend server is not running or not accessible.
 
 **Solution**:
-1. Start the backend server: `python t2t_training_be.py`
+1. Start the backend server: `python harvest_be.py`
 2. Verify it's running on port 5001
 3. Check backend logs for errors
 
@@ -136,7 +136,7 @@ Then restart the backend server.
 **Solution**:
 - Ensure `DEPLOYMENT_MODE` is either "internal" or "nginx"
 - If using nginx mode, `BACKEND_PUBLIC_URL` must be set
-- Check `launch_t2t.py` output for specific configuration issues
+- Check `launch_harvest.py` output for specific configuration issues
 
 ## Testing
 

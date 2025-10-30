@@ -1,5 +1,5 @@
 """
-Literature Search Module for Text2Trait
+Literature Search Module for HARVEST
 Provides semantic paper discovery from Semantic Scholar and arXiv
 with query expansion, reranking, and deduplication.
 """

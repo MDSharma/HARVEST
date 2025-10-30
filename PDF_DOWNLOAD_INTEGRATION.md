@@ -60,7 +60,7 @@ This creates `pdf_downloads.db` with all required tables.
 
 ### 4. Integrate Analytics Endpoints (Optional)
 
-Edit `t2t_training_be.py` to add analytics endpoints:
+Edit `harvest_be.py` to add analytics endpoints:
 
 ```python
 # Add at the top with other imports
@@ -74,7 +74,7 @@ This adds all the analytics endpoints documented in `PDF_DOWNLOAD_ENHANCED.md`.
 
 ### 5. Update Download Function (Optional)
 
-To use the enhanced system, update the download function in `t2t_training_be.py`:
+To use the enhanced system, update the download function in `harvest_be.py`:
 
 Find the `_run_pdf_download_task` function and replace:
 
@@ -98,7 +98,7 @@ Then use `process_function` instead of calling the old function directly.
 The enhanced system is fully backward compatible:
 
 1. **Existing code continues to work** - The old `pdf_manager.py` is unchanged
-2. **Separate database** - Uses `pdf_downloads.db`, doesn't touch `t2t_training.db`
+2. **Separate database** - Uses `pdf_downloads.db`, doesn't touch `harvest.db`
 3. **Configuration flag** - Easy to enable/disable via `config.py`
 4. **Optional analytics** - Analytics endpoints are optional, system works without them
 

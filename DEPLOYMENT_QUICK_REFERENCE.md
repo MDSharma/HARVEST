@@ -15,7 +15,7 @@ Quick reference guide for deploying the T2T Training Application.
 
 ```bash
 # No configuration needed - just run
-python3 launch_t2t.py
+python3 launch_harvest.py
 ```
 
 Access at `http://localhost:8050`
@@ -32,15 +32,15 @@ HOST = "0.0.0.0"
 
 **2. Setup nginx:**
 ```bash
-sudo cp nginx.conf.example /etc/nginx/sites-available/t2t
-sudo nano /etc/nginx/sites-available/t2t  # Edit as needed
-sudo ln -s /etc/nginx/sites-available/t2t /etc/nginx/sites-enabled/
+sudo cp nginx.conf.example /etc/nginx/sites-available/harvest
+sudo nano /etc/nginx/sites-available/harvest  # Edit as needed
+sudo ln -s /etc/nginx/sites-available/harvest /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
 **3. Run:**
 ```bash
-python3 launch_t2t.py
+python3 launch_harvest.py
 ```
 
 ## Configuration Options
@@ -57,13 +57,13 @@ python3 launch_t2t.py
 
 ```bash
 # Override deployment mode
-export T2T_DEPLOYMENT_MODE="nginx"
+export HARVEST_DEPLOYMENT_MODE="nginx"
 
 # Set backend public URL
-export T2T_BACKEND_PUBLIC_URL="https://api.yourdomain.com"
+export HARVEST_BACKEND_PUBLIC_URL="https://api.yourdomain.com"
 
 # Backend host binding
-export T2T_HOST="0.0.0.0"
+export HARVEST_HOST="0.0.0.0"
 ```
 
 ## How It Works
@@ -113,7 +113,7 @@ HOST = "0.0.0.0"
 The launcher validates your configuration:
 
 ```bash
-python3 launch_t2t.py
+python3 launch_harvest.py
 
 # Output shows:
 # - Deployment mode
@@ -178,7 +178,7 @@ sudo nginx -t
 sudo tail -f /var/log/nginx/error.log
 
 # View application logs
-python3 launch_t2t.py  # Logs to console
+python3 launch_harvest.py  # Logs to console
 ```
 
 ## Migration

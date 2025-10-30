@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Configuration file for T2T Training Application
+Configuration file for HARVEST Training Application
 Edit these settings before running the application
 """
 
@@ -53,7 +53,7 @@ BACKEND_PUBLIC_URL = ""  # For reference only (e.g., "https://yourdomain.com/har
 URL_BASE_PATHNAME = "/"  # Default: "/" for root deployment
 
 # Database Configuration
-DB_PATH = "t2t_training.db"  # Path to SQLite database file
+DB_PATH = "harvest.db"  # Path to SQLite database file
 
 # API Configuration
 # Email required by Unpaywall API for PDF access checking

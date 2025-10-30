@@ -29,7 +29,7 @@ mv assets/pdf_viewer_original.html assets/pdf_viewer.html
 USE_ENHANCED_PDF_VIEWER = True  # Set to False to use original viewer
 ```
 
-**Step 2**: Update `t2t_training_be.py` (find the `/pdf-viewer` route around line 1383):
+**Step 2**: Update `harvest_be.py` (find the `/pdf-viewer` route around line 1383):
 
 ```python
 # OLD CODE:
@@ -69,7 +69,7 @@ def pdf_viewer():
 
 ### Option 3: Direct Backend Update (Alternative - 1 minute)
 
-Update the route in `t2t_training_be.py`:
+Update the route in `harvest_be.py`:
 
 ```python
 @server.route('/pdf-viewer')
@@ -159,7 +159,7 @@ After deployment:
 3. Test with original viewer to isolate issue
 
 ### Issue: Can't find the route in backend
-**Solution**: Search for `@server.route('/pdf-viewer')` in t2t_training_be.py
+**Solution**: Search for `@server.route('/pdf-viewer')` in harvest_be.py
 
 ## 📊 Verification Checklist
 
@@ -222,4 +222,4 @@ No training needed - the interface is intuitive and improvements are immediately
 
 ---
 
-**Note**: The enhanced viewer maintains full backward compatibility with the original API. No changes to the frontend (t2t_training_fe.py) or database are required.
+**Note**: The enhanced viewer maintains full backward compatibility with the original API. No changes to the frontend (harvest_fe.py) or database are required.
