@@ -151,7 +151,7 @@ class MarkdownCache:
     
     def _load_all_markdown_files(self):
         """Load all markdown files from assets directory"""
-        md_files = ['help.md', 'schema.md', 'qa.md', 'db_model.md']
+        md_files = ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md']
         for filename in md_files:
             filepath = os.path.join(self.assets_dir, filename)
             if os.path.exists(filepath):
@@ -202,7 +202,7 @@ class MarkdownCache:
                 def on_modified(self, event):
                     if not event.is_directory and event.src_path.endswith('.md'):
                         filename = os.path.basename(event.src_path)
-                        if filename in ['help.md', 'schema.md', 'qa.md', 'db_model.md']:
+                        if filename in ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md']:
                             logger.info(f"Detected change in {filename}, reloading...")
                             self.cache._load_file(filename, event.src_path)
                             self.cache._update_flag.set()
@@ -210,7 +210,7 @@ class MarkdownCache:
                 def on_created(self, event):
                     if not event.is_directory and event.src_path.endswith('.md'):
                         filename = os.path.basename(event.src_path)
-                        if filename in ['help.md', 'schema.md', 'qa.md', 'db_model.md']:
+                        if filename in ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md']:
                             logger.info(f"Detected new file {filename}, loading...")
                             self.cache._load_file(filename, event.src_path)
                             self.cache._update_flag.set()
@@ -523,9 +523,9 @@ def sidebar():
     Displays content in collapsible accordion items for better space management.
     """
     # Get markdown content from cache
-    help_md = markdown_cache.get('help.md', "Help content not found.")
+    annotator_guide_md = markdown_cache.get('annotator_guide.md', "Annotator guide not found.")
     schema_md = markdown_cache.get('schema.md', "Schema content not found.")
-    qa_md = markdown_cache.get('qa.md', "Q&A content not found.")
+    admin_guide_md = markdown_cache.get('admin_guide.md', "Admin guide not found.")
     db_model_md = markdown_cache.get('db_model.md', "Database model content not found.")
     
     # Create accordion with collapsible sections for better content management
@@ -533,7 +533,7 @@ def sidebar():
         [
             dbc.AccordionItem(
                 html.Div(
-                    help_md,
+                    annotator_guide_md,
                     style={
                         "maxHeight": "500px",
                         "overflowY": "auto",
@@ -541,10 +541,10 @@ def sidebar():
                         "backgroundColor": "#f8f9fa",
                         "borderRadius": "4px"
                     },
-                    id="help-tab-content"
+                    id="annotator-guide-content"
                 ),
-                title="📖 Help Guide",
-                item_id="help",
+                title="👥 Annotator Guide",
+                item_id="annotator-guide",
             ),
             dbc.AccordionItem(
                 html.Div(
@@ -563,7 +563,7 @@ def sidebar():
             ),
             dbc.AccordionItem(
                 html.Div(
-                    qa_md,
+                    admin_guide_md,
                     style={
                         "maxHeight": "500px",
                         "overflowY": "auto",
@@ -571,10 +571,10 @@ def sidebar():
                         "backgroundColor": "#f8f9fa",
                         "borderRadius": "4px"
                     },
-                    id="qa-tab-content"
+                    id="admin-guide-content"
                 ),
-                title="❓ Q&A",
-                item_id="qa",
+                title="🔧 Admin Guide",
+                item_id="admin-guide",
             ),
             dbc.AccordionItem(
                 html.Div(
@@ -3940,9 +3940,9 @@ def export_triples_callback(n_clicks, auth_data):
 # -----------------------
 @app.callback(
     [
-        Output("help-tab-content", "children"),
+        Output("annotator-guide-content", "children"),
         Output("schema-tab-content", "children"),
-        Output("qa-tab-content", "children"),
+        Output("admin-guide-content", "children"),
         Output("dbmodel-tab-content", "children"),
     ],
     Input("markdown-reload-interval", "n_intervals"),
@@ -3950,18 +3950,18 @@ def export_triples_callback(n_clicks, auth_data):
 )
 def reload_markdown_on_change(n_intervals):
     """
-    Check for markdown file changes and reload tabs if needed.
+    Check for markdown file changes and reload accordion sections if needed.
     This callback runs periodically to check if any .md files have been modified.
     """
     if markdown_cache.has_updates():
-        logger.info("Markdown files updated, refreshing tab content...")
+        logger.info("Markdown files updated, refreshing accordion content...")
         markdown_cache.clear_update_flag()
         
-        # Return updated content for all tabs
+        # Return updated content for all sections
         return (
-            markdown_cache.get('help.md', "Help content not found."),
+            markdown_cache.get('annotator_guide.md', "Annotator guide not found."),
             markdown_cache.get('schema.md', "Schema content not found."),
-            markdown_cache.get('qa.md', "Q&A content not found."),
+            markdown_cache.get('admin_guide.md', "Admin guide not found."),
             markdown_cache.get('db_model.md', "Database model content not found."),
         )
     
