@@ -24,9 +24,9 @@ def test_env_var_overrides():
         # Set environment variables
         os.environ['HARVEST_DB'] = test_db_path
         os.environ['HARVEST_PORT'] = '5999'
-        os.environ['HARVEST_HOST'] = '0.0.0.0'
+        os.environ['HARVEST_HOST'] = '127.0.0.1'
         os.environ['HARVEST_DEPLOYMENT_MODE'] = 'nginx'
-        os.environ['HARVEST_BACKEND_PUBLIC_URL'] = 'https://example.com/api'
+        os.environ['HARVEST_BACKEND_PUBLIC_URL'] = 'https://text2trait.com/harvest'
         
         # Import config first (which will be overridden)
         try:
