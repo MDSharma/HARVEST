@@ -107,7 +107,8 @@ def choices():
         relation_opts = fetch_relation_dropdown_options(DB_PATH)
         return jsonify({"entity_types": entity_opts, "relation_types": relation_opts})
     except Exception as e:
-        return jsonify({"error": f"choices failed: {e}"}), 500
+        logger.error(f"Failed to fetch choices: {e}", exc_info=True)
+        return jsonify({"error": "Failed to fetch dropdown options"}), 500
 
 @app.post("/api/validate-doi")
 def validate_doi():
@@ -174,7 +175,8 @@ def validate_doi():
             return jsonify({"valid": False, "error": "DOI not found in CrossRef"}), 200
 
     except Exception as e:
-        return jsonify({"valid": False, "error": f"Failed to fetch DOI metadata: {str(e)}"}), 200
+        logger.error(f"Failed to validate DOI: {e}", exc_info=True)
+        return jsonify({"valid": False, "error": "Failed to fetch DOI metadata"}), 200
 
 @app.post("/api/save")
 def save():
@@ -247,7 +249,8 @@ def save():
                 add_entity_type(DB_PATH, new_attr, slugify(new_attr))
                 t["sink_entity_attr"] = new_attr
     except Exception as e:
-        return jsonify({"error": f"Failed to register new types: {e}"}), 500
+        logger.error(f"Failed to register new types: {e}", exc_info=True)
+        return jsonify({"error": "Failed to register new entity types"}), 500
 
     # Upsert DOI metadata if present and get doi_hash
     doi_hash = None
@@ -255,7 +258,8 @@ def save():
         try:
             doi_hash = upsert_doi_metadata(DB_PATH, doi)
         except Exception as e:
-            return jsonify({"error": f"Failed to save DOI metadata: {e}"}), 500
+            logger.error(f"Failed to save DOI metadata: {e}", exc_info=True)
+            return jsonify({"error": "Failed to save DOI metadata"}), 500
 
     # Upsert the sentence, then insert triples
     try:
@@ -263,7 +267,8 @@ def save():
         insert_triple_rows(DB_PATH, sid, triples, contributor_email, project_id)
         return jsonify({"ok": True, "sentence_id": sid, "doi_hash": doi_hash})
     except Exception as e:
-        return jsonify({"error": f"Save failed: {e}"}), 500
+        logger.error(f"Failed to save data: {e}", exc_info=True)
+        return jsonify({"error": "Failed to save annotation data"}), 500
 
 @app.delete("/api/triple/<int:triple_id>")
 def delete_triple(triple_id: int):
@@ -323,7 +328,8 @@ def delete_triple(triple_id: int):
 
         return jsonify({"ok": True, "message": "Triple deleted successfully"})
     except Exception as e:
-        return jsonify({"error": f"Delete failed: {e}"}), 500
+        logger.error(f"Failed to delete triple: {e}", exc_info=True)
+        return jsonify({"error": "Failed to delete triple"}), 500
 
 @app.get("/api/rows")
 @app.get("/api/recent")
@@ -375,7 +381,8 @@ def rows():
         out = [dict(zip(cols, row)) for row in data]
         return jsonify(out)
     except Exception as e:
-        return jsonify({"error": f"rows failed: {e}"}), 500
+        logger.error(f"Failed to fetch rows: {e}", exc_info=True)
+        return jsonify({"error": "Failed to fetch annotation data"}), 500
 
 # -----------------------------
 # Admin endpoints
@@ -688,7 +695,8 @@ def delete_existing_project(project_id: int):
         else:
             return jsonify({"error": "Failed to delete project"}), 500
     except Exception as e:
-        return jsonify({"error": f"Failed to delete project: {str(e)}"}), 500
+        logger.error(f"Failed to delete project: {e}", exc_info=True)
+        return jsonify({"error": "Failed to delete project"}), 500
 
 # PDF Management Endpoints
 def _run_pdf_download_task(project_id: int, doi_list: List[str], project_dir: str):
@@ -973,7 +981,8 @@ def get_pdf_download_config():
             "email_configured": UNPAYWALL_EMAIL and UNPAYWALL_EMAIL != "research@example.com"
         })
     except Exception as e:
-        return jsonify({"error": f"Failed to get configuration: {str(e)}"}), 500
+        logger.error(f"Failed to get PDF configuration: {e}", exc_info=True)
+        return jsonify({"error": "Failed to get PDF configuration"}), 500
 
 @app.get("/api/projects/<int:project_id>/pdfs")
 def list_project_pdfs_endpoint(project_id: int):
@@ -991,7 +1000,8 @@ def list_project_pdfs_endpoint(project_id: int):
             "pdfs": pdfs
         })
     except Exception as e:
-        return jsonify({"error": f"Failed to list PDFs: {str(e)}"}), 500
+        logger.error(f"Failed to list PDFs: {e}", exc_info=True)
+        return jsonify({"error": "Failed to list PDFs"}), 500
 
 @app.post("/api/admin/projects/<int:project_id>/upload-pdf")
 def upload_project_pdf(project_id: int):
@@ -1051,7 +1061,8 @@ def upload_project_pdf(project_id: int):
             "size": file_size
         })
     except Exception as e:
-        return jsonify({"error": f"Upload failed: {str(e)}"}), 500
+        logger.error(f"PDF upload failed: {e}", exc_info=True)
+        return jsonify({"error": "PDF upload failed"}), 500
 
 @app.get("/api/projects/<int:project_id>/pdf/<filename>")
 def serve_project_pdf(project_id: int, filename: str):
@@ -1073,7 +1084,8 @@ def serve_project_pdf(project_id: int, filename: str):
         
         return send_file(filepath, mimetype='application/pdf')
     except Exception as e:
-        return jsonify({"error": f"Failed to serve PDF: {str(e)}"}), 500
+        logger.error(f"Failed to serve PDF: {e}", exc_info=True)
+        return jsonify({"error": "Failed to serve PDF"}), 500
 
 @app.post("/api/projects/<int:project_id>/pdf/<filename>/highlights")
 def add_pdf_highlights(project_id: int, filename: str):
@@ -1426,4 +1438,5 @@ if __name__ == "__main__":
     if deleted > 0:
         print(f"[PDF Download] Cleaned up {deleted} old progress entries")
     
-    app.run(host=HOST, port=PORT, debug=True)
+    # Never run with debug=True in production - it allows arbitrary code execution
+    app.run(host=HOST, port=PORT, debug=False)
