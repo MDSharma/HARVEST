@@ -44,7 +44,7 @@ from t2t_store import (
 try:
     from config import (
         DB_PATH, BE_PORT as PORT, HOST, ENABLE_PDF_HIGHLIGHTING,
-        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL
+        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, ENABLE_ENHANCED_PDF_DOWNLOAD
     )
 except ImportError:
     # Fallback to environment variables if config.py doesn't exist
@@ -54,6 +54,7 @@ except ImportError:
     ENABLE_PDF_HIGHLIGHTING = True  # Default to enabled
     DEPLOYMENT_MODE = os.environ.get("T2T_DEPLOYMENT_MODE", "internal")
     BACKEND_PUBLIC_URL = os.environ.get("T2T_BACKEND_PUBLIC_URL", "")
+    ENABLE_ENHANCED_PDF_DOWNLOAD = False  # Default to standard PDF download
 
 # Override config with environment variables if present
 DEPLOYMENT_MODE = os.environ.get("T2T_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
@@ -678,7 +679,21 @@ def delete_existing_project(project_id: int):
 def _run_pdf_download_task(project_id: int, doi_list: List[str], project_dir: str):
     """Background task to download PDFs and update progress in database"""
     import json
-    from pdf_manager import process_project_dois_with_progress, get_project_pdf_dir
+    
+    # Use enhanced or standard PDF manager based on config
+    if ENABLE_ENHANCED_PDF_DOWNLOAD:
+        try:
+            from pdf_manager_enhanced import process_dois_smart as process_function
+            from pdf_manager import get_project_pdf_dir, generate_doi_hash
+            print(f"[PDF Download Task] Using ENHANCED PDF download system")
+        except ImportError as e:
+            print(f"[PDF Download Task] Warning: Enhanced PDF manager not available, falling back to standard: {e}")
+            from pdf_manager import process_project_dois_with_progress as process_function
+            from pdf_manager import get_project_pdf_dir, generate_doi_hash
+    else:
+        from pdf_manager import process_project_dois_with_progress as process_function
+        from pdf_manager import get_project_pdf_dir, generate_doi_hash
+        print(f"[PDF Download Task] Using STANDARD PDF download system")
     
     print(f"[PDF Download Task] Starting background download for project {project_id}")
     
@@ -728,7 +743,21 @@ def _run_pdf_download_task(project_id: int, doi_list: List[str], project_dir: st
                 "errors": errors
             })
         
-        results = process_project_dois_with_progress(doi_list, project_dir, progress_callback)
+        # Initialize the database if using enhanced mode
+        if ENABLE_ENHANCED_PDF_DOWNLOAD:
+            try:
+                from pdf_download_db import init_pdf_download_db
+                init_pdf_download_db()
+                # Enhanced version needs project_id parameter
+                results = process_function(doi_list, project_id, project_dir, progress_callback)
+            except Exception as e:
+                print(f"[PDF Download Task] Warning: Could not initialize enhanced PDF download database: {e}")
+                # Fallback to standard if enhanced fails
+                from pdf_manager import process_project_dois_with_progress
+                results = process_project_dois_with_progress(doi_list, project_dir, progress_callback)
+        else:
+            # Standard version doesn't need project_id
+            results = process_function(doi_list, project_dir, progress_callback)
         
         # Update final status in database
         update_pdf_download_progress(DB_PATH, project_id, {
