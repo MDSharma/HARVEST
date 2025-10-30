@@ -351,15 +351,19 @@
                     textLayerDiv.style.lineHeight = '1.0';
                     // Set the scale factor CSS variable required by PDF.js
                     textLayerDiv.style.setProperty('--scale-factor', scale);
+                    
+                    // Insert text layer BEFORE appending to wrapper
+                    // This ensures it's properly positioned
                     canvasWrapper.appendChild(textLayerDiv);
                     
-                    // Render text layer using renderTextLayer function
-                    pdfjsLib.renderTextLayer({
+                    // Render text layer using renderTextLayer function with proper API
+                    const textLayer = new pdfjsLib.TextLayer({
                         textContentSource: textContent,
                         container: textLayerDiv,
-                        viewport: viewport,
-                        textDivs: []
+                        viewport: viewport
                     });
+                    
+                    textLayer.render();
                     
                     // Render existing highlights for this page
                     renderHighlights();
@@ -487,6 +491,9 @@
             // Render highlights for current page
             const pageHighlights = highlights.filter(h => h.page === pageNum - 1);
             
+            // Get the text layer to insert highlights before it
+            const textLayer = canvasWrapper.querySelector('.textLayer');
+            
             pageHighlights.forEach(highlight => {
                 highlight.rects.forEach(rect => {
                     const div = document.createElement('div');
@@ -517,7 +524,12 @@
                     }
                     div.style.background = bgColor;
                     
-                    canvasWrapper.appendChild(div);
+                    // Insert highlight BEFORE text layer to ensure proper stacking
+                    if (textLayer) {
+                        canvasWrapper.insertBefore(div, textLayer);
+                    } else {
+                        canvasWrapper.appendChild(div);
+                    }
                 });
             });
         }
