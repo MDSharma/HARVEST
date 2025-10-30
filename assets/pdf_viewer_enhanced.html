@@ -691,14 +691,12 @@
                     textLayerDiv.style.setProperty('--scale-factor', scale);
                     canvasWrapper.appendChild(textLayerDiv);
 
-                    // Render text layer using proper PDF.js v3 API
-                    const textLayer = new pdfjsLib.TextLayer({
+                    pdfjsLib.renderTextLayer({
                         textContentSource: textContent,
                         container: textLayerDiv,
-                        viewport: viewport
+                        viewport: viewport,
+                        textDivs: []
                     });
-                    
-                    textLayer.render();
 
                     renderHighlights();
                 }).catch(err => {

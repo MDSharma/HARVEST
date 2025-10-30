@@ -843,7 +843,18 @@ app.layout = dbc.Container(
             [
                 dbc.Col(
                     [
-                        html.H2(APP_TITLE, className="mt-3 mb-4"),
+                        # Logo and title section
+                        html.Div([
+                            html.Img(
+                                src="/assets/HARVEST.svg",
+                                alt="HARVEST",
+                                style={
+                                    "height": "60px",
+                                    "marginBottom": "20px"
+                                },
+                                id="harvest-logo"
+                            ),
+                        ], className="mt-3 mb-4", style={"textAlign": "left"}),
 
                         dcc.Tabs(
                             id="main-tabs",

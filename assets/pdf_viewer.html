@@ -351,19 +351,15 @@
                     textLayerDiv.style.lineHeight = '1.0';
                     // Set the scale factor CSS variable required by PDF.js
                     textLayerDiv.style.setProperty('--scale-factor', scale);
-                    
-                    // Insert text layer BEFORE appending to wrapper
-                    // This ensures it's properly positioned
                     canvasWrapper.appendChild(textLayerDiv);
                     
-                    // Render text layer using renderTextLayer function with proper API
-                    const textLayer = new pdfjsLib.TextLayer({
+                    // Render text layer using renderTextLayer function
+                    pdfjsLib.renderTextLayer({
                         textContentSource: textContent,
                         container: textLayerDiv,
-                        viewport: viewport
+                        viewport: viewport,
+                        textDivs: []
                     });
-                    
-                    textLayer.render();
                     
                     // Render existing highlights for this page
                     renderHighlights();
