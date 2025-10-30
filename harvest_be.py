@@ -56,7 +56,14 @@ except ImportError:
     BACKEND_PUBLIC_URL = os.environ.get("HARVEST_BACKEND_PUBLIC_URL", "")
     ENABLE_ENHANCED_PDF_DOWNLOAD = False  # Default to standard PDF download
 
+# Setup logging first
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
 # Override config with environment variables if present
+DB_PATH = os.environ.get("HARVEST_DB", DB_PATH)
+PORT = int(os.environ.get("HARVEST_PORT", str(PORT)))
+HOST = os.environ.get("HARVEST_HOST", HOST)
 DEPLOYMENT_MODE = os.environ.get("HARVEST_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
 BACKEND_PUBLIC_URL = os.environ.get("HARVEST_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
 
@@ -64,12 +71,14 @@ BACKEND_PUBLIC_URL = os.environ.get("HARVEST_BACKEND_PUBLIC_URL", BACKEND_PUBLIC
 if DEPLOYMENT_MODE not in ["internal", "nginx"]:
     raise ValueError(f"Invalid DEPLOYMENT_MODE: {DEPLOYMENT_MODE}. Must be 'internal' or 'nginx'")
 
+# Ensure database directory exists
+db_dir = os.path.dirname(os.path.abspath(DB_PATH))
+if db_dir and not os.path.exists(db_dir):
+    os.makedirs(db_dir, exist_ok=True)
+    logger.info(f"Created database directory: {db_dir}")
+
 # Initialize DB on startup
 init_db(DB_PATH)
-
-# Setup logging
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__)
 
