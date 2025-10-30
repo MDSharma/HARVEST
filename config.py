@@ -28,13 +28,29 @@ BE_PORT = 5001  # Port for the Flask backend
 #
 DEPLOYMENT_MODE = "internal"  # Options: "internal" or "nginx"
 
-# Backend Public URL (required for nginx mode, ignored for internal mode)
-# This is the externally accessible URL where the backend API can be reached
+# Backend Public URL (for documentation/reference in nginx mode)
+# NOTE: This is currently NOT used by the application code.
+# The frontend server always connects to the backend via localhost (127.0.0.1:5001)
+# for server-side API requests, regardless of deployment mode.
+#
+# This setting is kept for reference to document the public-facing backend URL
+# in your nginx configuration, but it does not affect actual connections.
+#
+# Example: If your nginx config has 'location /harvest/api/', document it here:
+BACKEND_PUBLIC_URL = ""  # For reference only (e.g., "https://yourdomain.com/harvest")
+
+# URL Base Pathname (required when app is served at a subpath)
+# This is the base path where the application is mounted in the URL structure
+# 
+# In nginx mode: nginx strips the prefix, Flask listens at root, but generates URLs with this prefix
+# In internal mode: Flask serves directly at this path (e.g., http://localhost:8050/harvest/)
+#
 # Examples:
-#   - "https://api.yourdomain.com" (production with SSL)
-#   - "http://yourdomain.com/api" (behind reverse proxy at /api path)
-#   - "http://backend.internal:5001" (internal network with DNS)
-BACKEND_PUBLIC_URL = ""  # Only used when DEPLOYMENT_MODE = "nginx"
+#   - "/" (default, app at root)
+#   - "/harvest/" (app at https://domain.com/harvest/)
+#   - "/t2t/" (app at https://domain.com/t2t/)
+# IMPORTANT: Must start and end with forward slashes
+URL_BASE_PATHNAME = "/"  # Default: "/" for root deployment
 
 # Database Configuration
 DB_PATH = "t2t_training.db"  # Path to SQLite database file

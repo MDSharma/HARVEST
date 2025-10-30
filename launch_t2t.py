@@ -54,17 +54,12 @@ def validate_deployment_config():
         return False
 
     if DEPLOYMENT_MODE == "nginx":
-        if not BACKEND_PUBLIC_URL:
-            print(f"✗ Error: BACKEND_PUBLIC_URL must be set when DEPLOYMENT_MODE is 'nginx'")
-            return False
-
         # Warn if backend host is localhost in nginx mode
         if BACKEND_HOST in ["127.0.0.1", "localhost"]:
             print()
             print("⚠ Warning: Backend is configured to run on localhost (127.0.0.1)")
             print("  In 'nginx' deployment mode, the backend should be accessible externally.")
-            print(f"  Consider setting T2T_HOST=0.0.0.0 or ensure {BACKEND_PUBLIC_URL}")
-            print("  can reach the backend through your reverse proxy.")
+            print("  Consider setting T2T_HOST=0.0.0.0 for external access through nginx.")
             print()
 
     if DEPLOYMENT_MODE == "internal":

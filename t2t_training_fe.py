@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 try:
     from config import (
         PARTNER_LOGOS, ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING,
-        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL
+        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, URL_BASE_PATHNAME
     )
 except ImportError:
     # Fallback if config not available
@@ -34,28 +34,40 @@ except ImportError:
     ENABLE_PDF_HIGHLIGHTING = True  # Default to enabled
     DEPLOYMENT_MODE = os.getenv("T2T_DEPLOYMENT_MODE", "internal")
     BACKEND_PUBLIC_URL = os.getenv("T2T_BACKEND_PUBLIC_URL", "")
+    URL_BASE_PATHNAME = os.getenv("T2T_URL_BASE_PATHNAME", "/")
 
 # Override config with environment variables if present
 DEPLOYMENT_MODE = os.getenv("T2T_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
 BACKEND_PUBLIC_URL = os.getenv("T2T_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
+URL_BASE_PATHNAME = os.getenv("T2T_URL_BASE_PATHNAME", URL_BASE_PATHNAME)
 
 # Validate deployment mode
 if DEPLOYMENT_MODE not in ["internal", "nginx"]:
     raise ValueError(f"Invalid DEPLOYMENT_MODE: {DEPLOYMENT_MODE}. Must be 'internal' or 'nginx'")
 
-if DEPLOYMENT_MODE == "nginx" and not BACKEND_PUBLIC_URL:
-    raise ValueError("BACKEND_PUBLIC_URL must be set when DEPLOYMENT_MODE is 'nginx'")
+# Validate URL_BASE_PATHNAME
+if not URL_BASE_PATHNAME.startswith("/") or not URL_BASE_PATHNAME.endswith("/"):
+    raise ValueError(f"URL_BASE_PATHNAME must start and end with '/'. Got: {URL_BASE_PATHNAME}")
+
+# Configure Dash pathname routing based on deployment mode
+# In nginx mode: nginx strips the path prefix, so Flask listens at root
+# In internal mode: Flask serves at the configured subpath directly
+if DEPLOYMENT_MODE == "nginx":
+    # nginx handles path routing - Flask listens at root
+    DASH_ROUTES_PATHNAME_PREFIX = "/"
+    DASH_REQUESTS_PATHNAME_PREFIX = URL_BASE_PATHNAME
+else:
+    # internal mode - Flask serves directly at subpath
+    DASH_ROUTES_PATHNAME_PREFIX = URL_BASE_PATHNAME
+    DASH_REQUESTS_PATHNAME_PREFIX = URL_BASE_PATHNAME
 
 # -----------------------
 # Config
 # -----------------------
-# Determine API base URL based on deployment mode
-if DEPLOYMENT_MODE == "nginx":
-    # In nginx mode, use the public backend URL
-    API_BASE = BACKEND_PUBLIC_URL
-else:
-    # In internal mode, use localhost backend
-    API_BASE = os.getenv("T2T_API_BASE", "http://127.0.0.1:5001")
+# Determine API base URL for server-side requests
+# In both modes, the frontend server connects to backend via localhost
+# BACKEND_PUBLIC_URL is only used for documentation/reference, not actual requests
+API_BASE = os.getenv("T2T_API_BASE", "http://127.0.0.1:5001")
 API_CHOICES = f"{API_BASE}/api/choices"
 API_SAVE = f"{API_BASE}/api/save"
 API_RECENT = f"{API_BASE}/api/recent"
@@ -449,8 +461,9 @@ def sidebar():
             # Construct the asset path - Dash serves files from /assets/ directory
             logo_url = logo.get("url", "")
             if logo_url and not logo_url.startswith(("http://", "https://", "/")):
-                # Local file - prepend with /assets/ path
-                logo_url = f"/assets/{logo_url}"
+                # Local file - prepend with proper pathname prefix and /assets/ path
+                # Dash automatically includes requests_pathname_prefix for assets
+                logo_url = f"{DASH_REQUESTS_PATHNAME_PREFIX}{app.config.assets_url_path}/{logo_url}"
             
             logo_elements.append(
                 dbc.Col(
@@ -492,7 +505,13 @@ def sidebar():
 # App & Layout
 # -----------------------
 external_stylesheets = [dbc.themes.BOOTSTRAP]
-app: Dash = dash.Dash(__name__, external_stylesheets=external_stylesheets, suppress_callback_exceptions=True)
+app: Dash = dash.Dash(
+    __name__, 
+    external_stylesheets=external_stylesheets, 
+    suppress_callback_exceptions=True,
+    routes_pathname_prefix=DASH_ROUTES_PATHNAME_PREFIX,
+    requests_pathname_prefix=DASH_REQUESTS_PATHNAME_PREFIX
+)
 app.title = APP_TITLE
 server = app.server  # for gunicorn, if needed
 
@@ -1296,17 +1315,10 @@ def proxy_pdf(project_id: int, filename: str):
     - Streams response with proper error handling
     - Returns 400 for invalid input, 502 for backend errors, 404 for not found
 
-    Note: This route only works in "internal" deployment mode.
-    In "nginx" mode, this returns a 404 and clients should use direct backend URLs.
+    Note: Works in all deployment modes to avoid CORS issues.
+    In nginx mode, the browser requests /harvest/proxy/pdf/..., nginx strips the prefix,
+    and Flask receives the request at /proxy/pdf/... which proxies to the backend.
     """
-    # In nginx mode, proxy routes are disabled
-    if DEPLOYMENT_MODE == "nginx":
-        return Response(
-            json.dumps({"error": "Proxy routes disabled in nginx mode. Use direct backend URL."}),
-            status=404,
-            mimetype='application/json'
-        )
-
     try:
         # Validate parameters
         if not _validate_pdf_params(project_id, filename):
@@ -1404,17 +1416,10 @@ def proxy_highlights(project_id: int, filename: str):
     Proxy route for PDF highlights API to avoid CORS issues.
     Forwards GET/POST/DELETE requests to the backend API.
 
-    Note: This route only works in "internal" deployment mode.
-    In "nginx" mode, this returns a 404 and clients should use direct backend URLs.
+    Note: Works in all deployment modes to avoid CORS issues.
+    In nginx mode, the browser requests /harvest/proxy/highlights/..., nginx strips the prefix,
+    and Flask receives the request at /proxy/highlights/... which proxies to the backend.
     """
-    # In nginx mode, proxy routes are disabled
-    if DEPLOYMENT_MODE == "nginx":
-        return Response(
-            json.dumps({"error": "Proxy routes disabled in nginx mode. Use direct backend URL."}),
-            status=404,
-            mimetype='application/json'
-        )
-
     try:
         # Validate parameters
         if not _validate_pdf_params(project_id, filename):
@@ -2699,7 +2704,8 @@ def update_pdf_viewer(selected_doi, project_id):
                 if ENABLE_PDF_HIGHLIGHTING:
                     # Show custom viewer with highlighting capability
                     # Pass deployment mode to viewer for proper URL handling
-                    viewer_url = f"/pdf-viewer?project_id={project_id}&filename={pdf_filename}&api_base={API_BASE}&deployment_mode={DEPLOYMENT_MODE}"
+                    # Include pathname prefix for correct routing in nginx mode
+                    viewer_url = f"{DASH_REQUESTS_PATHNAME_PREFIX.rstrip('/')}/pdf-viewer?project_id={project_id}&filename={pdf_filename}&api_base={API_BASE}&deployment_mode={DEPLOYMENT_MODE}"
                     return html.Iframe(
                         src=viewer_url,
                         style={
@@ -2876,12 +2882,12 @@ def create_project_callback(n_clicks, name, description, doi_list_text, auth_dat
 @app.callback(
     Output("projects-list", "children"),
     Input("btn-refresh-projects", "n_clicks"),
-    Input("btn-create-project", "n_clicks"),
+    Input("project-message", "children"),  # Trigger refresh when project message changes
     Input("delete-project-confirm", "n_clicks"),
     State("admin-auth-store", "data"),
     prevent_initial_call=False,
 )
-def display_projects_list(refresh_clicks, create_clicks, delete_clicks, auth_data):
+def display_projects_list(refresh_clicks, project_message, delete_clicks, auth_data):
     if not auth_data:
         return dbc.Alert("Please login to view projects", color="info")
     
