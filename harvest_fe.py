@@ -846,7 +846,7 @@ app.layout = dbc.Container(
                         # Logo and title section
                         html.Div([
                             html.Img(
-                                src="/assets/HARVEST.svg",
+                                src="/assets/HARVEST_logo.svg",
                                 alt="HARVEST",
                                 style={
                                     "height": "60px",
