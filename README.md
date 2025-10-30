@@ -99,6 +99,7 @@ You can customize the ports and hosts using environment variables:
 - `T2T_ADMIN_EMAILS`: Comma-separated list of admin emails (optional)
 - `T2T_DEPLOYMENT_MODE`: Deployment mode - "internal" or "nginx" (default: internal)
 - `T2T_BACKEND_PUBLIC_URL`: Backend URL for nginx mode (required when mode is "nginx")
+- `T2T_URL_BASE_PATHNAME`: URL base pathname for subpath deployments (default: "/", e.g., "/harvest/")
 
 ## Deployment
 
@@ -116,7 +117,9 @@ The application supports two deployment modes:
 - Backend accessible at configured public URL
 - Ideal for scaled deployments
 
-**For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md)**
+**Deployment Guides:**
+- [DEPLOYMENT.md](DEPLOYMENT.md) - General deployment guide for both modes
+- [DEPLOYMENT_SUBPATH.md](DEPLOYMENT_SUBPATH.md) - Guide for deploying at a subpath (e.g., `/harvest/`) behind nginx
 
 ## Admin Features
 
