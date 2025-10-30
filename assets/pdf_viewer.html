@@ -278,15 +278,10 @@
         // Determine PDF and API URLs based on deployment mode
         let pdfUrl, highlightsApiUrl;
 
-        if (deploymentMode === 'nginx') {
-            // In nginx mode, use direct backend URLs
-            pdfUrl = `${apiBase}/api/projects/${projectId}/pdf/${filename}`;
-            highlightsApiUrl = `${apiBase}/api/projects/${projectId}/pdf/${filename}/highlights`;
-        } else {
-            // In internal mode, use proxy routes to avoid CORS issues
-            pdfUrl = `/proxy/pdf/${projectId}/${filename}`;
-            highlightsApiUrl = `/proxy/highlights/${projectId}/${filename}`;
-        }
+        // Always use proxy routes to avoid CORS issues
+        // The frontend Flask server proxies requests to the backend
+        pdfUrl = `/proxy/pdf/${projectId}/${filename}`;
+        highlightsApiUrl = `/proxy/highlights/${projectId}/${filename}`;
 
         console.log('PDF URLs:', { pdfUrl, highlightsApiUrl });
         
