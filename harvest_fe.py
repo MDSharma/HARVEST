@@ -128,6 +128,132 @@ FETCH_COOLDOWN_SECONDS = 2  # Minimum seconds between fetches
 # Helper constant for no_update returns with many outputs
 NO_UPDATE_15 = tuple([no_update] * 15)
 
+# -----------------------
+# Markdown File Cache with Watchdog
+# -----------------------
+class MarkdownCache:
+    """
+    Thread-safe cache for markdown files with automatic reloading.
+    Monitors the assets/ directory for .md file changes using watchdog.
+    """
+    def __init__(self, assets_dir):
+        self.assets_dir = assets_dir
+        self.cache = {}  # filename -> {'content': str, 'mtime': float, 'rendered': component}
+        self.lock = threading.Lock()
+        self.observer = None
+        self._update_flag = threading.Event()
+        
+        # Initialize cache
+        self._load_all_markdown_files()
+        
+        # Start watchdog observer
+        self._start_watchdog()
+    
+    def _load_all_markdown_files(self):
+        """Load all markdown files from assets directory"""
+        md_files = ['help.md', 'schema.md', 'qa.md', 'db_model.md']
+        for filename in md_files:
+            filepath = os.path.join(self.assets_dir, filename)
+            if os.path.exists(filepath):
+                self._load_file(filename, filepath)
+    
+    def _load_file(self, filename, filepath):
+        """Load a single markdown file into cache"""
+        try:
+            mtime = os.path.getmtime(filepath)
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Special handling for schema.md with JSON placeholder
+            if filename == 'schema.md':
+                schema_json_str = json.dumps(SCHEMA_JSON, indent=2)
+                schema_json_block = f"```json\n{schema_json_str}\n```\n\n"
+                content = content.replace("{SCHEMA_JSON}", schema_json_block)
+            
+            rendered = dcc.Markdown(content)
+            
+            with self.lock:
+                self.cache[filename] = {
+                    'content': content,
+                    'mtime': mtime,
+                    'rendered': rendered
+                }
+            
+            logger.info(f"Loaded markdown file: {filename}")
+        except Exception as e:
+            logger.error(f"Failed to load markdown file {filename}: {e}", exc_info=True)
+            with self.lock:
+                self.cache[filename] = {
+                    'content': f"{filename} not found.",
+                    'mtime': 0,
+                    'rendered': dcc.Markdown(f"{filename} not found.")
+                }
+    
+    def _start_watchdog(self):
+        """Start watchdog observer for monitoring file changes"""
+        try:
+            from watchdog.observers import Observer
+            from watchdog.events import FileSystemEventHandler
+            
+            class MarkdownEventHandler(FileSystemEventHandler):
+                def __init__(self, cache):
+                    self.cache = cache
+                
+                def on_modified(self, event):
+                    if not event.is_directory and event.src_path.endswith('.md'):
+                        filename = os.path.basename(event.src_path)
+                        if filename in ['help.md', 'schema.md', 'qa.md', 'db_model.md']:
+                            logger.info(f"Detected change in {filename}, reloading...")
+                            self.cache._load_file(filename, event.src_path)
+                            self.cache._update_flag.set()
+                
+                def on_created(self, event):
+                    if not event.is_directory and event.src_path.endswith('.md'):
+                        filename = os.path.basename(event.src_path)
+                        if filename in ['help.md', 'schema.md', 'qa.md', 'db_model.md']:
+                            logger.info(f"Detected new file {filename}, loading...")
+                            self.cache._load_file(filename, event.src_path)
+                            self.cache._update_flag.set()
+            
+            event_handler = MarkdownEventHandler(self)
+            self.observer = Observer()
+            self.observer.schedule(event_handler, self.assets_dir, recursive=False)
+            self.observer.daemon = True  # Make it a daemon thread
+            self.observer.start()
+            logger.info(f"Started watchdog observer for markdown files in {self.assets_dir}")
+        except ImportError:
+            logger.warning("watchdog package not installed. Markdown auto-reload disabled.")
+            logger.warning("Install with: pip install watchdog")
+        except Exception as e:
+            logger.error(f"Failed to start watchdog observer: {e}", exc_info=True)
+    
+    def get(self, filename, default_content="Content not found."):
+        """Get rendered markdown component for a file"""
+        with self.lock:
+            if filename in self.cache:
+                return self.cache[filename]['rendered']
+            else:
+                return dcc.Markdown(default_content)
+    
+    def has_updates(self):
+        """Check if there are pending updates"""
+        return self._update_flag.is_set()
+    
+    def clear_update_flag(self):
+        """Clear the update flag"""
+        self._update_flag.clear()
+    
+    def stop(self):
+        """Stop the watchdog observer"""
+        if self.observer:
+            self.observer.stop()
+            self.observer.join()
+
+# Initialize markdown cache
+assets_dir = os.path.join(os.path.dirname(__file__), "assets")
+markdown_cache = MarkdownCache(assets_dir)
+
+
 
 def create_execution_log_display(execution_log):
     """
@@ -393,58 +519,22 @@ def triple_row(i, entity_options, relation_options):
 def sidebar():
     """
     Build the sidebar with information tabs.
-    Reads content from markdown files in the assets folder.
+    Uses cached markdown content with automatic reloading on file changes.
     """
-    # Read markdown files from assets folder
-    assets_dir = os.path.join(os.path.dirname(__file__), "assets")
-    
-    # Read help content
-    try:
-        with open(os.path.join(assets_dir, "help.md"), "r", encoding="utf-8") as f:
-            help_text = f.read()
-        help_md = dcc.Markdown(help_text)
-    except FileNotFoundError:
-        help_md = dcc.Markdown("Help content not found.")
-    
-    # Read and build schema content with dynamic JSON
-    try:
-        with open(os.path.join(assets_dir, "schema.md"), "r", encoding="utf-8") as f:
-            schema_template = f.read()
-        
-        # Build the JSON code block
-        schema_json_str = json.dumps(SCHEMA_JSON, indent=2)
-        schema_json_block = f"```json\n{schema_json_str}\n```\n\n"
-        
-        # Replace placeholder with actual JSON
-        schema_text = schema_template.replace("{SCHEMA_JSON}", schema_json_block)
-        schema_md = dcc.Markdown(schema_text)
-    except FileNotFoundError:
-        schema_md = dcc.Markdown("Schema content not found.")
-    
-    # Read Q&A content
-    try:
-        with open(os.path.join(assets_dir, "qa.md"), "r", encoding="utf-8") as f:
-            qa_text = f.read()
-        qa_md = dcc.Markdown(qa_text)
-    except FileNotFoundError:
-        qa_md = dcc.Markdown("Q&A content not found.")
-    
-    # Read DB Model content
-    try:
-        with open(os.path.join(assets_dir, "db_model.md"), "r", encoding="utf-8") as f:
-            db_model_text = f.read()
-        db_model_md = dcc.Markdown(db_model_text)
-    except FileNotFoundError:
-        db_model_md = dcc.Markdown("Database model content not found.")
+    # Get markdown content from cache
+    help_md = markdown_cache.get('help.md', "Help content not found.")
+    schema_md = markdown_cache.get('schema.md', "Schema content not found.")
+    qa_md = markdown_cache.get('qa.md', "Q&A content not found.")
+    db_model_md = markdown_cache.get('db_model.md', "Database model content not found.")
     
     info_tabs = dbc.Card(
         [
             dbc.Tabs(
                 [
-                    dbc.Tab(help_md, label="Help", tab_id="help"),
-                    dbc.Tab(schema_md, label="Schema", tab_id="schema"),
-                    dbc.Tab(qa_md, label="Q&A", tab_id="qa"),
-                    dbc.Tab(db_model_md, label="DB Model", tab_id="dbmodel"),
+                    dbc.Tab(help_md, label="Help", tab_id="help", id="help-tab-content"),
+                    dbc.Tab(schema_md, label="Schema", tab_id="schema", id="schema-tab-content"),
+                    dbc.Tab(qa_md, label="Q&A", tab_id="qa", id="qa-tab-content"),
+                    dbc.Tab(db_model_md, label="DB Model", tab_id="dbmodel", id="dbmodel-tab-content"),
                 ],
                 id="info-tabs",
                 active_tab="help",
@@ -529,6 +619,7 @@ app.layout = dbc.Container(
         dcc.Store(id="lit-search-selected-papers", data=[]),  # Store selected papers
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
         dcc.Interval(id="pdf-download-progress-interval", interval=2000, disabled=True),  # Poll every 2 seconds
+        dcc.Interval(id="markdown-reload-interval", interval=5000, disabled=False),  # Check for markdown updates every 5 seconds
         
         # Modal for exporting DOIs from literature search
         dbc.Modal(
@@ -3788,6 +3879,39 @@ def export_triples_callback(n_clicks, auth_data):
     
     except Exception as e:
         return dbc.Alert(f"Error: {str(e)}", color="danger")
+
+# -----------------------
+# Markdown Auto-Reload Callback
+# -----------------------
+@app.callback(
+    [
+        Output("help-tab-content", "children"),
+        Output("schema-tab-content", "children"),
+        Output("qa-tab-content", "children"),
+        Output("dbmodel-tab-content", "children"),
+    ],
+    Input("markdown-reload-interval", "n_intervals"),
+    prevent_initial_call=True
+)
+def reload_markdown_on_change(n_intervals):
+    """
+    Check for markdown file changes and reload tabs if needed.
+    This callback runs periodically to check if any .md files have been modified.
+    """
+    if markdown_cache.has_updates():
+        logger.info("Markdown files updated, refreshing tab content...")
+        markdown_cache.clear_update_flag()
+        
+        # Return updated content for all tabs
+        return (
+            markdown_cache.get('help.md', "Help content not found."),
+            markdown_cache.get('schema.md', "Schema content not found."),
+            markdown_cache.get('qa.md', "Q&A content not found."),
+            markdown_cache.get('db_model.md', "Database model content not found."),
+        )
+    
+    # No updates, return no_update for all outputs
+    return no_update, no_update, no_update, no_update
 
 # -----------------------
 # Main
