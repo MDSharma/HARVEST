@@ -662,6 +662,20 @@ def delete_existing_project(project_id: int):
         conn.close()
         
         if success:
+            # Clean up project PDF directory
+            import shutil
+            from pdf_manager import get_project_pdf_dir
+            project_pdf_dir = get_project_pdf_dir(project_id)
+            
+            pdf_cleanup_msg = ""
+            if os.path.exists(project_pdf_dir):
+                try:
+                    shutil.rmtree(project_pdf_dir)
+                    pdf_cleanup_msg = " Project PDF directory cleaned up."
+                except Exception as e:
+                    logging.warning(f"Failed to delete project PDF directory {project_pdf_dir}: {e}")
+                    pdf_cleanup_msg = " (Warning: Could not remove PDF directory)"
+            
             message = f"Project deleted successfully. {triple_count} triple(s) "
             if handle_triples == "delete":
                 message += f"and {orphaned_count} orphaned sentence(s) were also deleted."
@@ -669,6 +683,7 @@ def delete_existing_project(project_id: int):
                 message += f"were reassigned to project {target_project_id}."
             else:
                 message += "were set to uncategorized."
+            message += pdf_cleanup_msg
             return jsonify({"ok": True, "message": message, "triples_affected": triple_count})
         else:
             return jsonify({"error": "Failed to delete project"}), 500
