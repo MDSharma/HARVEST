@@ -52,6 +52,18 @@ if DEPLOYMENT_MODE == "nginx" and not BACKEND_PUBLIC_URL:
 if not URL_BASE_PATHNAME.startswith("/") or not URL_BASE_PATHNAME.endswith("/"):
     raise ValueError(f"URL_BASE_PATHNAME must start and end with '/'. Got: {URL_BASE_PATHNAME}")
 
+# Configure Dash pathname routing based on deployment mode
+# In nginx mode: nginx strips the path prefix, so Flask listens at root
+# In internal mode: Flask serves at the configured subpath directly
+if DEPLOYMENT_MODE == "nginx":
+    # nginx handles path routing - Flask listens at root
+    DASH_ROUTES_PATHNAME_PREFIX = "/"
+    DASH_REQUESTS_PATHNAME_PREFIX = URL_BASE_PATHNAME
+else:
+    # internal mode - Flask serves directly at subpath
+    DASH_ROUTES_PATHNAME_PREFIX = URL_BASE_PATHNAME
+    DASH_REQUESTS_PATHNAME_PREFIX = URL_BASE_PATHNAME
+
 # -----------------------
 # Config
 # -----------------------
@@ -502,7 +514,8 @@ app: Dash = dash.Dash(
     __name__, 
     external_stylesheets=external_stylesheets, 
     suppress_callback_exceptions=True,
-    url_base_pathname=URL_BASE_PATHNAME
+    routes_pathname_prefix=DASH_ROUTES_PATHNAME_PREFIX,
+    requests_pathname_prefix=DASH_REQUESTS_PATHNAME_PREFIX
 )
 app.title = APP_TITLE
 server = app.server  # for gunicorn, if needed

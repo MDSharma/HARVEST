@@ -14,6 +14,22 @@ This happens because the app tries to load assets from the root (`/_dash-compone
 
 ## Solution
 
+### Understanding the Configuration
+
+The key to deploying at a subpath is understanding how nginx and Dash work together:
+
+1. **Nginx** receives requests at `/harvest/` and forwards them to Flask at root `/`
+2. **Flask/Dash** listens at root `/` but generates URLs with `/harvest/` prefix for the browser
+3. **Browser** makes requests to `/harvest/...` which nginx proxies to Flask at `/...`
+
+In **nginx mode**, the application automatically configures:
+- Flask server listens at root `/` (because nginx strips the path prefix)
+- Dash generates URLs with the `/harvest/` prefix (so browser requests go through nginx)
+
+In **internal mode** (without nginx), the application configures:
+- Flask server listens at `/harvest/` (direct access without nginx)
+- Dash generates URLs with the `/harvest/` prefix
+
 ### 1. Configure the Application
 
 Edit `config.py` to set the deployment mode and base pathname:

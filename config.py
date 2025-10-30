@@ -38,6 +38,10 @@ BACKEND_PUBLIC_URL = ""  # Only used when DEPLOYMENT_MODE = "nginx"
 
 # URL Base Pathname (required when app is served at a subpath)
 # This is the base path where the application is mounted in the URL structure
+# 
+# In nginx mode: nginx strips the prefix, Flask listens at root, but generates URLs with this prefix
+# In internal mode: Flask serves directly at this path (e.g., http://localhost:8050/harvest/)
+#
 # Examples:
 #   - "/" (default, app at root)
 #   - "/harvest/" (app at https://domain.com/harvest/)

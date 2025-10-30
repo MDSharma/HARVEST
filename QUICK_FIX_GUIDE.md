@@ -4,7 +4,18 @@
 The HARVEST app at https://www.text2trait.com/harvest/ shows "Loading..." forever with browser console errors about MIME type mismatches for JavaScript files.
 
 ## Root Cause
-The Dash application wasn't configured to know it's deployed at the `/harvest/` subpath, so it was generating incorrect URLs for its static assets.
+The Dash application wasn't configured to know it's deployed at the `/harvest/` subpath behind nginx, so it was generating incorrect URLs for its static assets.
+
+## How It Works Now
+
+With the fix applied:
+1. **Nginx** receives requests at `/harvest/` and proxies to `http://127.0.0.1:8050/` (stripping the prefix)
+2. **Flask/Dash** listens at root `/` on port 8050
+3. **Dash** generates URLs with `/harvest/` prefix in HTML/JavaScript
+4. **Browser** requests assets from `/harvest/_dash-component-suites/...`
+5. **Nginx** proxies these requests back to Flask at `/_dash-component-suites/...`
+
+This separation allows nginx to handle the path routing while Flask serves content from root.
 
 ## Solution (3 Steps)
 
