@@ -2920,28 +2920,17 @@ def update_pdf_viewer(selected_doi, project_id):
                     )
                 else:
                     # Show simple PDF viewer without highlighting
-                    if DEPLOYMENT_MODE == "nginx":
-                        # In nginx mode, use direct backend URL
-                        direct_pdf_url = f"{API_BASE}/api/projects/{project_id}/pdf/{pdf_filename}"
-                        return html.Iframe(
-                            src=direct_pdf_url,
-                            style={
-                                "width": "100%",
-                                "height": "980px",
-                                "border": "none"
-                            }
-                        )
-                    else:
-                        # In internal mode, use proxy route
-                        proxy_pdf_url = f"/proxy/pdf/{project_id}/{pdf_filename}"
-                        return html.Iframe(
-                            src=proxy_pdf_url,
-                            style={
-                                "width": "100%",
-                                "height": "980px",
-                                "border": "none"
-                            }
-                        )
+                    # Always use proxy route to avoid direct backend connection issues
+                    # and ensure compatibility with subpath deployments
+                    proxy_pdf_url = f"{DASH_REQUESTS_PATHNAME_PREFIX.rstrip('/')}/proxy/pdf/{project_id}/{pdf_filename}"
+                    return html.Iframe(
+                        src=proxy_pdf_url,
+                        style={
+                            "width": "100%",
+                            "height": "980px",
+                            "border": "none"
+                        }
+                    )
             else:
                 # PDF doesn't exist
                 return html.Div([
