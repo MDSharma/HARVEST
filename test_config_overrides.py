@@ -90,7 +90,7 @@ def test_db_directory_creation():
         assert not os.path.exists(db_dir), "Test directory should not exist yet"
         
         # Apply directory creation logic (same as in harvest_be.py)
-        if db_dir and not os.path.exists(db_dir):
+        if db_dir and db_dir != '/' and not os.path.exists(db_dir):
             os.makedirs(db_dir, exist_ok=True)
         
         # Verify directory was created
@@ -100,9 +100,10 @@ def test_db_directory_creation():
         print(f"  - Created directory: {db_dir}")
         
         # Test database initialization
+        # Note: Import here after setting environment variable to avoid module-level side effects
         os.environ['HARVEST_DB'] = test_db_path
-        from harvest_store import init_db
-        init_db(test_db_path)
+        import harvest_store
+        harvest_store.init_db(test_db_path)
         
         # Verify database file was created
         assert os.path.exists(test_db_path), f"Database file {test_db_path} should have been created"

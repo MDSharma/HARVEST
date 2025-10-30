@@ -73,7 +73,7 @@ if DEPLOYMENT_MODE not in ["internal", "nginx"]:
 
 # Ensure database directory exists
 db_dir = os.path.dirname(os.path.abspath(DB_PATH))
-if db_dir and not os.path.exists(db_dir):
+if db_dir and db_dir != '/' and not os.path.exists(db_dir):
     os.makedirs(db_dir, exist_ok=True)
     logger.info(f"Created database directory: {db_dir}")
 
