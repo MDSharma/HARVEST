@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 try:
     from config import (
         PARTNER_LOGOS, ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING,
-        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL
+        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, URL_BASE_PATHNAME
     )
 except ImportError:
     # Fallback if config not available
@@ -34,10 +34,12 @@ except ImportError:
     ENABLE_PDF_HIGHLIGHTING = True  # Default to enabled
     DEPLOYMENT_MODE = os.getenv("T2T_DEPLOYMENT_MODE", "internal")
     BACKEND_PUBLIC_URL = os.getenv("T2T_BACKEND_PUBLIC_URL", "")
+    URL_BASE_PATHNAME = os.getenv("T2T_URL_BASE_PATHNAME", "/")
 
 # Override config with environment variables if present
 DEPLOYMENT_MODE = os.getenv("T2T_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
 BACKEND_PUBLIC_URL = os.getenv("T2T_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
+URL_BASE_PATHNAME = os.getenv("T2T_URL_BASE_PATHNAME", URL_BASE_PATHNAME)
 
 # Validate deployment mode
 if DEPLOYMENT_MODE not in ["internal", "nginx"]:
@@ -45,6 +47,10 @@ if DEPLOYMENT_MODE not in ["internal", "nginx"]:
 
 if DEPLOYMENT_MODE == "nginx" and not BACKEND_PUBLIC_URL:
     raise ValueError("BACKEND_PUBLIC_URL must be set when DEPLOYMENT_MODE is 'nginx'")
+
+# Validate URL_BASE_PATHNAME
+if not URL_BASE_PATHNAME.startswith("/") or not URL_BASE_PATHNAME.endswith("/"):
+    raise ValueError(f"URL_BASE_PATHNAME must start and end with '/'. Got: {URL_BASE_PATHNAME}")
 
 # -----------------------
 # Config
@@ -492,7 +498,12 @@ def sidebar():
 # App & Layout
 # -----------------------
 external_stylesheets = [dbc.themes.BOOTSTRAP]
-app: Dash = dash.Dash(__name__, external_stylesheets=external_stylesheets, suppress_callback_exceptions=True)
+app: Dash = dash.Dash(
+    __name__, 
+    external_stylesheets=external_stylesheets, 
+    suppress_callback_exceptions=True,
+    url_base_pathname=URL_BASE_PATHNAME
+)
 app.title = APP_TITLE
 server = app.server  # for gunicorn, if needed
 

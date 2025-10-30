@@ -36,6 +36,15 @@ DEPLOYMENT_MODE = "internal"  # Options: "internal" or "nginx"
 #   - "http://backend.internal:5001" (internal network with DNS)
 BACKEND_PUBLIC_URL = ""  # Only used when DEPLOYMENT_MODE = "nginx"
 
+# URL Base Pathname (required when app is served at a subpath)
+# This is the base path where the application is mounted in the URL structure
+# Examples:
+#   - "/" (default, app at root)
+#   - "/harvest/" (app at https://domain.com/harvest/)
+#   - "/t2t/" (app at https://domain.com/t2t/)
+# IMPORTANT: Must start and end with forward slashes
+URL_BASE_PATHNAME = "/"  # Default: "/" for root deployment
+
 # Database Configuration
 DB_PATH = "t2t_training.db"  # Path to SQLite database file
 
