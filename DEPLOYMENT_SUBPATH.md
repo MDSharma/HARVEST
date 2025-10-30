@@ -38,8 +38,9 @@ Edit `config.py` to set the deployment mode and base pathname:
 # Set deployment mode to nginx
 DEPLOYMENT_MODE = "nginx"
 
-# Set the backend public URL (where nginx proxies backend requests)
-BACKEND_PUBLIC_URL = "https://www.yourdomain.com/harvest/api"
+# Set the backend public URL (base URL without /api suffix)
+# The application will append /api/... automatically
+BACKEND_PUBLIC_URL = "https://www.yourdomain.com/harvest"
 
 # Set the URL base pathname (must start and end with /)
 URL_BASE_PATHNAME = "/harvest/"
@@ -47,7 +48,10 @@ URL_BASE_PATHNAME = "/harvest/"
 
 **Important:** 
 - `URL_BASE_PATHNAME` must start and end with forward slashes (`/`)
-- `BACKEND_PUBLIC_URL` should point to where your backend API is accessible through the proxy
+- `BACKEND_PUBLIC_URL` is the base URL WITHOUT `/api` suffix
+  - The application automatically adds `/api/...` to form complete API URLs
+  - ✓ Correct: `"https://yourdomain.com/harvest"` → API calls to `/harvest/api/...`
+  - ✗ Wrong: `"https://yourdomain.com/harvest/api"` → Results in `/harvest/api/api/...`
 
 ### 2. Configure Nginx
 

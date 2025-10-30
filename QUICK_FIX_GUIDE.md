@@ -26,11 +26,16 @@ Edit `/home/runner/work/HARVEST/HARVEST/config.py` and set:
 ```python
 # Change these three settings:
 DEPLOYMENT_MODE = "nginx"
-BACKEND_PUBLIC_URL = "https://www.text2trait.com/harvest/api"
+BACKEND_PUBLIC_URL = "https://www.text2trait.com/harvest"  # WITHOUT /api suffix!
 URL_BASE_PATHNAME = "/harvest/"
 ```
 
-**Important:** `URL_BASE_PATHNAME` must start AND end with a forward slash.
+**Critical Notes:** 
+- `URL_BASE_PATHNAME` must start AND end with a forward slash.
+- `BACKEND_PUBLIC_URL` is the BASE URL without `/api` (it will be added automatically).
+  - ✓ Correct: `"https://www.text2trait.com/harvest"` → APIs at `/harvest/api/...`
+  - ✗ Wrong: `"https://www.text2trait.com/harvest/api"` → Results in `/harvest/api/api/...`
+- If you get "Exceeded 30 redirects" error, verify `BACKEND_PUBLIC_URL` is correct.
 
 ### Step 2: Restart the Application
 
@@ -137,6 +142,69 @@ Make sure the value in config.py is:
 - ✓ Correct: `"/harvest/"`
 - ✗ Wrong: `"/harvest"` (missing trailing slash)
 - ✗ Wrong: `"harvest/"` (missing leading slash)
+
+### Assets (Images/Logos) Show 404 Errors?
+
+If you see 404 errors for assets like `https://www.text2trait.com/assets/UM.jpg`:
+
+1. **Verify the fix is applied:**
+   Assets should be requested from `/harvest/assets/`, not `/assets/`
+   
+2. **Check browser Network tab:**
+   Look for requests to logo files - they should go to `/harvest/assets/UM.jpg`
+
+3. **Verify logo files exist:**
+   ```bash
+   ls -la assets/
+   ```
+   Logos should be in the `assets/` directory, not the root directory
+
+### "Exceeded 30 redirects" Error?
+
+This error indicates a redirect loop, typically caused by incorrect `BACKEND_PUBLIC_URL`:
+
+1. **Understanding BACKEND_PUBLIC_URL:**
+   The application adds `/api/` to `BACKEND_PUBLIC_URL` automatically.
+   
+   Example with your nginx config:
+   ```nginx
+   location /harvest/api/ {
+       rewrite ^/harvest/api/(.*) /api/$1 break;
+       proxy_pass http://harvest_backend;
+   }
+   ```
+   
+   Your `BACKEND_PUBLIC_URL` should be: `"https://text2trait.com/harvest"`
+   
+   Then API calls become:
+   - `API_ADMIN_AUTH = "https://text2trait.com/harvest/api/admin/auth"` ✓
+   - Browser requests: `https://text2trait.com/harvest/api/admin/auth`
+   - Nginx matches: `location /harvest/api/`
+   - Nginx rewrites to: `/api/admin/auth`
+   - Backend receives: `http://127.0.0.1:5001/api/admin/auth` ✓
+
+2. **Common mistakes:**
+   
+   ✗ **Wrong:** `BACKEND_PUBLIC_URL = "https://text2trait.com/api"`
+   Results in: `https://text2trait.com/api/api/admin/auth` (double /api/)
+   
+   ✗ **Wrong:** `BACKEND_PUBLIC_URL = "https://text2trait.com/harvest/api"`
+   Results in: `https://text2trait.com/harvest/api/api/admin/auth` (double /api/)
+   
+   ✓ **Correct:** `BACKEND_PUBLIC_URL = "https://text2trait.com/harvest"`
+   Results in: `https://text2trait.com/harvest/api/admin/auth`
+
+3. **Test backend directly:**
+   ```bash
+   curl -I http://127.0.0.1:5001/api/health
+   ```
+   Should return 200 OK
+
+4. **Test through nginx:**
+   ```bash
+   curl -I https://text2trait.com/harvest/api/health
+   ```
+   Should also return 200 OK (not redirect)
 
 ## Need Help?
 
