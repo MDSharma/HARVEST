@@ -663,6 +663,50 @@ app: Dash = dash.Dash(
 app.title = APP_TITLE
 server = app.server  # for gunicorn, if needed
 
+# Add custom JavaScript for iframe message listening
+app.index_string = '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <script>
+            // Listen for messages from PDF viewer iframe
+            window.addEventListener('message', function(event) {
+                console.log('Parent received message:', event.data);
+                if (event.data && event.data.type === 'pdf-text-selected') {
+                    console.log('Processing pdf-text-selected message');
+                    // Wait a bit for DOM to be ready
+                    setTimeout(function() {
+                        const sentenceTextarea = document.getElementById('sentence-text');
+                        console.log('Sentence textarea element:', sentenceTextarea);
+                        if (sentenceTextarea) {
+                            sentenceTextarea.value = event.data.text;
+                            // Trigger change event so Dash detects the change
+                            const changeEvent = new Event('input', { bubbles: true });
+                            sentenceTextarea.dispatchEvent(changeEvent);
+                            console.log('Sentence field updated with:', event.data.text);
+                        } else {
+                            console.warn('sentence-text element not found');
+                        }
+                    }, 100);
+                }
+            });
+        </script>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+'''
+
 app.layout = dbc.Container(
     [
         dcc.Store(id="choices-store"),
@@ -843,7 +887,18 @@ app.layout = dbc.Container(
             [
                 dbc.Col(
                     [
-                        html.H2(APP_TITLE, className="mt-3 mb-4"),
+                        # Logo and title section
+                        html.Div([
+                            html.Img(
+                                src=app.get_asset_url("HARVEST.png"),
+                                alt="HARVEST",
+                                style={
+                                    "height": "120px",
+                                    "marginBottom": "10px"
+                                },
+                                id="harvest-logo"
+                            ),
+                        ], className="mt-3 mb-4", style={"textAlign": "left"}),
 
                         dcc.Tabs(
                             id="main-tabs",

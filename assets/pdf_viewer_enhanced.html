@@ -354,6 +354,7 @@
             border: 1px solid rgba(0, 0, 0, 0.2);
             pointer-events: none;
             transition: opacity 0.2s;
+            z-index: 1;
         }
 
         .highlight-overlay:hover {
@@ -377,6 +378,7 @@
             overflow: hidden;
             opacity: 0.2;
             line-height: 1.0;
+            z-index: 2;
         }
 
         .textLayer > span {
@@ -879,6 +881,19 @@
                 showStatus('Highlight added. Click Save to store it.');
                 renderHighlights();
                 updateHighlightCount();
+                
+                // Send selected text to parent window (for populating Sentence field)
+                try {
+                    console.log('Sending text to parent:', selectedText.trim());
+                    window.parent.postMessage({
+                        type: 'pdf-text-selected',
+                        text: selectedText.trim()
+                    }, '*');
+                    console.log('Message sent successfully');
+                } catch (e) {
+                    console.error('Could not send message to parent:', e);
+                }
+                
                 selection.removeAllRanges();
             } else {
                 showStatus('Could not create highlight', true);
@@ -890,6 +905,9 @@
             oldHighlights.forEach(h => h.remove());
 
             const pageHighlights = highlights.filter(h => h.page === pageNum - 1);
+            
+            // Get the text layer to insert highlights before it
+            const textLayer = canvasWrapper.querySelector('.textLayer');
 
             pageHighlights.forEach(highlight => {
                 highlight.rects.forEach(rect => {
@@ -916,7 +934,13 @@
                         bgColor = 'rgba(255, 255, 0, 0.3)';
                     }
                     div.style.background = bgColor;
-                    canvasWrapper.appendChild(div);
+                    
+                    // Insert highlight BEFORE text layer to ensure proper stacking
+                    if (textLayer) {
+                        canvasWrapper.insertBefore(div, textLayer);
+                    } else {
+                        canvasWrapper.appendChild(div);
+                    }
                 });
             });
         }

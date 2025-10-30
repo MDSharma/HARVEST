@@ -112,6 +112,7 @@
             background: rgba(255, 255, 0, 0.3);
             border: 1px solid rgba(255, 255, 0, 0.5);
             pointer-events: none;
+            z-index: 1;
         }
         
         #canvasWrapper {
@@ -137,6 +138,7 @@
             overflow: hidden;
             opacity: 0.2;
             line-height: 1.0;
+            z-index: 2;
         }
         
         .textLayer > span {
@@ -467,6 +469,18 @@
                 showStatus('Highlight added. Click Save to store it.');
                 renderHighlights();
                 
+                // Send selected text to parent window (for populating Sentence field)
+                try {
+                    console.log('Sending text to parent:', selectedText.trim());
+                    window.parent.postMessage({
+                        type: 'pdf-text-selected',
+                        text: selectedText.trim()
+                    }, '*');
+                    console.log('Message sent successfully');
+                } catch (e) {
+                    console.error('Could not send message to parent:', e);
+                }
+                
                 // Clear selection
                 selection.removeAllRanges();
             } else {
@@ -484,6 +498,9 @@
             
             // Render highlights for current page
             const pageHighlights = highlights.filter(h => h.page === pageNum - 1);
+            
+            // Get the text layer to insert highlights before it
+            const textLayer = canvasWrapper.querySelector('.textLayer');
             
             pageHighlights.forEach(highlight => {
                 highlight.rects.forEach(rect => {
@@ -515,7 +532,12 @@
                     }
                     div.style.background = bgColor;
                     
-                    canvasWrapper.appendChild(div);
+                    // Insert highlight BEFORE text layer to ensure proper stacking
+                    if (textLayer) {
+                        canvasWrapper.insertBefore(div, textLayer);
+                    } else {
+                        canvasWrapper.appendChild(div);
+                    }
                 });
             });
         }
