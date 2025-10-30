@@ -467,8 +467,9 @@ def sidebar():
             # Construct the asset path - Dash serves files from /assets/ directory
             logo_url = logo.get("url", "")
             if logo_url and not logo_url.startswith(("http://", "https://", "/")):
-                # Local file - prepend with /assets/ path
-                logo_url = f"/assets/{logo_url}"
+                # Local file - prepend with proper pathname prefix and /assets/ path
+                # Dash automatically includes requests_pathname_prefix for assets
+                logo_url = f"{DASH_REQUESTS_PATHNAME_PREFIX}{app.config.assets_url_path}/{logo_url}"
             
             logo_elements.append(
                 dbc.Col(
