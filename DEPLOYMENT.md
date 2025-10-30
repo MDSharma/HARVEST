@@ -203,6 +203,9 @@ BE_PORT = 5001  # Backend port
 Override configuration at runtime:
 
 ```bash
+# Set database path
+export HARVEST_DB="/path/to/database.db"
+
 # Set deployment mode
 export HARVEST_DEPLOYMENT_MODE="nginx"
 
@@ -216,6 +219,8 @@ export HARVEST_HOST="0.0.0.0"
 export HARVEST_PORT="5001"  # Backend
 export PORT="8050"  # Frontend
 ```
+
+**Note:** The database directory will be automatically created if it doesn't exist.
 
 ### Validation
 
@@ -500,6 +505,135 @@ location /api/ {
 - Implement rate limiting at nginx level
 - Use fail2ban or similar for brute force protection
 - Keep nginx and application updated
+
+## Running as a Systemd Service
+
+For production deployments, you can run HARVEST as a systemd service. This allows automatic startup on boot and easier management.
+
+### Backend Service
+
+Create `/etc/systemd/system/harvest-backend.service`:
+
+```ini
+[Unit]
+Description=HARVEST Backend API Service
+After=network.target
+Requires=network.target
+
+[Service]
+Type=simple
+User=harvest
+Group=harvest
+WorkingDirectory=/opt/harvest
+
+# Environment variables - all settings can be configured via environment
+Environment="HARVEST_DB=/opt/harvest/data/harvest.db"
+Environment="HARVEST_DEPLOYMENT_MODE=nginx"
+Environment="HARVEST_BACKEND_PUBLIC_URL=https://yourdomain.com/api"
+Environment="HARVEST_HOST=127.0.0.1"
+Environment="HARVEST_PORT=5001"
+
+# Use the virtual environment
+ExecStart=/opt/harvest/venv/bin/python3 /opt/harvest/harvest_be.py
+
+# Restart on failure
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=harvest-backend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/harvest/data
+ReadWritePaths=/opt/harvest/project_pdfs
+ReadWritePaths=/opt/harvest/assets
+
+# Resource limits
+LimitNOFILE=65535
+MemoryLimit=2G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Frontend Service
+
+Create `/etc/systemd/system/harvest-frontend.service`:
+
+```ini
+[Unit]
+Description=HARVEST Frontend Service
+After=network.target harvest-backend.service
+Requires=network.target
+Wants=harvest-backend.service
+
+[Service]
+Type=simple
+User=harvest
+Group=harvest
+WorkingDirectory=/opt/harvest
+
+# Environment variables
+Environment="HARVEST_DEPLOYMENT_MODE=nginx"
+Environment="HARVEST_BACKEND_PUBLIC_URL=https://yourdomain.com/api"
+Environment="HARVEST_API_BASE=http://127.0.0.1:5001"
+Environment="PORT=8050"
+
+# Use the virtual environment
+ExecStart=/opt/harvest/venv/bin/python3 /opt/harvest/harvest_fe.py
+
+# Restart on failure
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=harvest-frontend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+# Resource limits
+LimitNOFILE=65535
+MemoryLimit=2G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Enable and Start Services
+
+```bash
+# Reload systemd configuration
+sudo systemctl daemon-reload
+
+# Enable services to start on boot
+sudo systemctl enable harvest-backend harvest-frontend
+
+# Start services
+sudo systemctl start harvest-backend harvest-frontend
+
+# Check status
+sudo systemctl status harvest-backend harvest-frontend
+
+# View logs
+sudo journalctl -u harvest-backend -f
+sudo journalctl -u harvest-frontend -f
+```
+
+**Note:** The database directory (`/opt/harvest/data` in this example) will be automatically created by the backend service if it doesn't exist.
 
 ### Best Practices
 
