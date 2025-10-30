@@ -2,7 +2,7 @@
 
 ## Overview
 
-Successfully implemented a flexible server configuration system that allows the T2T Training Application to seamlessly switch between internal proxy deployment and nginx reverse proxy deployment modes.
+Successfully implemented a flexible server configuration system that allows the Harvest Training Application to seamlessly switch between internal proxy deployment and nginx reverse proxy deployment modes.
 
 ## Implementation Status: ✅ Complete
 
