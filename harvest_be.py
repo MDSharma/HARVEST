@@ -64,6 +64,8 @@ logging.basicConfig(level=logging.INFO)
 DB_PATH = os.environ.get("HARVEST_DB", DB_PATH)
 PORT = int(os.environ.get("HARVEST_PORT", str(PORT)))
 HOST = os.environ.get("HARVEST_HOST", HOST)
+# The following are also set in the 'except ImportError' block, but we override here
+# to ensure environment variables always take precedence.
 DEPLOYMENT_MODE = os.environ.get("HARVEST_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
 BACKEND_PUBLIC_URL = os.environ.get("HARVEST_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
 
