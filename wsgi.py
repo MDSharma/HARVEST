@@ -19,13 +19,23 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Import the Flask app from harvest_be
-from harvest_be import app, DB_PATH, cleanup_old_pdf_download_progress
+from harvest_be import app
 
-# Cleanup old progress entries on startup (older than 1 hour)
-logger.info("[PDF Download] Cleaning up old progress entries...")
-deleted = cleanup_old_pdf_download_progress(DB_PATH, max_age_seconds=3600)
-if deleted > 0:
-    logger.info(f"[PDF Download] Cleaned up {deleted} old progress entries")
+# Note: Avoid DB side effects at import time. If cleanup is desired on startup,
+# configure a Gunicorn server hook (e.g., post_fork) or run a periodic job.
+#
+# Example Gunicorn config (gunicorn.conf.py):
+# def post_fork(server, worker):
+#     import logging
+#     from harvest_be import cleanup_old_pdf_download_progress, DB_PATH
+#     logger = logging.getLogger(__name__)
+#     logger.info("[PDF Download] post_fork cleanup...")
+#     try:
+#         deleted = cleanup_old_pdf_download_progress(DB_PATH, max_age_seconds=3600)
+#         if deleted > 0:
+#             logger.info(f"[PDF Download] Cleaned up {deleted} old progress entries")
+#     except Exception as e:
+#         logger.warning(f"Cleanup failed: {e}")
 
 # The 'app' variable is what Gunicorn will use
 # Gunicorn expects a WSGI application object named 'application' or specified via command line
