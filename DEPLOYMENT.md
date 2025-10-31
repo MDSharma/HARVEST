@@ -536,7 +536,7 @@ After=network.target
 Requires=network.target
 
 [Service]
-Type=notify
+Type=simple
 User=harvest
 Group=harvest
 WorkingDirectory=/opt/harvest/harvest
