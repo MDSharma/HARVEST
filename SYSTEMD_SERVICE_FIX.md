@@ -127,7 +127,7 @@ ExecStart=/opt/harvest/venv/bin/gunicorn \
     --timeout 120 \
     --access-logfile - \
     --error-logfile - \
-    wsgi:app
+    wsgi_be:app
 
 Restart=always
 RestartSec=10

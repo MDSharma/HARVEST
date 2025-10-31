@@ -5,10 +5,10 @@ WSGI entry point for HARVEST backend.
 This file is used by production WSGI servers like Gunicorn.
 
 Usage:
-    gunicorn -w 4 -b 127.0.0.1:5001 wsgi:app
+    gunicorn -w 4 -b 127.0.0.1:5001 wsgi_be:app
     
 Or with systemd service:
-    ExecStart=/path/to/venv/bin/gunicorn -w 4 -b 127.0.0.1:5001 wsgi:app
+    ExecStart=/path/to/venv/bin/gunicorn -w 4 -b 127.0.0.1:5001 wsgi_be:app
 """
 
 import os
@@ -43,4 +43,4 @@ if __name__ == "__main__":
     # This won't be used by Gunicorn, but allows running directly for testing
     print("WARNING: This file is meant to be used with a WSGI server like Gunicorn.")
     print("For development, use: python3 harvest_be.py")
-    print("For production, use: gunicorn -w 4 -b 127.0.0.1:5001 wsgi:app")
+    print("For production, use: gunicorn -w 4 -b 127.0.0.1:5001 wsgi_be:app")
