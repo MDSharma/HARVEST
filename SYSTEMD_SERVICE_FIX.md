@@ -198,6 +198,101 @@ ReadWritePaths=/opt/harvest/project_pdfs
 WantedBy=multi-user.target
 ```
 
+## Frontend Service with Gunicorn
+
+The frontend Dash application can also benefit from running with Gunicorn in production. Like the backend, the frontend already includes a WSGI entry point (`wsgi_fe.py`) that exposes the Flask server.
+
+### Recommended: Production-Grade Frontend with Gunicorn
+
+For production deployments, use Gunicorn for the frontend Dash application:
+
+#### Option A: Using config.py settings (Recommended for standard installations)
+
+Create `/etc/systemd/system/harvest-frontend.service`:
+
+```ini
+[Unit]
+Description=HARVEST Frontend Service (Gunicorn)
+After=network.target harvest-backend.service
+Requires=network.target
+Wants=harvest-backend.service
+
+[Service]
+Type=simple
+User=harvest
+Group=harvest
+WorkingDirectory=/opt/harvest/harvest
+
+# Use Gunicorn with 4 worker processes
+ExecStart=/opt/harvest/venv/bin/gunicorn \
+    --workers 4 \
+    --bind 0.0.0.0:8050 \
+    --timeout 120 \
+    --access-logfile - \
+    --error-logfile - \
+    wsgi_fe:server
+
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=harvest-frontend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/harvest/harvest
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Notes:**
+- Frontend typically binds to `0.0.0.0:8050` to be accessible to users
+- Uses `wsgi_fe:server` which points to the Flask server exposed by the Dash app
+- The `Wants=harvest-backend.service` ensures the backend starts before the frontend
+
+#### Option B: Alternative - Development Server (Not Recommended for Production)
+
+If you need to use the Dash development server (e.g., for testing):
+
+```ini
+[Unit]
+Description=HARVEST Frontend Service
+After=network.target harvest-backend.service
+Requires=network.target
+Wants=harvest-backend.service
+
+[Service]
+Type=simple
+User=harvest
+Group=harvest
+WorkingDirectory=/opt/harvest/harvest
+
+# Use the development server
+ExecStart=/opt/harvest/venv/bin/python3 harvest_fe.py
+
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=harvest-frontend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/harvest/harvest
+
+[Install]
+WantedBy=multi-user.target
+```
+
 ### Key Points
 
 1. **Environment variables are optional**: If `config.py` paths work for you, you don't need to set environment variables in the service file.
@@ -209,6 +304,8 @@ WantedBy=multi-user.target
 4. **Working directory matters**: Set `WorkingDirectory` to where the code is located (e.g., `/opt/harvest/harvest` if cloned into `/opt/harvest/`)
 
 5. **Gunicorn is production-ready**: The Gunicorn configuration uses 4 worker processes, suitable for most deployments. Adjust `--workers` based on your server resources (typically 2-4 × CPU cores).
+
+6. **Both backend and frontend can use Gunicorn**: Both the backend (Flask) and frontend (Dash) applications benefit from running with Gunicorn in production for better performance and reliability.
 
 ## Migration from Old Configuration
 

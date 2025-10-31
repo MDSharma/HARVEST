@@ -690,7 +690,61 @@ WantedBy=multi-user.target
 
 ### Frontend Service
 
+**Recommended: Use Gunicorn for production deployments.** Gunicorn provides better performance, multiple workers, and proper process management compared to the Dash development server.
+
 Create `/etc/systemd/system/harvest-frontend.service`:
+
+```ini
+[Unit]
+Description=HARVEST Frontend Service (Gunicorn)
+After=network.target harvest-backend.service
+Requires=network.target
+Wants=harvest-backend.service
+
+[Service]
+Type=simple
+User=harvest
+Group=harvest
+WorkingDirectory=/opt/harvest/harvest
+
+# Use Gunicorn with 4 worker processes
+ExecStart=/opt/harvest/venv/bin/gunicorn \
+    --workers 4 \
+    --bind 0.0.0.0:8050 \
+    --timeout 120 \
+    --access-logfile - \
+    --error-logfile - \
+    wsgi_fe:server
+
+# Restart on failure
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=harvest-frontend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+# Resource limits
+LimitNOFILE=65535
+MemoryLimit=2G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Note:** Uses `config.py` settings by default. Add environment variables like `HARVEST_DEPLOYMENT_MODE` or `HARVEST_BACKEND_PUBLIC_URL` only if you need to override config.py values.
+
+#### Alternative: Development Server (Not Recommended for Production)
+
+If you need to use the Dash development server (e.g., for testing):
 
 ```ini
 [Unit]
@@ -731,8 +785,6 @@ CPUQuota=200%
 [Install]
 WantedBy=multi-user.target
 ```
-
-**Note:** Uses `config.py` settings by default. Add environment variables like `HARVEST_DEPLOYMENT_MODE` or `HARVEST_BACKEND_PUBLIC_URL` only if you need to override config.py values.
 
 ### Enable and Start Services
 
