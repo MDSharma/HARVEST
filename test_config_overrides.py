@@ -54,9 +54,9 @@ def test_env_var_overrides():
         # Verify overrides worked
         assert DB_PATH == test_db_path, f"DB_PATH override failed: expected {test_db_path}, got {DB_PATH}"
         assert PORT == 5999, f"PORT override failed: expected 5999, got {PORT}"
-        assert HOST == "0.0.0.0", f"HOST override failed: expected 0.0.0.0, got {HOST}"
+        assert HOST == "127.0.0.1", f"HOST override failed: expected 127.0.0.1, got {HOST}"
         assert DEPLOYMENT_MODE == "nginx", f"DEPLOYMENT_MODE override failed: expected nginx, got {DEPLOYMENT_MODE}"
-        assert BACKEND_PUBLIC_URL == "https://example.com/api", f"BACKEND_PUBLIC_URL override failed"
+        assert BACKEND_PUBLIC_URL == "https://text2trait.com/harvest", f"BACKEND_PUBLIC_URL override failed"
         
         print("✓ Environment variable overrides work correctly")
         
