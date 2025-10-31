@@ -62,10 +62,18 @@ logging.basicConfig(level=logging.INFO)
 
 # Override config with environment variables if present
 DB_PATH = os.environ.get("HARVEST_DB", DB_PATH)
-PORT = int(os.environ.get("HARVEST_PORT", str(PORT)))
+
+# Validate and parse PORT safely
+raw_port = os.environ.get("HARVEST_PORT", str(PORT))
+try:
+    PORT = int(raw_port)
+    if not (1 <= PORT <= 65535):
+        raise ValueError("Port out of range")
+except Exception:
+    logger.warning(f"Invalid HARVEST_PORT='{raw_port}', falling back to default PORT={PORT}")
+    # Keep existing PORT from config/import
+
 HOST = os.environ.get("HARVEST_HOST", HOST)
-# The following are also set in the 'except ImportError' block, but we override here
-# to ensure environment variables always take precedence.
 DEPLOYMENT_MODE = os.environ.get("HARVEST_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
 BACKEND_PUBLIC_URL = os.environ.get("HARVEST_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
 
@@ -73,10 +81,18 @@ BACKEND_PUBLIC_URL = os.environ.get("HARVEST_BACKEND_PUBLIC_URL", BACKEND_PUBLIC
 if DEPLOYMENT_MODE not in ["internal", "nginx"]:
     raise ValueError(f"Invalid DEPLOYMENT_MODE: {DEPLOYMENT_MODE}. Must be 'internal' or 'nginx'")
 
-# Ensure database directory exists
-db_dir = os.path.dirname(os.path.abspath(DB_PATH))
+# Ensure database directory exists and DB_PATH is not a directory
+abs_db_path = os.path.abspath(DB_PATH)
+if os.path.isdir(abs_db_path):
+    raise ValueError(f"HARVEST_DB points to a directory, expected file path: {abs_db_path}")
+db_dir = os.path.dirname(abs_db_path) or "."
 if db_dir and db_dir != '/' and not os.path.exists(db_dir):
-    os.makedirs(db_dir, exist_ok=True)
+    try:
+        os.makedirs(db_dir, exist_ok=True)
+        logger.info(f"Created database directory: {db_dir}")
+    except Exception as e:
+        raise RuntimeError(f"Failed to create database directory '{db_dir}': {e}") from e
+
     logger.info(f"Created database directory: {db_dir}")
 
 # Initialize DB on startup
