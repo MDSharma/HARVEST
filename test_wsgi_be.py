@@ -77,15 +77,18 @@ def test_gunicorn_config_check():
         # Gunicorn should be able to parse the config
         # Note: --check-config may not be available in all Gunicorn versions
         # so we're lenient here
-        if result.returncode == 0 or "unrecognized arguments" in result.stderr:
+        if result.returncode == 0:
             print("✓ Gunicorn can parse wsgi_be:app configuration")
             return True
-        else:
-            print(f"⚠ Gunicorn check returned code {result.returncode}")
-            print(f"  Output: {result.stdout}")
-            print(f"  Error: {result.stderr}")
-            # Don't fail the test if --check-config is not supported
+        
+        if "unrecognized arguments" in result.stderr:
+            print("✓ Gunicorn can parse wsgi_be:app configuration (ignoring unsupported --check-config)")
             return True
+        
+        print(f"✗ Gunicorn check failed with code {result.returncode}")
+        print(f"  Output: {result.stdout}")
+        print(f"  Error: {result.stderr}")
+        return False
         
     except FileNotFoundError:
         print("⚠ Gunicorn not found in PATH - skipping this test")
@@ -94,8 +97,8 @@ def test_gunicorn_config_check():
         print("✗ Gunicorn config check timed out")
         return False
     except Exception as e:
-        print(f"⚠ Unexpected error (non-critical): {e}")
-        return True
+        print(f"✗ Unexpected error during Gunicorn check: {e}")
+        return False
 
 
 def main():
