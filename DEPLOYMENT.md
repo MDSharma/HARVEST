@@ -510,9 +510,72 @@ location /api/ {
 
 For production deployments, you can run HARVEST as a systemd service. This allows automatic startup on boot and easier management.
 
-### Backend Service
+### Recommended: Backend Service with Gunicorn
+
+**Gunicorn is the recommended production WSGI server.** It provides better performance, multiple workers, and proper process management compared to the Flask development server.
 
 Create `/etc/systemd/system/harvest-backend.service`:
+
+```ini
+[Unit]
+Description=HARVEST Backend API Service (Gunicorn)
+After=network.target
+Requires=network.target
+
+[Service]
+Type=notify
+User=harvest
+Group=harvest
+WorkingDirectory=/opt/harvest
+
+# Environment variables - all settings can be configured via environment
+Environment="HARVEST_DB=/opt/harvest/data/harvest.db"
+Environment="HARVEST_DEPLOYMENT_MODE=nginx"
+Environment="HARVEST_BACKEND_PUBLIC_URL=https://yourdomain.com/api"
+Environment="HARVEST_HOST=127.0.0.1"
+Environment="HARVEST_PORT=5001"
+
+# Use Gunicorn with 4 worker processes
+ExecStart=/opt/harvest/venv/bin/gunicorn \
+    --workers 4 \
+    --bind 127.0.0.1:5001 \
+    --timeout 120 \
+    --access-logfile - \
+    --error-logfile - \
+    wsgi:app
+
+# Restart on failure
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=harvest-backend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/harvest/data
+ReadWritePaths=/opt/harvest/project_pdfs
+ReadWritePaths=/opt/harvest/assets
+
+# Resource limits
+LimitNOFILE=65535
+MemoryLimit=2G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Note:** Gunicorn is included in `requirements.txt`. Adjust `--workers` based on your server (typically 2-4 × CPU cores).
+
+### Alternative: Backend Service with Flask Development Server
+
+For testing or development environments only:
 
 ```ini
 [Unit]

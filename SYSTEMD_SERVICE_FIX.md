@@ -28,7 +28,67 @@ The backend now automatically creates the database directory if it doesn't exist
 
 ## Usage with Systemd
 
-### Example Backend Service Configuration
+### Recommended: Production-Grade with Gunicorn
+
+For production deployments, it's strongly recommended to use Gunicorn instead of the Flask development server. Gunicorn is a production-grade WSGI server that handles multiple workers, timeouts, and graceful restarts.
+
+**Install Gunicorn (already included in requirements.txt):**
+```bash
+pip install gunicorn>=21.2.0
+```
+
+**Backend Service Configuration (Gunicorn):**
+
+```ini
+[Unit]
+Description=HARVEST Backend API Service (Gunicorn)
+After=network.target
+Requires=network.target
+
+[Service]
+Type=notify
+User=harvest
+Group=harvest
+WorkingDirectory=/opt/harvest
+
+# All settings via environment variables
+Environment="HARVEST_DB=/opt/harvest/data/harvest.db"
+Environment="HARVEST_DEPLOYMENT_MODE=nginx"
+Environment="HARVEST_BACKEND_PUBLIC_URL=https://yourdomain.com/api"
+Environment="HARVEST_HOST=127.0.0.1"
+Environment="HARVEST_PORT=5001"
+
+# Use Gunicorn with 4 worker processes
+ExecStart=/opt/harvest/venv/bin/gunicorn \
+    --workers 4 \
+    --bind 127.0.0.1:5001 \
+    --timeout 120 \
+    --access-logfile - \
+    --error-logfile - \
+    wsgi:app
+
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=harvest-backend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/harvest/data
+ReadWritePaths=/opt/harvest/project_pdfs
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Alternative: Development Server (Not Recommended for Production)
+
+If you need to use the Flask development server (e.g., for testing), you can use this configuration:
 
 ```ini
 [Unit]
@@ -70,6 +130,12 @@ ReadWritePaths=/opt/harvest/project_pdfs
 WantedBy=multi-user.target
 ```
 
+**Note:** The Flask development server is single-threaded and not designed for production use. Gunicorn provides:
+- Multiple worker processes for better performance
+- Graceful worker restarts
+- Better timeout handling
+- Process monitoring and automatic recovery
+
 ### Key Points
 
 1. **No manual directory creation needed**: The database directory (`/opt/harvest/data` in the example) is created automatically on first run.
@@ -77,6 +143,8 @@ WantedBy=multi-user.target
 2. **Environment variables take precedence**: Even if you have a `config.py` file, environment variables will override those settings.
 
 3. **Backward compatible**: Existing deployments using only `config.py` continue to work without changes.
+
+4. **Gunicorn is production-ready**: The Gunicorn configuration above uses 4 worker processes, which is suitable for most deployments. Adjust `--workers` based on your server resources (typically 2-4 × CPU cores).
 
 ## Migration from Old Configuration
 
