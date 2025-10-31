@@ -152,7 +152,7 @@ WantedBy=multi-user.target
 - Database stored in `/var/lib/harvest/` (created automatically)
 - `ReadWritePaths` must include all directories the service needs to write to
 - Environment variables override `config.py` settings
-```
+
 
 ### Alternative: Development Server (Not Recommended for Production)
 
@@ -173,7 +173,7 @@ WorkingDirectory=/opt/harvest
 # All settings via environment variables
 Environment="HARVEST_DB=/opt/harvest/data/harvest.db"
 Environment="HARVEST_DEPLOYMENT_MODE=nginx"
-Environment="HARVEST_BACKEND_PUBLIC_URL=https://yourdomain.com/api"
+Environment="HARVEST_BACKEND_PUBLIC_URL=https://yourdomain.com/harvest"
 Environment="HARVEST_HOST=127.0.0.1"
 Environment="HARVEST_PORT=5001"
 
@@ -191,7 +191,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/harvest/data
+ReadWritePaths=/opt/harvest/harvest
 ReadWritePaths=/opt/harvest/project_pdfs
 
 [Install]
