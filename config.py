@@ -106,10 +106,6 @@ ENABLE_SEMANTIC_SCHOLAR = True  # Enable Semantic Scholar source (REST API, no e
 # Publisher Direct Access - Predictable URLs for open access publishers
 ENABLE_PUBLISHER_DIRECT = True  # Enable direct publisher URL construction (no extra dependencies)
 
-# SciHub - Optional last resort (use responsibly, may not be legal in all jurisdictions)
-# DISABLED BY DEFAULT - Enable only if you understand the legal implications
-ENABLE_SCIHUB = False  # Enable SciHub source (use with caution, check local laws)
-
 # Smart Download Configuration
 # These settings control the intelligent source selection and retry logic
 PDF_SMART_RETRY_ENABLED = True  # Enable automatic retry queue for temporary failures
