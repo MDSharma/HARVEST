@@ -75,7 +75,7 @@ pip install gunicorn>=21.2.0
 
 If you're using the default installation structure and config.py settings are sufficient:
 
-```bash
+```ini
 Restart=always
 RestartSec=10
 
