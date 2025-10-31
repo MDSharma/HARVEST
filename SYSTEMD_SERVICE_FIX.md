@@ -75,27 +75,6 @@ pip install gunicorn>=21.2.0
 
 If you're using the default installation structure and config.py settings are sufficient:
 
-```ini
-[Unit]
-Description=HARVEST Backend API Service (Gunicorn)
-After=network.target
-Requires=network.target
-
-[Service]
-Type=notify
-User=harvest
-Group=harvest
-WorkingDirectory=/opt/harvest/harvest
-
-# Use Gunicorn with 4 worker processes
-ExecStart=/opt/harvest/venv/bin/gunicorn \
-    --workers 4 \
-    --bind 127.0.0.1:5001 \
-    --timeout 120 \
-    --access-logfile - \
-    --error-logfile - \
-    wsgi:app
-
 Restart=always
 RestartSec=10
 
