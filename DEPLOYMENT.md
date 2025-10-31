@@ -203,6 +203,9 @@ BE_PORT = 5001  # Backend port
 Override configuration at runtime:
 
 ```bash
+# Set database path
+export HARVEST_DB="/path/to/database.db"
+
 # Set deployment mode
 export HARVEST_DEPLOYMENT_MODE="nginx"
 
@@ -216,6 +219,8 @@ export HARVEST_HOST="0.0.0.0"
 export HARVEST_PORT="5001"  # Backend
 export PORT="8050"  # Frontend
 ```
+
+**Note:** The database directory will be automatically created if it doesn't exist.
 
 ### Validation
 
@@ -500,6 +505,256 @@ location /api/ {
 - Implement rate limiting at nginx level
 - Use fail2ban or similar for brute force protection
 - Keep nginx and application updated
+
+## Running as a Systemd Service
+
+For production deployments, you can run HARVEST as a systemd service. This allows automatic startup on boot and easier management.
+
+### Path Configuration
+
+**Important:** Choose the approach that matches your installation:
+
+1. **Standard installation** (repo cloned into user's home):
+   - Path: `/opt/harvest/harvest/` (user home + repo name)
+   - Use `config.py` settings, no environment variables needed
+   
+2. **Custom installation** (separate data directory):
+   - Use environment variables to override paths
+
+### Recommended: Backend Service with Gunicorn
+
+**Gunicorn is the recommended production WSGI server.** It provides better performance, multiple workers, and proper process management compared to the Flask development server.
+
+#### Standard Installation (Using config.py)
+
+Create `/etc/systemd/system/harvest-backend.service`:
+
+```ini
+[Unit]
+Description=HARVEST Backend API Service (Gunicorn)
+After=network.target
+Requires=network.target
+
+[Service]
+Type=simple
+User=harvest
+Group=harvest
+WorkingDirectory=/opt/harvest/harvest
+
+# Use Gunicorn with 4 worker processes
+ExecStart=/opt/harvest/venv/bin/gunicorn \
+    --workers 4 \
+    --bind 127.0.0.1:5001 \
+    --timeout 120 \
+    --access-logfile - \
+    --error-logfile - \
+    wsgi:app
+
+# Restart on failure
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=harvest-backend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/harvest/harvest
+
+# Resource limits
+LimitNOFILE=65535
+MemoryLimit=2G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**This configuration:**
+- Uses paths from `config.py`: `DB_PATH = "harvest.db"` → `/opt/harvest/harvest/harvest.db`
+- Allows writes to the entire repository directory
+- No environment variables needed
+
+#### Custom Paths (Override with Environment Variables)
+
+If you want to store data outside the repository:
+
+```ini
+[Unit]
+Description=HARVEST Backend API Service (Gunicorn)
+After=network.target
+Requires=network.target
+
+[Service]
+Type=notify
+User=harvest
+Group=harvest
+WorkingDirectory=/opt/harvest/harvest
+
+# Override config.py with custom paths
+Environment="HARVEST_DB=/var/lib/harvest/harvest.db"
+Environment="HARVEST_DEPLOYMENT_MODE=nginx"
+Environment="HARVEST_BACKEND_PUBLIC_URL=https://yourdomain.com/api"
+
+# Use Gunicorn with 4 worker processes
+ExecStart=/opt/harvest/venv/bin/gunicorn \
+    --workers 4 \
+    --bind 127.0.0.1:5001 \
+    --timeout 120 \
+    --access-logfile - \
+    --error-logfile - \
+    wsgi:app
+
+# Restart on failure
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=harvest-backend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/harvest
+ReadWritePaths=/opt/harvest/harvest/project_pdfs
+ReadWritePaths=/opt/harvest/harvest/assets
+
+# Resource limits
+LimitNOFILE=65535
+MemoryLimit=2G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Note:** 
+- Gunicorn is included in `requirements.txt`
+- Adjust `--workers` based on your server (typically 2-4 × CPU cores)
+- Environment variables are **optional** - only use them if you need to override `config.py`
+
+### Alternative: Backend Service with Flask Development Server
+
+**Not recommended for production** - Use Gunicorn instead. This is for testing only:
+
+```ini
+[Unit]
+Description=HARVEST Backend API Service
+After=network.target
+Requires=network.target
+
+[Service]
+Type=simple
+User=harvest
+Group=harvest
+WorkingDirectory=/opt/harvest/harvest
+
+# Use the virtual environment
+ExecStart=/opt/harvest/venv/bin/python3 harvest_be.py
+
+# Restart on failure
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=harvest-backend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/harvest/harvest
+
+# Resource limits
+LimitNOFILE=65535
+MemoryLimit=2G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Note:** Uses `config.py` settings. Add environment variables only if you need to override paths.
+
+### Frontend Service
+
+Create `/etc/systemd/system/harvest-frontend.service`:
+
+```ini
+[Unit]
+Description=HARVEST Frontend Service
+After=network.target harvest-backend.service
+Requires=network.target
+Wants=harvest-backend.service
+
+[Service]
+Type=simple
+User=harvest
+Group=harvest
+WorkingDirectory=/opt/harvest/harvest
+
+# Use the virtual environment
+ExecStart=/opt/harvest/venv/bin/python3 harvest_fe.py
+
+# Restart on failure
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=harvest-frontend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+# Resource limits
+LimitNOFILE=65535
+MemoryLimit=2G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Note:** Uses `config.py` settings by default. Add environment variables like `HARVEST_DEPLOYMENT_MODE` or `HARVEST_BACKEND_PUBLIC_URL` only if you need to override config.py values.
+
+### Enable and Start Services
+
+```bash
+# Reload systemd configuration
+sudo systemctl daemon-reload
+
+# Enable services to start on boot
+sudo systemctl enable harvest-backend harvest-frontend
+
+# Start services
+sudo systemctl start harvest-backend harvest-frontend
+
+# Check status
+sudo systemctl status harvest-backend harvest-frontend
+
+# View logs
+sudo journalctl -u harvest-backend -f
+sudo journalctl -u harvest-frontend -f
+```
+
+**Note:** Database directories will be automatically created if they don't exist, whether paths come from `config.py` or environment variables.
 
 ### Best Practices
 
