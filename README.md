@@ -6,7 +6,7 @@ A web-based application for annotating biological text with entity relationships
 
 ### Quick Installation
 
-For detailed installation instructions, see **[INSTALLATION.md](INSTALLATION.md)**.
+For detailed installation instructions, see **[INSTALLATION.md](docs/INSTALLATION.md)**.
 
 ### Quick Start
 
@@ -118,8 +118,8 @@ The application supports two deployment modes:
 - Ideal for scaled deployments
 
 **Deployment Guides:**
-- [DEPLOYMENT.md](DEPLOYMENT.md) - General deployment guide for both modes
-- [DEPLOYMENT_SUBPATH.md](DEPLOYMENT_SUBPATH.md) - Guide for deploying at a subpath (e.g., `/harvest/`) behind nginx
+- [DEPLOYMENT.md](docs/DEPLOYMENT.md) - General deployment guide for both modes
+- [DEPLOYMENT_SUBPATH.md](docs/DEPLOYMENT_SUBPATH.md) - Guide for deploying at a subpath (e.g., `/harvest/`) behind nginx
 
 ## Admin Features
 

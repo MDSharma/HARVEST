@@ -256,4 +256,4 @@ Just make sure each instance has:
 
 - [nginx.conf.example](nginx.conf.example) - More nginx configuration examples
 - [DEPLOYMENT.md](DEPLOYMENT.md) - General deployment guide
-- [config.py](config.py) - All configuration options
+- [config.py](../config.py) - All configuration options

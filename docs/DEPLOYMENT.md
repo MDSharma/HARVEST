@@ -366,11 +366,12 @@ python3 harvest_fe.py
 ### Example 5: Docker with Environment Variables
 
 **docker-compose.yml:**
+
 ```yaml
 version: '3.8'
 services:
   backend:
-    build: .
+    build: ..
     command: python3 harvest_be.py
     environment:
       - HARVEST_DEPLOYMENT_MODE=nginx
@@ -380,7 +381,7 @@ services:
       - "5001:5001"
 
   frontend:
-    build: .
+    build: ..
     command: python3 harvest_fe.py
     environment:
       - HARVEST_DEPLOYMENT_MODE=nginx
