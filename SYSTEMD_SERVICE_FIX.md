@@ -17,14 +17,48 @@ The fix implements two key improvements:
 ### 1. Full Environment Variable Override Support
 All configuration settings can now be overridden via environment variables, even when `config.py` exists:
 
-- `HARVEST_DB` - Database file path
-- `HARVEST_PORT` - Backend port
-- `HARVEST_HOST` - Backend host binding
-- `HARVEST_DEPLOYMENT_MODE` - Deployment mode (internal/nginx)
-- `HARVEST_BACKEND_PUBLIC_URL` - Public backend URL
+- `HARVEST_DB` - Database file path (optional override)
+- `HARVEST_PORT` - Backend port (optional override)
+- `HARVEST_HOST` - Backend host binding (optional override)
+- `HARVEST_DEPLOYMENT_MODE` - Deployment mode (optional override)
+- `HARVEST_BACKEND_PUBLIC_URL` - Public backend URL (optional override)
+
+**Important:** Environment variables are **optional**. If you're happy with the paths defined in `config.py`, you don't need to set any environment variables.
 
 ### 2. Automatic Directory Creation
 The backend now automatically creates the database directory if it doesn't exist, eliminating manual setup steps.
+
+## Understanding Path Structure
+
+### Typical Installation Layout
+If you install by cloning into a user's home directory:
+```
+/opt/harvest/               # User home directory
+└── harvest/                # Git repository (cloned)
+    ├── harvest_be.py
+    ├── harvest_fe.py
+    ├── config.py
+    ├── harvest.db          # Default DB location (from config.py: DB_PATH = "harvest.db")
+    ├── project_pdfs/       # PDF storage directory
+    └── assets/             # Static assets
+```
+
+In this case:
+- `WorkingDirectory=/opt/harvest/harvest`
+- `config.py` has `DB_PATH = "harvest.db"` (relative path)
+- Actual database location: `/opt/harvest/harvest/harvest.db`
+- **No environment variables needed** - config.py settings are sufficient
+
+### When to Use Environment Variables
+
+Use environment variables when you want to:
+1. **Override config.py paths** (e.g., store database in a different location)
+2. **Keep sensitive data out of config.py** (e.g., deployment URLs)
+3. **Support multiple deployments** with different configurations from the same code
+
+Example: If you want database in a separate directory:
+- Set `Environment="HARVEST_DB=/var/lib/harvest/harvest.db"`
+- The directory `/var/lib/harvest/` will be created automatically
 
 ## Usage with Systemd
 
@@ -37,7 +71,9 @@ For production deployments, it's strongly recommended to use Gunicorn instead of
 pip install gunicorn>=21.2.0
 ```
 
-**Backend Service Configuration (Gunicorn):**
+#### Option A: Using config.py settings (Recommended for standard installations)
+
+If you're using the default installation structure and config.py settings are sufficient:
 
 ```ini
 [Unit]
@@ -49,14 +85,7 @@ Requires=network.target
 Type=notify
 User=harvest
 Group=harvest
-WorkingDirectory=/opt/harvest
-
-# All settings via environment variables
-Environment="HARVEST_DB=/opt/harvest/data/harvest.db"
-Environment="HARVEST_DEPLOYMENT_MODE=nginx"
-Environment="HARVEST_BACKEND_PUBLIC_URL=https://yourdomain.com/api"
-Environment="HARVEST_HOST=127.0.0.1"
-Environment="HARVEST_PORT=5001"
+WorkingDirectory=/opt/harvest/harvest
 
 # Use Gunicorn with 4 worker processes
 ExecStart=/opt/harvest/venv/bin/gunicorn \
@@ -79,11 +108,70 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/harvest/data
-ReadWritePaths=/opt/harvest/project_pdfs
+ReadWritePaths=/opt/harvest/harvest
 
 [Install]
 WantedBy=multi-user.target
+```
+
+**Notes:**
+- `WorkingDirectory=/opt/harvest/harvest` assumes you cloned the repo into `/opt/harvest/`
+- Uses settings from `config.py`: `DB_PATH = "harvest.db"` → `/opt/harvest/harvest/harvest.db`
+- `ReadWritePaths=/opt/harvest/harvest` allows writing to the repository directory
+
+#### Option B: Using environment variable overrides (For custom paths)
+
+If you want to store data in separate locations outside the repository:
+
+```ini
+[Unit]
+Description=HARVEST Backend API Service (Gunicorn)
+After=network.target
+Requires=network.target
+
+[Service]
+Type=notify
+User=harvest
+Group=harvest
+WorkingDirectory=/opt/harvest/harvest
+
+# Override config.py settings with custom paths
+Environment="HARVEST_DB=/var/lib/harvest/harvest.db"
+Environment="HARVEST_DEPLOYMENT_MODE=nginx"
+Environment="HARVEST_BACKEND_PUBLIC_URL=https://yourdomain.com/api"
+
+# Use Gunicorn with 4 worker processes
+ExecStart=/opt/harvest/venv/bin/gunicorn \
+    --workers 4 \
+    --bind 127.0.0.1:5001 \
+    --timeout 120 \
+    --access-logfile - \
+    --error-logfile - \
+    wsgi:app
+
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=harvest-backend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/harvest
+ReadWritePaths=/opt/harvest/harvest/project_pdfs
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Notes:**
+- Database stored in `/var/lib/harvest/` (created automatically)
+- `ReadWritePaths` must include all directories the service needs to write to
+- Environment variables override `config.py` settings
 ```
 
 ### Alternative: Development Server (Not Recommended for Production)
@@ -130,21 +218,17 @@ ReadWritePaths=/opt/harvest/project_pdfs
 WantedBy=multi-user.target
 ```
 
-**Note:** The Flask development server is single-threaded and not designed for production use. Gunicorn provides:
-- Multiple worker processes for better performance
-- Graceful worker restarts
-- Better timeout handling
-- Process monitoring and automatic recovery
-
 ### Key Points
 
-1. **No manual directory creation needed**: The database directory (`/opt/harvest/data` in the example) is created automatically on first run.
+1. **Environment variables are optional**: If `config.py` paths work for you, you don't need to set environment variables in the service file.
 
-2. **Environment variables take precedence**: Even if you have a `config.py` file, environment variables will override those settings.
+2. **Automatic directory creation**: Any database directory will be created automatically on first run (whether from `config.py` or environment variables).
 
-3. **Backward compatible**: Existing deployments using only `config.py` continue to work without changes.
+3. **Environment variables override config.py**: When set, environment variables take precedence over `config.py` settings.
 
-4. **Gunicorn is production-ready**: The Gunicorn configuration above uses 4 worker processes, which is suitable for most deployments. Adjust `--workers` based on your server resources (typically 2-4 × CPU cores).
+4. **Working directory matters**: Set `WorkingDirectory` to where the code is located (e.g., `/opt/harvest/harvest` if cloned into `/opt/harvest/`)
+
+5. **Gunicorn is production-ready**: The Gunicorn configuration uses 4 worker processes, suitable for most deployments. Adjust `--workers` based on your server resources (typically 2-4 × CPU cores).
 
 ## Migration from Old Configuration
 
@@ -159,14 +243,15 @@ Environment="T2T_HOST=127.0.0.1"
 Environment="T2T_PORT=5001"
 ```
 
-**New (correct):**
+**New (if using environment overrides):**
 ```ini
-Environment="HARVEST_DB=/opt/harvest/data/harvest.db"
+Environment="HARVEST_DB=/opt/harvest/harvest/harvest.db"
 Environment="HARVEST_DEPLOYMENT_MODE=nginx"
 Environment="HARVEST_BACKEND_PUBLIC_URL=https://text2trait.com/harvest"
-Environment="HARVEST_HOST=127.0.0.1"
-Environment="HARVEST_PORT=5001"
 ```
+
+**Or simply omit environment variables and use config.py:**
+No `Environment=` lines needed - the service will use values from `config.py`
 
 ## Testing
 

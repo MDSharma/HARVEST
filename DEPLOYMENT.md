@@ -510,9 +510,22 @@ location /api/ {
 
 For production deployments, you can run HARVEST as a systemd service. This allows automatic startup on boot and easier management.
 
+### Path Configuration
+
+**Important:** Choose the approach that matches your installation:
+
+1. **Standard installation** (repo cloned into user's home):
+   - Path: `/opt/harvest/harvest/` (user home + repo name)
+   - Use `config.py` settings, no environment variables needed
+   
+2. **Custom installation** (separate data directory):
+   - Use environment variables to override paths
+
 ### Recommended: Backend Service with Gunicorn
 
 **Gunicorn is the recommended production WSGI server.** It provides better performance, multiple workers, and proper process management compared to the Flask development server.
+
+#### Standard Installation (Using config.py)
 
 Create `/etc/systemd/system/harvest-backend.service`:
 
@@ -526,14 +539,7 @@ Requires=network.target
 Type=notify
 User=harvest
 Group=harvest
-WorkingDirectory=/opt/harvest
-
-# Environment variables - all settings can be configured via environment
-Environment="HARVEST_DB=/opt/harvest/data/harvest.db"
-Environment="HARVEST_DEPLOYMENT_MODE=nginx"
-Environment="HARVEST_BACKEND_PUBLIC_URL=https://yourdomain.com/api"
-Environment="HARVEST_HOST=127.0.0.1"
-Environment="HARVEST_PORT=5001"
+WorkingDirectory=/opt/harvest/harvest
 
 # Use Gunicorn with 4 worker processes
 ExecStart=/opt/harvest/venv/bin/gunicorn \
@@ -558,9 +564,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/harvest/data
-ReadWritePaths=/opt/harvest/project_pdfs
-ReadWritePaths=/opt/harvest/assets
+ReadWritePaths=/opt/harvest/harvest
 
 # Resource limits
 LimitNOFILE=65535
@@ -571,33 +575,40 @@ CPUQuota=200%
 WantedBy=multi-user.target
 ```
 
-**Note:** Gunicorn is included in `requirements.txt`. Adjust `--workers` based on your server (typically 2-4 × CPU cores).
+**This configuration:**
+- Uses paths from `config.py`: `DB_PATH = "harvest.db"` → `/opt/harvest/harvest/harvest.db`
+- Allows writes to the entire repository directory
+- No environment variables needed
 
-### Alternative: Backend Service with Flask Development Server
+#### Custom Paths (Override with Environment Variables)
 
-For testing or development environments only:
+If you want to store data outside the repository:
 
 ```ini
 [Unit]
-Description=HARVEST Backend API Service
+Description=HARVEST Backend API Service (Gunicorn)
 After=network.target
 Requires=network.target
 
 [Service]
-Type=simple
+Type=notify
 User=harvest
 Group=harvest
-WorkingDirectory=/opt/harvest
+WorkingDirectory=/opt/harvest/harvest
 
-# Environment variables - all settings can be configured via environment
-Environment="HARVEST_DB=/opt/harvest/data/harvest.db"
+# Override config.py with custom paths
+Environment="HARVEST_DB=/var/lib/harvest/harvest.db"
 Environment="HARVEST_DEPLOYMENT_MODE=nginx"
 Environment="HARVEST_BACKEND_PUBLIC_URL=https://yourdomain.com/api"
-Environment="HARVEST_HOST=127.0.0.1"
-Environment="HARVEST_PORT=5001"
 
-# Use the virtual environment
-ExecStart=/opt/harvest/venv/bin/python3 /opt/harvest/harvest_be.py
+# Use Gunicorn with 4 worker processes
+ExecStart=/opt/harvest/venv/bin/gunicorn \
+    --workers 4 \
+    --bind 127.0.0.1:5001 \
+    --timeout 120 \
+    --access-logfile - \
+    --error-logfile - \
+    wsgi:app
 
 # Restart on failure
 Restart=always
@@ -613,9 +624,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/harvest/data
-ReadWritePaths=/opt/harvest/project_pdfs
-ReadWritePaths=/opt/harvest/assets
+ReadWritePaths=/var/lib/harvest
+ReadWritePaths=/opt/harvest/harvest/project_pdfs
+ReadWritePaths=/opt/harvest/harvest/assets
 
 # Resource limits
 LimitNOFILE=65535
@@ -625,6 +636,57 @@ CPUQuota=200%
 [Install]
 WantedBy=multi-user.target
 ```
+
+**Note:** 
+- Gunicorn is included in `requirements.txt`
+- Adjust `--workers` based on your server (typically 2-4 × CPU cores)
+- Environment variables are **optional** - only use them if you need to override `config.py`
+
+### Alternative: Backend Service with Flask Development Server
+
+**Not recommended for production** - Use Gunicorn instead. This is for testing only:
+
+```ini
+[Unit]
+Description=HARVEST Backend API Service
+After=network.target
+Requires=network.target
+
+[Service]
+Type=simple
+User=harvest
+Group=harvest
+WorkingDirectory=/opt/harvest/harvest
+
+# Use the virtual environment
+ExecStart=/opt/harvest/venv/bin/python3 harvest_be.py
+
+# Restart on failure
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=harvest-backend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/harvest/harvest
+
+# Resource limits
+LimitNOFILE=65535
+MemoryLimit=2G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Note:** Uses `config.py` settings. Add environment variables only if you need to override paths.
 
 ### Frontend Service
 
@@ -641,16 +703,10 @@ Wants=harvest-backend.service
 Type=simple
 User=harvest
 Group=harvest
-WorkingDirectory=/opt/harvest
-
-# Environment variables
-Environment="HARVEST_DEPLOYMENT_MODE=nginx"
-Environment="HARVEST_BACKEND_PUBLIC_URL=https://yourdomain.com/api"
-Environment="HARVEST_API_BASE=http://127.0.0.1:5001"
-Environment="PORT=8050"
+WorkingDirectory=/opt/harvest/harvest
 
 # Use the virtual environment
-ExecStart=/opt/harvest/venv/bin/python3 /opt/harvest/harvest_fe.py
+ExecStart=/opt/harvest/venv/bin/python3 harvest_fe.py
 
 # Restart on failure
 Restart=always
@@ -676,6 +732,8 @@ CPUQuota=200%
 WantedBy=multi-user.target
 ```
 
+**Note:** Uses `config.py` settings by default. Add environment variables like `HARVEST_DEPLOYMENT_MODE` or `HARVEST_BACKEND_PUBLIC_URL` only if you need to override config.py values.
+
 ### Enable and Start Services
 
 ```bash
@@ -696,7 +754,7 @@ sudo journalctl -u harvest-backend -f
 sudo journalctl -u harvest-frontend -f
 ```
 
-**Note:** The database directory (`/opt/harvest/data` in this example) will be automatically created by the backend service if it doesn't exist.
+**Note:** Database directories will be automatically created if they don't exist, whether paths come from `config.py` or environment variables.
 
 ### Best Practices
 
