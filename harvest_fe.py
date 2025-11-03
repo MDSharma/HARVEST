@@ -385,7 +385,7 @@ def create_execution_log_display(execution_log):
                     ]
                 ),
                 id="pipeline-collapse",
-                is_open=False,  # Collapsed by default
+                is_open=True,  # Open by default to show progress
             )
         ],
         className="mb-3"
@@ -2002,6 +2002,15 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
     Callback to perform literature search when button is clicked.
     Displays the execution pipeline for AutoResearch, DeepResearch, and DELM.
     Supports multiple sources, session-based cumulative searching, and pipeline controls.
+    
+    Note: The search runs synchronously and displays results upon completion.
+    For true real-time progress updates during execution, the implementation would need:
+    - Background task processing (e.g., Celery, Redis Queue)
+    - WebSocket or Server-Sent Events for live updates
+    - State management for in-progress searches
+    Currently, users see a loading spinner during search, then full results with
+    execution timing details when complete. For typical searches (5-10s), this is
+    a reasonable user experience.
     """
     if not query or not query.strip():
         return (
