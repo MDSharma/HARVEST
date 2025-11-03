@@ -724,6 +724,11 @@ def search_openalex(query: str, limit: int = 20) -> List[Dict[str, Any]]:
     """
     try:
         import requests
+        import os
+        
+        # Get contact email for OpenAlex polite pool (faster responses)
+        # Use environment variable or default
+        contact_email = os.getenv('HARVEST_CONTACT_EMAIL', 'harvest-app@example.com')
         
         # OpenAlex search endpoint
         base_url = "https://api.openalex.org/works"
@@ -735,12 +740,12 @@ def search_openalex(query: str, limit: int = 20) -> List[Dict[str, Any]]:
             'per_page': min(limit, 200),  # OpenAlex max is 200 per page
             'page': 1,
             'sort': 'relevance_score:desc',  # Sort by relevance
-            'mailto': 'harvest@example.com'  # Polite pool - faster response
+            'mailto': contact_email  # Polite pool - faster response
         }
         
         # Make request with polite User-Agent
         headers = {
-            'User-Agent': 'HARVEST Literature Search (mailto:harvest@example.com)'
+            'User-Agent': f'HARVEST Literature Search (mailto:{contact_email})'
         }
         
         logger.debug(f"Searching OpenAlex: query='{query}', limit={limit}")
@@ -836,7 +841,8 @@ def search_openalex(query: str, limit: int = 20) -> List[Dict[str, Any]]:
             
             papers.append(paper_dict)
         
-        logger.info(f"Retrieved {len(papers)} papers from OpenAlex (query: '{query[:50]}...', requested: {limit})")
+        query_display = query[:50] + ('...' if len(query) > 50 else '')
+        logger.info(f"Retrieved {len(papers)} papers from OpenAlex (query: '{query_display}', requested: {limit})")
         return papers
     
     except requests.RequestException as e:
