@@ -13,3 +13,6 @@ sentence-transformers>=2.2.2
 arxiv>=2.0.0
 PyMuPDF>=1.23.0
 watchdog>=3.0.0
+# Optional: Install Web of Science client for WoS API integration
+# Follow instructions at https://github.com/clarivate/ for the appropriate package
+# Set WOS_API_KEY environment variable after installation

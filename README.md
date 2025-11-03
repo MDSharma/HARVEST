@@ -159,6 +159,26 @@ The Admin panel (accessible from the Admin tab) allows you to:
 
 ## Usage
 
+### Literature Search
+
+The Literature Search feature enables semantic paper discovery from multiple academic sources. See **[docs/SEMANTIC_SEARCH.md](docs/SEMANTIC_SEARCH.md)** for detailed documentation.
+
+**Quick Start:**
+1. Login via the Admin tab (authentication required)
+2. Navigate to the Literature Search tab
+3. Select search sources (Semantic Scholar, arXiv, Web of Science)
+4. Enter your search query in natural language
+5. Optionally enable "Build on previous searches" for cumulative results
+6. Click "Search Papers" to find relevant literature
+7. Select papers and export DOIs to projects
+
+**Key Features:**
+- Multi-source search (Semantic Scholar, arXiv, Web of Science)
+- Semantic reranking using AI embeddings
+- Session-based cumulative searching
+- Smart deduplication across sources
+- Export to projects for annotation
+
 ### For Annotators
 
 1. Enter your email address (required for attribution)
