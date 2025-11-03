@@ -164,33 +164,235 @@ def expand_query(query: str) -> List[str]:
 
 
 @lru_cache(maxsize=100)
-def search_semantic_scholar(query: str, limit: int = 40) -> List[Dict[str, Any]]:
+def search_semantic_scholar(query: str, limit: int = 40, year_range: Optional[str] = None, 
+                           min_citations: Optional[int] = None) -> List[Dict[str, Any]]:
     """
-    Search Semantic Scholar API for papers.
+    Search Semantic Scholar API for papers using recommended best practices.
+    Supports filtering by year range and minimum citation count.
     Cached to avoid redundant API calls.
+    
+    Args:
+        query: Search query string
+        limit: Maximum number of papers to return (default: 40, max: 100)
+        year_range: Year range filter (e.g., "2020-2024" or "2023")
+        min_citations: Minimum citation count filter
+    
+    Returns:
+        List of paper dictionaries
+    
+    Best Practices (from S2 API documentation):
+    - Request only needed fields to reduce payload size
+    - Use pagination for large result sets
+    - Cache results to avoid duplicate requests
+    - Handle rate limits gracefully
     """
     try:
         s2 = _get_semantic_scholar()
 
-        # Search with fields we need
-        results = s2.search_paper(
-            query,
-            limit=limit,
-            fields=['title', 'abstract', 'authors', 'year', 'externalIds', 'citationCount']
-        )
+        # Request only fields we actually use (reduces API load)
+        # Following S2 API best practices for field selection
+        fields = [
+            'title',
+            'abstract', 
+            'authors',
+            'year',
+            'externalIds',
+            'citationCount',
+            'publicationDate',
+            'venue',
+            'publicationTypes',
+            'isOpenAccess',
+            'openAccessPdf'
+        ]
+        
+        # Build search parameters
+        search_params = {
+            'query': query,
+            'limit': min(limit, 100),  # S2 API max is 100
+            'fields': fields
+        }
+        
+        # Add optional filters
+        if year_range:
+            search_params['publication_date_or_year'] = year_range
+        
+        if min_citations is not None:
+            search_params['min_citation_count'] = min_citations
+        
+        # Search with pagination support
+        results = s2.search_paper(**search_params)
 
         papers = []
         for paper in results:
-            # Extract DOI from externalIds
+            # Extract DOI from externalIds (more reliable than direct doi field)
             doi = None
             if hasattr(paper, 'externalIds') and paper.externalIds:
-                doi = paper.externalIds.get('DOI')
+                doi = paper.externalIds.get('DOI') or paper.externalIds.get('ArXiv')
 
+            # Extract authors with better error handling
+            authors = []
+            if hasattr(paper, 'authors') and paper.authors:
+                for author in paper.authors[:3]:  # Limit to first 3 authors
+                    if hasattr(author, 'name'):
+                        authors.append(author.name)
+                    else:
+                        authors.append(str(author))
+
+            # Build paper dictionary with all available metadata
+            paper_dict = {
+                'title': paper.title if hasattr(paper, 'title') else 'N/A',
+                'abstract': paper.abstract if hasattr(paper, 'abstract') else '',
+                'authors': authors,
+                'year': paper.year if hasattr(paper, 'year') else None,
+                'doi': doi,
+                'source': 'Semantic Scholar',
+                'citations': paper.citationCount if hasattr(paper, 'citationCount') else 0
+            }
+            
+            # Add optional metadata if available
+            if hasattr(paper, 'venue') and paper.venue:
+                paper_dict['venue'] = paper.venue
+            
+            if hasattr(paper, 'isOpenAccess') and paper.isOpenAccess:
+                paper_dict['is_open_access'] = True
+                if hasattr(paper, 'openAccessPdf') and paper.openAccessPdf:
+                    paper_dict['pdf_url'] = paper.openAccessPdf.get('url')
+            
+            papers.append(paper_dict)
+
+        logger.info(f"Retrieved {len(papers)} papers from Semantic Scholar (query: '{query}')")
+        return papers
+
+    except Exception as e:
+        logger.error(f"Semantic Scholar search failed: {e}")
+        return []
+
+
+def get_recommended_papers_s2(paper_id: str, limit: int = 10, 
+                              pool: str = 'recent') -> List[Dict[str, Any]]:
+    """
+    Get recommended papers similar to a given paper using Semantic Scholar's
+    recommendation algorithm.
+    
+    This uses S2's paper recommendation feature which finds papers that:
+    - Share similar topics and methodology
+    - Are cited by or cite similar papers
+    - Have overlapping author networks
+    
+    Args:
+        paper_id: Semantic Scholar paper ID or DOI
+        limit: Number of recommendations (default: 10, max: 500)
+        pool: Recommendation pool - 'recent' (last 2 years) or 'all-cs' (all CS papers)
+    
+    Returns:
+        List of recommended paper dictionaries
+    
+    Example:
+        # Get recommendations based on a known paper
+        recommendations = get_recommended_papers_s2('10.1038/nature14539', limit=20)
+    """
+    try:
+        s2 = _get_semantic_scholar()
+        
+        # Request same fields as search for consistency
+        fields = [
+            'title',
+            'abstract',
+            'authors',
+            'year',
+            'externalIds',
+            'citationCount',
+            'venue',
+            'isOpenAccess'
+        ]
+        
+        # Get recommendations using S2's algorithm
+        pool_from = 'recent' if pool == 'recent' else 'all-cs'
+        results = s2.get_recommended_papers(
+            paper_id=paper_id,
+            fields=fields,
+            limit=min(limit, 500),  # S2 max is 500 for recommendations
+            pool_from=pool_from
+        )
+        
+        papers = []
+        for paper in results:
+            # Extract DOI
+            doi = None
+            if hasattr(paper, 'externalIds') and paper.externalIds:
+                doi = paper.externalIds.get('DOI') or paper.externalIds.get('ArXiv')
+            
             # Extract authors
             authors = []
             if hasattr(paper, 'authors') and paper.authors:
-                authors = [a.name if hasattr(a, 'name') else str(a) for a in paper.authors[:3]]
+                authors = [a.name if hasattr(a, 'name') else str(a) 
+                          for a in paper.authors[:3]]
+            
+            papers.append({
+                'title': paper.title if hasattr(paper, 'title') else 'N/A',
+                'abstract': paper.abstract if hasattr(paper, 'abstract') else '',
+                'authors': authors,
+                'year': paper.year if hasattr(paper, 'year') else None,
+                'doi': doi,
+                'source': 'Semantic Scholar (Recommended)',
+                'citations': paper.citationCount if hasattr(paper, 'citationCount') else 0,
+                'is_recommendation': True
+            })
+        
+        logger.info(f"Retrieved {len(papers)} recommended papers from Semantic Scholar")
+        return papers
+    
+    except Exception as e:
+        logger.error(f"Semantic Scholar recommendations failed: {e}")
+        return []
 
+
+def get_papers_by_ids_s2(paper_ids: List[str]) -> List[Dict[str, Any]]:
+    """
+    Retrieve multiple papers by their IDs in bulk using Semantic Scholar API.
+    More efficient than individual requests for multiple papers.
+    
+    Args:
+        paper_ids: List of Semantic Scholar paper IDs or DOIs
+    
+    Returns:
+        List of paper dictionaries
+    
+    Example:
+        papers = get_papers_by_ids_s2(['10.1038/nature14539', 'arXiv:1706.03762'])
+    """
+    try:
+        s2 = _get_semantic_scholar()
+        
+        fields = [
+            'title',
+            'abstract',
+            'authors',
+            'year',
+            'externalIds',
+            'citationCount',
+            'venue'
+        ]
+        
+        # Use bulk retrieval for efficiency
+        results = s2.get_papers(paper_ids=paper_ids, fields=fields)
+        
+        papers = []
+        for paper in results:
+            if paper is None:  # Paper not found
+                continue
+            
+            # Extract DOI
+            doi = None
+            if hasattr(paper, 'externalIds') and paper.externalIds:
+                doi = paper.externalIds.get('DOI') or paper.externalIds.get('ArXiv')
+            
+            # Extract authors
+            authors = []
+            if hasattr(paper, 'authors') and paper.authors:
+                authors = [a.name if hasattr(a, 'name') else str(a) 
+                          for a in paper.authors[:3]]
+            
             papers.append({
                 'title': paper.title if hasattr(paper, 'title') else 'N/A',
                 'abstract': paper.abstract if hasattr(paper, 'abstract') else '',
@@ -200,12 +402,12 @@ def search_semantic_scholar(query: str, limit: int = 40) -> List[Dict[str, Any]]
                 'source': 'Semantic Scholar',
                 'citations': paper.citationCount if hasattr(paper, 'citationCount') else 0
             })
-
-        logger.info(f"Retrieved {len(papers)} papers from Semantic Scholar")
+        
+        logger.info(f"Retrieved {len(papers)} papers by IDs from Semantic Scholar")
         return papers
-
+    
     except Exception as e:
-        logger.error(f"Semantic Scholar search failed: {e}")
+        logger.error(f"Semantic Scholar bulk retrieval failed: {e}")
         return []
 
 

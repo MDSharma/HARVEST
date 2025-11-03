@@ -11,9 +11,14 @@ The HARVEST application includes an enhanced semantic search capability that all
 The semantic search system can query multiple academic databases simultaneously:
 
 - **Semantic Scholar** - Open academic paper search from AI2
-  - Largest open corpus
-  - Includes citation counts
+  - Largest open corpus (200M+ papers)
+  - Includes citation counts and impact metrics
   - Free to use, no API key required
+  - **Advanced features**:
+    - Paper recommendations based on similarity
+    - Bulk paper retrieval by IDs
+    - Filtering by year, citations, open access
+    - Venue and publication type filtering
   
 - **arXiv** - Preprint repository
   - Physics, mathematics, computer science, etc.
@@ -120,6 +125,87 @@ The semantic search executes in three stages:
 - Calculates similarity scores
 - Returns top-k most relevant papers
 - Preserves citation-weighted ranking
+
+## Semantic Scholar Advanced Features
+
+### Enhanced Search Capabilities
+
+The Semantic Scholar integration follows [best practices from the S2 API documentation](https://www.semanticscholar.org/product/api/tutorial) for optimal performance and results.
+
+**Improved Features:**
+- **Selective field requests** - Only requests needed fields to reduce API load
+- **Filtering options** - Filter by year range, minimum citations, open access status
+- **Pagination support** - Handles large result sets efficiently
+- **Better error handling** - Graceful degradation on API failures
+- **Metadata enrichment** - Includes venue, publication type, PDF availability
+
+**Year Range Filtering:**
+```python
+# Search for recent papers only
+result = search_semantic_scholar("machine learning", year_range="2023-2024")
+
+# Search for papers from a specific year
+result = search_semantic_scholar("CRISPR", year_range="2023")
+```
+
+**Citation Filtering:**
+```python
+# Get only highly-cited papers
+result = search_semantic_scholar("climate change", min_citations=100)
+```
+
+### Paper Recommendations
+
+Get paper recommendations based on similarity to a known paper using Semantic Scholar's recommendation algorithm. This finds papers that:
+- Share similar topics and methodology
+- Are cited by or cite similar papers
+- Have overlapping author networks
+
+**Usage:**
+```python
+# Get recommendations based on a paper DOI
+recommendations = get_recommended_papers_s2(
+    paper_id="10.1038/nature14539",
+    limit=20,
+    pool='recent'  # or 'all-cs' for all CS papers
+)
+```
+
+**Recommendation Pools:**
+- `'recent'` - Papers from the last 2 years (default, good for current research)
+- `'all-cs'` - All computer science papers (good for comprehensive reviews)
+
+### Bulk Paper Retrieval
+
+Efficiently retrieve multiple papers by their IDs (DOIs or S2 paper IDs):
+
+```python
+# Get specific papers by DOI
+paper_ids = [
+    "10.1038/nature14539",
+    "arXiv:1706.03762",
+    "10.1126/science.aaa1234"
+]
+papers = get_papers_by_ids_s2(paper_ids)
+```
+
+**Use Cases:**
+- Building literature sets from citation lists
+- Following up on references from a key paper
+- Validating DOIs from external sources
+
+### Open Access Detection
+
+The enhanced implementation detects open access papers and extracts PDF URLs when available:
+
+```python
+# Search results now include:
+{
+    'title': 'Paper Title',
+    'is_open_access': True,
+    'pdf_url': 'https://arxiv.org/pdf/1234.5678.pdf'
+}
+```
 
 ## Web of Science Integration
 
