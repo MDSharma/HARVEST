@@ -720,9 +720,31 @@ app.layout = dbc.Container(
         dcc.Store(id="pdf-download-project-id", data=None),  # Store project ID for PDF download tracking
         dcc.Store(id="lit-search-selected-papers", data=[]),  # Store selected papers
         dcc.Store(id="lit-search-session-papers", data=[], storage_type="session"),  # Store all papers from session
+        dcc.Store(id="browse-field-config", data=["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"], storage_type="session"),  # Store browse field configuration
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
         dcc.Interval(id="pdf-download-progress-interval", interval=2000, disabled=True),  # Poll every 2 seconds
         dcc.Interval(id="markdown-reload-interval", interval=5000, disabled=False),  # Check for markdown updates every 5 seconds
+        
+        # Modal for Privacy Policy
+        dbc.Modal(
+            [
+                dbc.ModalHeader(dbc.ModalTitle("Privacy Policy & GDPR Compliance")),
+                dbc.ModalBody(
+                    [
+                        dcc.Markdown(id="privacy-policy-content", style={"maxHeight": "60vh", "overflowY": "auto"}),
+                    ]
+                ),
+                dbc.ModalFooter(
+                    [
+                        dbc.Button("Close", id="privacy-policy-close", color="primary"),
+                    ]
+                ),
+            ],
+            id="privacy-policy-modal",
+            is_open=False,
+            size="xl",
+            scrollable=True,
+        ),
         
         # Modal for Web of Science advanced syntax help
         dbc.Modal(
@@ -1561,6 +1583,46 @@ app.layout = dbc.Container(
                                                             className="mb-3",
                                                         ),
                                                         html.Div(id="triple-edit-message"),
+                                                        
+                                                        html.Hr(className="mt-4"),
+                                                        html.H6("Browse Display Configuration", className="mb-3"),
+                                                        html.P("Select which fields to display in the Browse tab.", className="text-muted mb-2"),
+                                                        dbc.Label("Visible Fields", className="mb-2"),
+                                                        dcc.Dropdown(
+                                                            id="browse-field-selector",
+                                                            options=[
+                                                                {"label": "Triple ID", "value": "id"},
+                                                                {"label": "Project ID", "value": "project_id"},
+                                                                {"label": "DOI", "value": "doi"},
+                                                                {"label": "Relation Type", "value": "relation_type"},
+                                                                {"label": "Source Entity Name", "value": "source_entity_name"},
+                                                                {"label": "Source Entity Attribute", "value": "source_entity_attr"},
+                                                                {"label": "Sink Entity Name", "value": "sink_entity_name"},
+                                                                {"label": "Sink Entity Attribute", "value": "sink_entity_attr"},
+                                                                {"label": "Sentence", "value": "sentence"},
+                                                                {"label": "Email (Hashed)", "value": "email"},
+                                                                {"label": "Timestamp", "value": "timestamp"},
+                                                            ],
+                                                            value=["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"],
+                                                            multi=True,
+                                                            placeholder="Select fields to display...",
+                                                            className="mb-3"
+                                                        ),
+                                                        html.Small("Note: Email addresses are automatically hashed for privacy.", className="text-muted d-block mb-3"),
+                                                        
+                                                        html.Hr(className="mt-4"),
+                                                        html.H6("Privacy & Compliance", className="mb-3"),
+                                                        html.P("Review HARVEST's privacy policy and GDPR compliance.", className="text-muted mb-2"),
+                                                        dbc.Button(
+                                                            [
+                                                                html.I(className="bi bi-shield-check me-2"),
+                                                                "View Privacy Policy"
+                                                            ],
+                                                            id="btn-view-privacy-policy",
+                                                            color="secondary",
+                                                            outline=True,
+                                                            className="mb-3"
+                                                        ),
                                                         
                                                         html.Hr(className="mt-4"),
                                                         html.H6("Database Export", className="mb-3"),
@@ -2874,12 +2936,17 @@ def populate_browse_project_filter(load_trigger, refresh_click, tab_value):
     Input("load-trigger", "n_intervals"),
     Input("main-tabs", "value"),
     State("browse-project-filter", "value"),
+    State("browse-field-config", "data"),
     prevent_initial_call=False,
 )
-def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter):
+def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, visible_fields):
     # Only refresh if Browse tab is active
     if tab_value != "tab-browse" and ctx.triggered_id == "main-tabs":
         return no_update
+    
+    # Use default fields if none configured
+    if not visible_fields:
+        visible_fields = ["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"]
     
     # Rate limiting: check if enough time has passed since last fetch
     # Allow manual refresh button to bypass cooldown
@@ -2925,9 +2992,32 @@ def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter):
         if not rows:
             return dbc.Alert("No records found. Try adding some data first!", color="info")
 
-        columns = [{"name": k, "id": k} for k in rows[0].keys()]
+        # Hash email addresses for privacy
+        for row in rows:
+            if 'email' in row and row['email']:
+                row['email'] = hashlib.sha256(row['email'].encode()).hexdigest()[:12] + '...'
+        
+        # Filter columns based on admin configuration
+        if rows:
+            # Get all available fields
+            all_fields = list(rows[0].keys())
+            
+            # Filter to only include visible fields (preserve order from visible_fields)
+            filtered_fields = [field for field in visible_fields if field in all_fields]
+            
+            # If no valid fields, show all
+            if not filtered_fields:
+                filtered_fields = all_fields
+            
+            # Filter row data to only include visible fields
+            filtered_rows = [{field: row.get(field, '') for field in filtered_fields} for row in rows]
+            columns = [{"name": k, "id": k} for k in filtered_fields]
+        else:
+            filtered_rows = rows
+            columns = [{"name": k, "id": k} for k in rows[0].keys()]
+
         return dash_table.DataTable(
-            data=rows,
+            data=filtered_rows,
             columns=columns,
             page_size=20,
             style_table={"overflowX": "auto"},
@@ -4246,6 +4336,68 @@ def reload_markdown_on_change(n_intervals):
     
     # No updates, return no_update for all outputs
     return no_update, no_update, no_update, no_update
+
+
+# Callback to save browse field configuration
+@app.callback(
+    Output("browse-field-config", "data"),
+    Input("browse-field-selector", "value"),
+    prevent_initial_call=True,
+)
+def save_browse_field_config(selected_fields):
+    """Save the selected fields to session storage"""
+    if not selected_fields:
+        # Default fields if nothing selected
+        return ["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"]
+    return selected_fields
+
+
+# Callback to load initial browse field configuration into dropdown
+@app.callback(
+    Output("browse-field-selector", "value"),
+    Input("load-trigger", "n_intervals"),
+    State("browse-field-config", "data"),
+    prevent_initial_call=False,
+)
+def load_browse_field_config(n, stored_fields):
+    """Load the stored field configuration on page load"""
+    if stored_fields:
+        return stored_fields
+    return ["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"]
+
+
+# Callback to show/hide privacy policy modal
+@app.callback(
+    Output("privacy-policy-modal", "is_open"),
+    Input("btn-view-privacy-policy", "n_clicks"),
+    Input("privacy-policy-close", "n_clicks"),
+    State("privacy-policy-modal", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_privacy_policy_modal(open_click, close_click, is_open):
+    """Toggle the privacy policy modal"""
+    return not is_open
+
+
+# Callback to load privacy policy content
+@app.callback(
+    Output("privacy-policy-content", "children"),
+    Input("privacy-policy-modal", "is_open"),
+    prevent_initial_call=False,
+)
+def load_privacy_policy_content(is_open):
+    """Load the GDPR privacy policy content from markdown file"""
+    if is_open:
+        try:
+            privacy_file_path = os.path.join(os.path.dirname(__file__), "docs", "GDPR_PRIVACY.md")
+            with open(privacy_file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return content
+        except Exception as e:
+            logger.error(f"Error loading privacy policy: {e}")
+            return "Privacy policy content could not be loaded. Please contact your administrator."
+    return ""
+
 
 # -----------------------
 # Main
