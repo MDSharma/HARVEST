@@ -719,9 +719,95 @@ app.layout = dbc.Container(
         dcc.Store(id="upload-project-id-store"),  # Store project ID for upload
         dcc.Store(id="pdf-download-project-id", data=None),  # Store project ID for PDF download tracking
         dcc.Store(id="lit-search-selected-papers", data=[]),  # Store selected papers
+        dcc.Store(id="lit-search-session-papers", data=[], storage_type="session"),  # Store all papers from session
+        dcc.Store(id="browse-field-config", data=["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"], storage_type="session"),  # Store browse field configuration
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
         dcc.Interval(id="pdf-download-progress-interval", interval=2000, disabled=True),  # Poll every 2 seconds
         dcc.Interval(id="markdown-reload-interval", interval=5000, disabled=False),  # Check for markdown updates every 5 seconds
+        
+        # Modal for Privacy Policy
+        dbc.Modal(
+            [
+                dbc.ModalHeader(dbc.ModalTitle("Privacy Policy & GDPR Compliance")),
+                dbc.ModalBody(
+                    [
+                        dcc.Markdown(id="privacy-policy-content", style={"maxHeight": "60vh", "overflowY": "auto"}),
+                    ]
+                ),
+                dbc.ModalFooter(
+                    [
+                        dbc.Button("Close", id="privacy-policy-close", color="primary"),
+                    ]
+                ),
+            ],
+            id="privacy-policy-modal",
+            is_open=False,
+            size="xl",
+            scrollable=True,
+        ),
+        
+        # Modal for Web of Science advanced syntax help
+        dbc.Modal(
+            [
+                dbc.ModalHeader(dbc.ModalTitle("Web of Science Advanced Search Syntax")),
+                dbc.ModalBody(
+                    [
+                        html.P("Web of Science supports powerful field-based searches with boolean operators:", className="mb-3"),
+                        
+                        html.H6("Common Field Tags:", className="mb-2"),
+                        html.Ul([
+                            html.Li([html.Strong("TS="), " Topic (title, abstract, keywords)"]),
+                            html.Li([html.Strong("TI="), " Title"]),
+                            html.Li([html.Strong("AB="), " Abstract"]),
+                            html.Li([html.Strong("AU="), " Author"]),
+                            html.Li([html.Strong("PY="), " Publication year"]),
+                            html.Li([html.Strong("SO="), " Journal/publication name"]),
+                            html.Li([html.Strong("DO="), " DOI"]),
+                        ], className="mb-3"),
+                        
+                        html.H6("Boolean Operators:", className="mb-2"),
+                        html.P([html.Strong("AND"), ", ", html.Strong("OR"), ", ", html.Strong("NOT")], className="mb-3"),
+                        
+                        html.H6("Wildcards:", className="mb-2"),
+                        html.Ul([
+                            html.Li([html.Strong("*"), " - multiple characters (e.g., genom* matches genomic, genomics)"]),
+                            html.Li([html.Strong("?"), " - single character"]),
+                        ], className="mb-3"),
+                        
+                        html.H6("Example Queries:", className="mb-2"),
+                        dbc.Alert([
+                            html.Code("AB=(genomic* OR transcriptom*)"),
+                            html.Br(),
+                            html.Code("TI=(CRISPR) AND PY=(2020-2024)"),
+                            html.Br(),
+                            html.Code("TS=(machine learning) AND SO=(Nature)"),
+                            html.Br(),
+                            html.Code("AU=(Smith J*) AND AB=(longevity*)"),
+                        ], color="light", className="mb-3"),
+                        
+                        html.P([
+                            "For more details, see the ",
+                            html.A("WoS Advanced Search Guide", 
+                                   href="https://webofscience.zendesk.com/hc/en-us/articles/20130361503249",
+                                   target="_blank"),
+                            " or our ",
+                            html.A("complete documentation",
+                                   href="docs/SEMANTIC_SEARCH.md#advanced-search-syntax",
+                                   target="_blank"),
+                            "."
+                        ], className="small text-muted"),
+                    ]
+                ),
+                dbc.ModalFooter(
+                    [
+                        dbc.Button("Close", id="wos-syntax-help-close", color="primary"),
+                    ]
+                ),
+            ],
+            id="wos-syntax-help-modal",
+            is_open=False,
+            size="lg",
+        ),
         
         # Modal for exporting DOIs from literature search
         dbc.Modal(
@@ -940,9 +1026,39 @@ app.layout = dbc.Container(
                                                     children=[
                                                         
                                                         html.P(
-                                                            "Search for relevant papers from Semantic Scholar and arXiv using natural language queries.",
-                                                            className="text-muted mb-4"
+                                                            "Search for relevant papers from multiple academic sources using natural language queries.",
+                                                            className="text-muted mb-3"
                                                         ),
+                                                        
+                                                        # Source selection
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Label("Select Search Sources", style={"fontWeight": "bold"}),
+                                                                        dbc.Checklist(
+                                                                            id="lit-search-sources",
+                                                                            options=[
+                                                                                {"label": " Semantic Scholar", "value": "semantic_scholar"},
+                                                                                {"label": " arXiv", "value": "arxiv"},
+                                                                                {"label": " Web of Science", "value": "web_of_science"},
+                                                                            ],
+                                                                            value=["semantic_scholar", "arxiv"],  # Default sources
+                                                                            inline=True,
+                                                                            className="mb-2",
+                                                                        ),
+                                                                        html.Small(
+                                                                            id="lit-search-sources-info",
+                                                                            className="text-muted"
+                                                                        ),
+                                                                    ],
+                                                                    md=12,
+                                                                ),
+                                                            ],
+                                                            className="mb-3",
+                                                        ),
+                                                        
+                                                        # Query and search button
                                                         dbc.Row(
                                                             [
                                                                 dbc.Col(
@@ -955,7 +1071,16 @@ app.layout = dbc.Container(
                                                                             debounce=True,
                                                                         ),
                                                                         html.Small(
-                                                                            "Enter a natural language query to find relevant papers",
+                                                                            [
+                                                                                "Enter a natural language query or ",
+                                                                                html.A(
+                                                                                    "Web of Science advanced syntax",
+                                                                                    href="#",
+                                                                                    id="wos-syntax-help-link",
+                                                                                    style={"cursor": "pointer"}
+                                                                                ),
+                                                                                " (e.g., AB=(genomic*) AND PY=(2020-2024))"
+                                                                            ],
                                                                             className="text-muted"
                                                                         ),
                                                                     ],
@@ -968,6 +1093,39 @@ app.layout = dbc.Container(
                                                                             "Search Papers",
                                                                             id="btn-search-papers",
                                                                             color="primary",
+                                                                            className="w-100",
+                                                                        ),
+                                                                    ],
+                                                                    md=3,
+                                                                ),
+                                                            ],
+                                                            className="mb-3",
+                                                        ),
+                                                        
+                                                        # Session options
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Checkbox(
+                                                                            id="lit-search-build-session",
+                                                                            label="Build on previous searches (cumulative)",
+                                                                            value=False,
+                                                                        ),
+                                                                        html.Small(
+                                                                            "When enabled, new searches will add to existing results instead of replacing them",
+                                                                            className="text-muted"
+                                                                        ),
+                                                                    ],
+                                                                    md=9,
+                                                                ),
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Button(
+                                                                            "Clear Session",
+                                                                            id="btn-clear-session",
+                                                                            color="secondary",
+                                                                            size="sm",
                                                                             className="w-100",
                                                                         ),
                                                                     ],
@@ -1427,6 +1585,46 @@ app.layout = dbc.Container(
                                                         html.Div(id="triple-edit-message"),
                                                         
                                                         html.Hr(className="mt-4"),
+                                                        html.H6("Browse Display Configuration", className="mb-3"),
+                                                        html.P("Select which fields to display in the Browse tab.", className="text-muted mb-2"),
+                                                        dbc.Label("Visible Fields", className="mb-2"),
+                                                        dcc.Dropdown(
+                                                            id="browse-field-selector",
+                                                            options=[
+                                                                {"label": "Triple ID", "value": "id"},
+                                                                {"label": "Project ID", "value": "project_id"},
+                                                                {"label": "DOI", "value": "doi"},
+                                                                {"label": "Relation Type", "value": "relation_type"},
+                                                                {"label": "Source Entity Name", "value": "source_entity_name"},
+                                                                {"label": "Source Entity Attribute", "value": "source_entity_attr"},
+                                                                {"label": "Sink Entity Name", "value": "sink_entity_name"},
+                                                                {"label": "Sink Entity Attribute", "value": "sink_entity_attr"},
+                                                                {"label": "Sentence", "value": "sentence"},
+                                                                {"label": "Email (Hashed)", "value": "email"},
+                                                                {"label": "Timestamp", "value": "timestamp"},
+                                                            ],
+                                                            value=["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"],
+                                                            multi=True,
+                                                            placeholder="Select fields to display...",
+                                                            className="mb-3"
+                                                        ),
+                                                        html.Small("Note: Email addresses are automatically hashed for privacy.", className="text-muted d-block mb-3"),
+                                                        
+                                                        html.Hr(className="mt-4"),
+                                                        html.H6("Privacy & Compliance", className="mb-3"),
+                                                        html.P("Review HARVEST's privacy policy and GDPR compliance.", className="text-muted mb-2"),
+                                                        dbc.Button(
+                                                            [
+                                                                html.I(className="bi bi-shield-check me-2"),
+                                                                "View Privacy Policy"
+                                                            ],
+                                                            id="btn-view-privacy-policy",
+                                                            color="secondary",
+                                                            outline=True,
+                                                            className="mb-3"
+                                                        ),
+                                                        
+                                                        html.Hr(className="mt-4"),
                                                         html.H6("Database Export", className="mb-3"),
                                                         html.P("Export all triples from the database as JSON.", className="text-muted mb-3"),
                                                         dbc.Button(
@@ -1758,26 +1956,51 @@ def check_lit_search_auth(auth_data, active_tab):
     Output("search-results", "children"),
     Output("lit-search-selected-papers", "data"),
     Output("lit-search-export-controls", "style"),
+    Output("lit-search-session-papers", "data"),
     Input("btn-search-papers", "n_clicks"),
     State("lit-search-query", "value"),
+    State("lit-search-sources", "value"),
+    State("lit-search-build-session", "value"),
+    State("lit-search-session-papers", "data"),
     prevent_initial_call=True,
 )
-def perform_literature_search(n_clicks, query):
+def perform_literature_search(n_clicks, query, sources, build_session, session_papers):
     """
     Callback to perform literature search when button is clicked.
     Displays the execution pipeline for AutoResearch, DeepResearch, and DELM.
+    Supports multiple sources and session-based cumulative searching.
     """
     if not query or not query.strip():
         return (
             dbc.Alert("Please enter a search query", color="warning"),
             None,
             [],
-            {"display": "none"}
+            {"display": "none"},
+            session_papers or []
+        )
+    
+    if not sources:
+        return (
+            dbc.Alert("Please select at least one search source", color="warning"),
+            None,
+            [],
+            {"display": "none"},
+            session_papers or []
         )
 
     try:
-        # Perform search
-        result = literature_search.search_papers(query.strip(), top_k=10)
+        # Prepare previous papers for session build
+        previous_papers = None
+        if build_session and session_papers:
+            previous_papers = session_papers
+        
+        # Perform search with selected sources
+        result = literature_search.search_papers(
+            query.strip(), 
+            top_k=10,
+            sources=sources,
+            previous_papers=previous_papers
+        )
 
         if not result['success']:
             # Show execution log even on failure
@@ -1791,34 +2014,49 @@ def perform_literature_search(n_clicks, query):
                     ]),
                     None,
                     [],
-                    {"display": "none"}
+                    {"display": "none"},
+                    session_papers or []
                 )
             return (
                 dbc.Alert(result['message'], color="danger"),
                 None,
                 [],
-                {"display": "none"}
+                {"display": "none"},
+                session_papers or []
             )
 
         papers = result['papers']
 
         if not papers:
             return (
-                dbc.Alert("No papers found. Try a different query.", color="info"),
+                dbc.Alert("No papers found. Try a different query or different sources.", color="info"),
                 None,
                 [],
-                {"display": "none"}
+                {"display": "none"},
+                session_papers or []
             )
+
+        # Store all unique papers from session
+        new_session_papers = result.get('all_session_papers', papers)
 
         # Create execution log display
         execution_log = result.get('execution_log', [])
         log_display = create_execution_log_display(execution_log)
+        
+        # Create sources info
+        sources_used = result.get('sources_used', [])
+        sources_display = ', '.join([
+            {'semantic_scholar': 'Semantic Scholar', 'arxiv': 'arXiv', 'web_of_science': 'Web of Science'}.get(s, s)
+            for s in sources_used
+        ])
 
         # Create status message with execution log
         status = html.Div([
             dbc.Alert(
                 [
                     html.Strong(result['message']),
+                    html.Br(),
+                    html.Small(f"Sources: {sources_display}"),
                     html.Br(),
                     html.Small(f"Total found: {result['total_found']} | Unique: {result['total_unique']} | Displaying: {result['returned']}")
                 ],
@@ -1954,7 +2192,7 @@ def perform_literature_search(n_clicks, query):
 
             results_content.append(paper_card)
 
-        return status, html.Div(results_content), papers_data, {"display": "block"}
+        return status, html.Div(results_content), papers_data, {"display": "block"}, new_session_papers
 
     except Exception as e:
         logger.error(f"Literature search error: {e}")
@@ -1962,8 +2200,64 @@ def perform_literature_search(n_clicks, query):
             dbc.Alert(f"Search failed: {str(e)}", color="danger"),
             None,
             [],
-            {"display": "none"}
+            {"display": "none"},
+            session_papers or []
         )
+
+
+# Callback to clear search session
+@app.callback(
+    Output("lit-search-session-papers", "data", allow_duplicate=True),
+    Output("search-status", "children", allow_duplicate=True),
+    Input("btn-clear-session", "n_clicks"),
+    prevent_initial_call=True,
+)
+def clear_search_session(n_clicks):
+    """Clear the search session history"""
+    return [], dbc.Alert("Search session cleared", color="info", duration=3000)
+
+
+# Callback to show/hide WoS syntax help modal
+@app.callback(
+    Output("wos-syntax-help-modal", "is_open"),
+    Input("wos-syntax-help-link", "n_clicks"),
+    Input("wos-syntax-help-close", "n_clicks"),
+    State("wos-syntax-help-modal", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_wos_syntax_help(link_clicks, close_clicks, is_open):
+    """Toggle the WoS advanced syntax help modal"""
+    return not is_open
+
+
+# Callback to display source availability info
+@app.callback(
+    Output("lit-search-sources-info", "children"),
+    Input("load-trigger", "n_intervals"),
+    prevent_initial_call=False,
+)
+def update_source_info(n_intervals):
+    """Display information about available search sources"""
+    try:
+        sources_info = literature_search.get_available_sources()
+        
+        info_parts = []
+        for source_key, source_data in sources_info.items():
+            if source_data['available']:
+                info_parts.append(f"✓ {source_data['name']}")
+            else:
+                info_parts.append(f"✗ {source_data['name']} (unavailable)")
+        
+        info_text = " | ".join(info_parts)
+        
+        # Add WoS API key hint if not available
+        if not sources_info['web_of_science']['available']:
+            info_text += " | Set WOS_API_KEY environment variable to enable Web of Science"
+        
+        return info_text
+    except Exception as e:
+        logger.error(f"Error getting source info: {e}")
+        return "Source availability check failed"
 
 
 # Callback for pipeline execution flow collapse
@@ -2642,12 +2936,17 @@ def populate_browse_project_filter(load_trigger, refresh_click, tab_value):
     Input("load-trigger", "n_intervals"),
     Input("main-tabs", "value"),
     State("browse-project-filter", "value"),
+    State("browse-field-config", "data"),
     prevent_initial_call=False,
 )
-def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter):
+def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, visible_fields):
     # Only refresh if Browse tab is active
     if tab_value != "tab-browse" and ctx.triggered_id == "main-tabs":
         return no_update
+    
+    # Use default fields if none configured
+    if not visible_fields:
+        visible_fields = ["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"]
     
     # Rate limiting: check if enough time has passed since last fetch
     # Allow manual refresh button to bypass cooldown
@@ -2693,9 +2992,32 @@ def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter):
         if not rows:
             return dbc.Alert("No records found. Try adding some data first!", color="info")
 
-        columns = [{"name": k, "id": k} for k in rows[0].keys()]
+        # Hash email addresses for privacy
+        for row in rows:
+            if 'email' in row and row['email']:
+                row['email'] = hashlib.sha256(row['email'].encode()).hexdigest()[:12] + '...'
+        
+        # Filter columns based on admin configuration
+        if rows:
+            # Get all available fields
+            all_fields = list(rows[0].keys())
+            
+            # Filter to only include visible fields (preserve order from visible_fields)
+            filtered_fields = [field for field in visible_fields if field in all_fields]
+            
+            # If no valid fields, show all
+            if not filtered_fields:
+                filtered_fields = all_fields
+            
+            # Filter row data to only include visible fields
+            filtered_rows = [{field: row.get(field, '') for field in filtered_fields} for row in rows]
+            columns = [{"name": k, "id": k} for k in filtered_fields]
+        else:
+            filtered_rows = rows
+            columns = [{"name": k, "id": k} for k in rows[0].keys()]
+
         return dash_table.DataTable(
-            data=rows,
+            data=filtered_rows,
             columns=columns,
             page_size=20,
             style_table={"overflowX": "auto"},
@@ -4014,6 +4336,68 @@ def reload_markdown_on_change(n_intervals):
     
     # No updates, return no_update for all outputs
     return no_update, no_update, no_update, no_update
+
+
+# Callback to save browse field configuration
+@app.callback(
+    Output("browse-field-config", "data"),
+    Input("browse-field-selector", "value"),
+    prevent_initial_call=True,
+)
+def save_browse_field_config(selected_fields):
+    """Save the selected fields to session storage"""
+    if not selected_fields:
+        # Default fields if nothing selected
+        return ["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"]
+    return selected_fields
+
+
+# Callback to load initial browse field configuration into dropdown
+@app.callback(
+    Output("browse-field-selector", "value"),
+    Input("load-trigger", "n_intervals"),
+    State("browse-field-config", "data"),
+    prevent_initial_call=False,
+)
+def load_browse_field_config(n, stored_fields):
+    """Load the stored field configuration on page load"""
+    if stored_fields:
+        return stored_fields
+    return ["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"]
+
+
+# Callback to show/hide privacy policy modal
+@app.callback(
+    Output("privacy-policy-modal", "is_open"),
+    Input("btn-view-privacy-policy", "n_clicks"),
+    Input("privacy-policy-close", "n_clicks"),
+    State("privacy-policy-modal", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_privacy_policy_modal(open_click, close_click, is_open):
+    """Toggle the privacy policy modal"""
+    return not is_open
+
+
+# Callback to load privacy policy content
+@app.callback(
+    Output("privacy-policy-content", "children"),
+    Input("privacy-policy-modal", "is_open"),
+    prevent_initial_call=False,
+)
+def load_privacy_policy_content(is_open):
+    """Load the GDPR privacy policy content from markdown file"""
+    if is_open:
+        try:
+            privacy_file_path = os.path.join(os.path.dirname(__file__), "docs", "GDPR_PRIVACY.md")
+            with open(privacy_file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return content
+        except Exception as e:
+            logger.error(f"Error loading privacy policy: {e}")
+            return "Privacy policy content could not be loaded. Please contact your administrator."
+    return ""
+
 
 # -----------------------
 # Main
