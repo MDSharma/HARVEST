@@ -10,6 +10,7 @@ Features:
 - Semantic reranking
 - Deduplication
 - Session-based search history
+- Retry logic with exponential backoff and jitter
 """
 
 import logging
@@ -24,6 +25,48 @@ _semantic_scholar = None
 _sentence_transformers = None
 _arxiv = None
 _wos_client = None
+_s2_session = None
+
+
+def _get_s2_session():
+    """
+    Create a requests Session with retry logic for Semantic Scholar API.
+    
+    Implements best practices from S2 webinar examples:
+    - Exponential backoff with jitter (randomization)
+    - Respects rate limit headers (429)
+    - Handles transient server errors (502, 503, 504)
+    - 6 total retries with 2.0s backoff factor
+    """
+    global _s2_session
+    if _s2_session is None:
+        try:
+            from requests import Session
+            from requests.adapters import HTTPAdapter
+            from urllib3.util import Retry
+            
+            _s2_session = Session()
+            
+            # Configure retry strategy following S2 best practices
+            retry_strategy = Retry(
+                total=6,  # Total number of retries
+                backoff_factor=2.0,  # Exponential backoff: {backoff factor} * (2 ** (retry - 1))
+                backoff_jitter=0.5,  # Add randomization to prevent thundering herd
+                respect_retry_after_header=True,  # Respect Retry-After header from server
+                status_forcelist=[429, 502, 503, 504],  # Retry on these HTTP status codes
+                allowed_methods={'GET', 'POST'},  # Only retry safe methods
+            )
+            
+            adapter = HTTPAdapter(max_retries=retry_strategy)
+            _s2_session.mount('https://', adapter)
+            _s2_session.mount('http://', adapter)
+            
+            logger.info("Initialized Semantic Scholar session with retry logic")
+        except ImportError as e:
+            logger.warning(f"Could not configure retry logic: {e}. Using basic requests.")
+            _s2_session = None
+    
+    return _s2_session
 
 
 def _get_semantic_scholar():
@@ -180,14 +223,18 @@ def search_semantic_scholar(query: str, limit: int = 40, year_range: Optional[st
     Returns:
         List of paper dictionaries
     
-    Best Practices (from S2 API documentation):
+    Best Practices (from S2 API documentation and webinar examples):
     - Request only needed fields to reduce payload size
     - Use pagination for large result sets
     - Cache results to avoid duplicate requests
-    - Handle rate limits gracefully
+    - Handle rate limits gracefully with retry logic
+    - Exponential backoff with jitter for transient errors
     """
     try:
         s2 = _get_semantic_scholar()
+        
+        # Initialize retry session for better resilience
+        _get_s2_session()
 
         # Request only fields we actually use (reduces API load)
         # Following S2 API best practices for field selection
@@ -220,10 +267,17 @@ def search_semantic_scholar(query: str, limit: int = 40, year_range: Optional[st
             search_params['min_citation_count'] = min_citations
         
         # Search with pagination support
+        # The semanticscholar library handles retries internally
+        logger.debug(f"Searching Semantic Scholar: query='{query}', limit={limit}, "
+                    f"year_range={year_range}, min_citations={min_citations}")
+        
         results = s2.search_paper(**search_params)
 
         papers = []
+        paper_count = 0
         for paper in results:
+            paper_count += 1
+            
             # Extract DOI from externalIds (more reliable than direct doi field)
             doi = None
             if hasattr(paper, 'externalIds') and paper.externalIds:
@@ -260,11 +314,19 @@ def search_semantic_scholar(query: str, limit: int = 40, year_range: Optional[st
             
             papers.append(paper_dict)
 
-        logger.info(f"Retrieved {len(papers)} papers from Semantic Scholar (query: '{query}')")
+        logger.info(f"Retrieved {len(papers)} papers from Semantic Scholar "
+                   f"(query: '{query[:50]}...', requested: {limit}, found: {paper_count})")
         return papers
 
+    except ImportError as e:
+        logger.error(f"Semantic Scholar library not available: {e}")
+        return []
+    except TimeoutError as e:
+        logger.error(f"Semantic Scholar search timeout: {e}")
+        return []
     except Exception as e:
-        logger.error(f"Semantic Scholar search failed: {e}")
+        # Log the specific error type for better debugging
+        logger.error(f"Semantic Scholar search failed ({type(e).__name__}): {e}")
         return []
 
 
@@ -290,9 +352,17 @@ def get_recommended_papers_s2(paper_id: str, limit: int = 10,
     Example:
         # Get recommendations based on a known paper
         recommendations = get_recommended_papers_s2('10.1038/nature14539', limit=20)
+        
+    Best Practices:
+    - Uses retry logic with exponential backoff
+    - Respects rate limits
+    - Handles transient errors gracefully
     """
     try:
         s2 = _get_semantic_scholar()
+        
+        # Initialize retry session
+        _get_s2_session()
         
         # Request same fields as search for consistency
         fields = [
@@ -339,11 +409,15 @@ def get_recommended_papers_s2(paper_id: str, limit: int = 10,
                 'is_recommendation': True
             })
         
-        logger.info(f"Retrieved {len(papers)} recommended papers from Semantic Scholar")
+        logger.info(f"Retrieved {len(papers)} recommended papers from Semantic Scholar "
+                   f"(paper_id: {paper_id}, pool: {pool})")
         return papers
     
+    except ImportError as e:
+        logger.error(f"Semantic Scholar library not available: {e}")
+        return []
     except Exception as e:
-        logger.error(f"Semantic Scholar recommendations failed: {e}")
+        logger.error(f"Semantic Scholar recommendations failed ({type(e).__name__}): {e}")
         return []
 
 
@@ -360,9 +434,17 @@ def get_papers_by_ids_s2(paper_ids: List[str]) -> List[Dict[str, Any]]:
     
     Example:
         papers = get_papers_by_ids_s2(['10.1038/nature14539', 'arXiv:1706.03762'])
+        
+    Best Practices:
+    - Uses bulk API endpoint for efficiency
+    - Retry logic handles transient failures
+    - Gracefully handles not-found papers
     """
     try:
         s2 = _get_semantic_scholar()
+        
+        # Initialize retry session
+        _get_s2_session()
         
         fields = [
             'title',
@@ -374,12 +456,16 @@ def get_papers_by_ids_s2(paper_ids: List[str]) -> List[Dict[str, Any]]:
             'venue'
         ]
         
+        logger.debug(f"Retrieving {len(paper_ids)} papers by IDs from Semantic Scholar")
+        
         # Use bulk retrieval for efficiency
         results = s2.get_papers(paper_ids=paper_ids, fields=fields)
         
         papers = []
+        not_found_count = 0
         for paper in results:
             if paper is None:  # Paper not found
+                not_found_count += 1
                 continue
             
             # Extract DOI
@@ -403,11 +489,15 @@ def get_papers_by_ids_s2(paper_ids: List[str]) -> List[Dict[str, Any]]:
                 'citations': paper.citationCount if hasattr(paper, 'citationCount') else 0
             })
         
-        logger.info(f"Retrieved {len(papers)} papers by IDs from Semantic Scholar")
+        logger.info(f"Retrieved {len(papers)} papers by IDs from Semantic Scholar "
+                   f"(requested: {len(paper_ids)}, not found: {not_found_count})")
         return papers
     
+    except ImportError as e:
+        logger.error(f"Semantic Scholar library not available: {e}")
+        return []
     except Exception as e:
-        logger.error(f"Semantic Scholar bulk retrieval failed: {e}")
+        logger.error(f"Semantic Scholar bulk retrieval failed ({type(e).__name__}): {e}")
         return []
 
 

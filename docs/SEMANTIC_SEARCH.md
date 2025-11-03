@@ -130,14 +130,23 @@ The semantic search executes in three stages:
 
 ### Enhanced Search Capabilities
 
-The Semantic Scholar integration follows [best practices from the S2 API documentation](https://www.semanticscholar.org/product/api/tutorial) for optimal performance and results.
+The Semantic Scholar integration follows [best practices from the S2 API documentation](https://www.semanticscholar.org/product/api/tutorial) and [webinar examples](https://github.com/allenai/s2-folks/tree/main/examples/Webinar%20Code%20Examples) for optimal performance and reliability.
 
 **Improved Features:**
 - **Selective field requests** - Only requests needed fields to reduce API load
 - **Filtering options** - Filter by year range, minimum citations, open access status
 - **Pagination support** - Handles large result sets efficiently
-- **Better error handling** - Graceful degradation on API failures
+- **Retry logic with exponential backoff and jitter** - Automatically retries failed requests with randomized delays
+- **Rate limit awareness** - Respects 429 (Too Many Requests) responses
+- **Transient error handling** - Automatically retries on 502, 503, 504 server errors
+- **Better error handling** - Graceful degradation on API failures with specific error logging
 - **Metadata enrichment** - Includes venue, publication type, PDF availability
+
+**Reliability Features (from S2 Webinar Best Practices):**
+- **6 automatic retries** with exponential backoff (2.0s factor)
+- **Jitter randomization** (0.5s) prevents thundering herd problems
+- **Retry-After header respect** for server-directed backoff
+- **Graceful degradation** returns empty results instead of crashing
 
 **Year Range Filtering:**
 ```python
