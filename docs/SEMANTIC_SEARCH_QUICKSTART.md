@@ -63,13 +63,14 @@ To create a comprehensive literature set:
 Only if you want premium citation data:
 
 1. Get API key from https://developer.clarivate.com/
-2. Install their Python client (see their docs)
-3. Set environment variable:
+2. Set environment variable:
    ```bash
    export WOS_API_KEY="your-key-here"
    ```
-4. Restart HARVEST
-5. Web of Science checkbox will be available!
+3. Restart HARVEST
+4. Web of Science checkbox will be available!
+
+**Note**: Uses Web of Science Expanded API directly - no additional packages needed!
 
 ## What You Get
 

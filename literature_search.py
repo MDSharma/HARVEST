@@ -66,26 +66,18 @@ def _get_arxiv():
     return _arxiv
 
 
-def _get_wos_client():
-    """Lazy load Web of Science client library"""
+def _get_wos_api_key():
+    """Get Web of Science API key from environment"""
     global _wos_client
     if _wos_client is None:
-        try:
-            from woslite_client import WosLiteClient
-            # Initialize with environment variable or None (will use default)
-            import os
-            api_key = os.getenv('WOS_API_KEY')
-            _wos_client = WosLiteClient(api_key) if api_key else None
-            if _wos_client is None:
-                logger.warning("WOS_API_KEY not set. Web of Science searches will be disabled.")
-        except ImportError as e:
-            logger.error(f"Failed to import woslite_client: {e}")
-            logger.info("Install with: pip install woslite-client")
-            _wos_client = None
-        except Exception as e:
-            logger.error(f"Failed to initialize Web of Science client: {e}")
-            _wos_client = None
-    return _wos_client
+        import os
+        api_key = os.getenv('WOS_API_KEY')
+        if api_key:
+            _wos_client = api_key
+        else:
+            logger.warning("WOS_API_KEY not set. Web of Science searches will be disabled.")
+            _wos_client = False  # Use False to indicate checked but not available
+    return _wos_client if _wos_client else None
 
 
 def expand_query(query: str) -> List[str]:
@@ -211,59 +203,135 @@ def search_arxiv(query: str, limit: int = 10) -> List[Dict[str, Any]]:
 @lru_cache(maxsize=100)
 def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
     """
-    Search Web of Science API for papers.
+    Search Web of Science Expanded API for papers.
+    Uses the direct REST API as shown in Clarivate examples.
     Cached to avoid redundant API calls.
     Requires WOS_API_KEY environment variable to be set.
+    
+    API Reference: https://github.com/clarivate/wos_api_usecases/
     """
     try:
-        wos = _get_wos_client()
+        import requests
         
-        if wos is None:
-            logger.warning("Web of Science client not available. Check WOS_API_KEY environment variable.")
+        api_key = _get_wos_api_key()
+        
+        if api_key is None:
+            logger.warning("Web of Science API key not available. Check WOS_API_KEY environment variable.")
             return []
         
-        # Perform search using woslite_client
-        results = wos.search(query, count=limit)
+        # Use Web of Science Expanded API endpoint
+        # Search WOS Core Collection database
+        params = {
+            'databaseId': 'WOS',
+            'usrQuery': query,
+            'count': min(limit, 100),  # API max is 100 per request
+            'firstRecord': 1
+        }
         
+        response = requests.get(
+            url='https://api.clarivate.com/api/wos',
+            params=params,
+            headers={'X-ApiKey': api_key},
+            timeout=30
+        )
+        
+        if response.status_code != 200:
+            logger.error(f"Web of Science API error {response.status_code}: {response.text}")
+            return []
+        
+        result = response.json()
+        
+        # Parse the response structure from WoS Expanded API
         papers = []
-        for record in results:
+        records = result.get('Data', {}).get('Records', {}).get('records', {}).get('REC', [])
+        
+        for record in records:
+            # Extract basic metadata
+            static_data = record.get('static_data', {})
+            summary = static_data.get('summary', {})
+            fullrecord_metadata = static_data.get('fullrecord_metadata', {})
+            
+            # Extract title
+            titles = summary.get('titles', {}).get('title', [])
+            title = 'N/A'
+            for t in titles:
+                if t.get('type') == 'item':
+                    title = t.get('content', 'N/A')
+                    break
+            
             # Extract DOI
-            doi = record.get('doi') or record.get('DOI')
+            doi = None
+            identifiers = static_data.get('fullrecord_metadata', {}).get('identifiers', {})
+            if identifiers:
+                doi_list = identifiers.get('identifier', [])
+                for identifier in doi_list:
+                    if identifier.get('type') == 'doi':
+                        doi = identifier.get('value')
+                        break
+            
+            # Extract UT (unique identifier) as fallback
+            if not doi:
+                ut = record.get('UID')
+                if ut:
+                    doi = f"WOS:{ut}"
             
             # Extract authors
             authors = []
-            if 'authors' in record:
-                authors = [author.get('full_name', str(author)) for author in record['authors'][:3]]
-            elif 'author' in record:
-                # Handle different author field formats
-                author_data = record['author']
-                if isinstance(author_data, list):
-                    authors = [str(a) for a in author_data[:3]]
-                else:
-                    authors = [str(author_data)]
+            names = summary.get('names', {}).get('name', [])
+            for name in names[:3]:  # Limit to first 3 authors
+                if name.get('role') == 'author':
+                    display_name = name.get('display_name') or name.get('full_name')
+                    if display_name:
+                        authors.append(display_name)
             
             # Extract year
             year = None
-            if 'publication_date' in record:
-                pub_date = record['publication_date']
-                if isinstance(pub_date, str):
-                    year = int(pub_date.split('-')[0]) if '-' in pub_date else int(pub_date[:4])
-            elif 'year' in record:
-                year = record['year']
+            pub_info = summary.get('pub_info', {})
+            pubyear = pub_info.get('pubyear')
+            if pubyear:
+                try:
+                    year = int(pubyear)
+                except (ValueError, TypeError):
+                    pass
+            
+            # Extract abstract
+            abstract = ''
+            abstracts = fullrecord_metadata.get('abstracts', {}).get('abstract', [])
+            for abs_item in abstracts:
+                abstract_text = abs_item.get('abstract_text', {}).get('p', '')
+                if abstract_text:
+                    abstract = abstract_text
+                    break
+            
+            # Extract citation count
+            citations = 0
+            dynamic_data = record.get('dynamic_data', {})
+            citation_related = dynamic_data.get('citation_related', {})
+            tc_list = citation_related.get('tc_list', {}).get('silo_tc', [])
+            for tc in tc_list:
+                if tc.get('coll_id') == 'WOS':
+                    try:
+                        citations = int(tc.get('local_count', 0))
+                    except (ValueError, TypeError):
+                        pass
+                    break
             
             papers.append({
-                'title': record.get('title', 'N/A'),
-                'abstract': record.get('abstract', ''),
+                'title': title,
+                'abstract': abstract,
                 'authors': authors,
                 'year': year,
                 'doi': doi,
                 'source': 'Web of Science',
-                'citations': record.get('times_cited', 0)
+                'citations': citations
             })
         
         logger.info(f"Retrieved {len(papers)} papers from Web of Science")
         return papers
     
+    except requests.RequestException as e:
+        logger.error(f"Web of Science API request failed: {e}")
+        return []
     except Exception as e:
         logger.error(f"Web of Science search failed: {e}")
         return []
@@ -557,7 +625,7 @@ def get_available_sources() -> Dict[str, Any]:
             'name': 'Web of Science',
             'available': False,
             'description': 'Comprehensive citation database',
-            'requires': 'woslite_client package and WOS_API_KEY environment variable'
+            'requires': 'WOS_API_KEY environment variable (Expanded API)'
         }
     }
     
@@ -577,8 +645,8 @@ def get_available_sources() -> Dict[str, Any]:
     
     # Check Web of Science
     try:
-        wos = _get_wos_client()
-        if wos is not None:
+        api_key = _get_wos_api_key()
+        if api_key is not None:
             sources['web_of_science']['available'] = True
     except Exception:
         pass

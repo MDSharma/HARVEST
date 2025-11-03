@@ -127,21 +127,26 @@ The semantic search executes in three stages:
 
 1. **Obtain API Key**
    - Register at https://developer.clarivate.com/
-   - Subscribe to Web of Science API
+   - Subscribe to Web of Science Expanded API
    - Get your API key
 
-2. **Install Client Library**
-   - Follow instructions at https://github.com/clarivate/
-   - Install the appropriate Python client
-
-3. **Set Environment Variable**
+2. **Set Environment Variable**
    ```bash
    export WOS_API_KEY="your-api-key-here"
    ```
 
-4. **Restart Application**
+3. **Restart Application**
    - Web of Science will appear in source options
    - Green checkmark indicates availability
+
+**Note**: The integration uses the Web of Science Expanded API directly via REST calls. No additional Python packages are required beyond `requests` (already included).
+
+### API Information
+
+- **Endpoint**: `https://api.clarivate.com/api/wos`
+- **Database**: WOS (Web of Science Core Collection)
+- **Implementation**: Based on [Clarivate's official examples](https://github.com/clarivate/wos_api_usecases/tree/main/python/societal_impact_analytics)
+- **Max results per query**: 100
 
 ### Usage Notes
 
@@ -149,13 +154,14 @@ The semantic search executes in three stages:
 - Check your API plan for usage quotas
 - Results include citation metrics
 - Access to paywalled content metadata
+- Query syntax should be in WoS format (e.g., "TS=(machine learning)")
 
 ## Configuration
 
 ### Environment Variables
 
 ```bash
-# Optional: Web of Science API key
+# Optional: Web of Science Expanded API key
 export WOS_API_KEY="your-key-here"
 
 # Required for PDF downloads (see main docs)
