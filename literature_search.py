@@ -1,11 +1,19 @@
 """
 Literature Search Module for HARVEST
-Provides semantic paper discovery from Semantic Scholar and arXiv
-with query expansion, reranking, and deduplication.
+Provides semantic paper discovery from multiple sources:
+- Semantic Scholar API
+- arXiv API
+- Web of Science API (via woslite_client)
+
+Features:
+- Query expansion
+- Semantic reranking
+- Deduplication
+- Session-based search history
 """
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 from functools import lru_cache
 import time
 
@@ -15,6 +23,7 @@ logger = logging.getLogger(__name__)
 _semantic_scholar = None
 _sentence_transformers = None
 _arxiv = None
+_wos_client = None
 
 
 def _get_semantic_scholar():
@@ -55,6 +64,28 @@ def _get_arxiv():
             logger.error(f"Failed to import arxiv: {e}")
             raise
     return _arxiv
+
+
+def _get_wos_client():
+    """Lazy load Web of Science client library"""
+    global _wos_client
+    if _wos_client is None:
+        try:
+            from woslite_client import WosLiteClient
+            # Initialize with environment variable or None (will use default)
+            import os
+            api_key = os.getenv('WOS_API_KEY')
+            _wos_client = WosLiteClient(api_key) if api_key else None
+            if _wos_client is None:
+                logger.warning("WOS_API_KEY not set. Web of Science searches will be disabled.")
+        except ImportError as e:
+            logger.error(f"Failed to import woslite_client: {e}")
+            logger.info("Install with: pip install woslite-client")
+            _wos_client = None
+        except Exception as e:
+            logger.error(f"Failed to initialize Web of Science client: {e}")
+            _wos_client = None
+    return _wos_client
 
 
 def expand_query(query: str) -> List[str]:
@@ -177,6 +208,67 @@ def search_arxiv(query: str, limit: int = 10) -> List[Dict[str, Any]]:
         return []
 
 
+@lru_cache(maxsize=100)
+def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
+    """
+    Search Web of Science API for papers.
+    Cached to avoid redundant API calls.
+    Requires WOS_API_KEY environment variable to be set.
+    """
+    try:
+        wos = _get_wos_client()
+        
+        if wos is None:
+            logger.warning("Web of Science client not available. Check WOS_API_KEY environment variable.")
+            return []
+        
+        # Perform search using woslite_client
+        results = wos.search(query, count=limit)
+        
+        papers = []
+        for record in results:
+            # Extract DOI
+            doi = record.get('doi') or record.get('DOI')
+            
+            # Extract authors
+            authors = []
+            if 'authors' in record:
+                authors = [author.get('full_name', str(author)) for author in record['authors'][:3]]
+            elif 'author' in record:
+                # Handle different author field formats
+                author_data = record['author']
+                if isinstance(author_data, list):
+                    authors = [str(a) for a in author_data[:3]]
+                else:
+                    authors = [str(author_data)]
+            
+            # Extract year
+            year = None
+            if 'publication_date' in record:
+                pub_date = record['publication_date']
+                if isinstance(pub_date, str):
+                    year = int(pub_date.split('-')[0]) if '-' in pub_date else int(pub_date[:4])
+            elif 'year' in record:
+                year = record['year']
+            
+            papers.append({
+                'title': record.get('title', 'N/A'),
+                'abstract': record.get('abstract', ''),
+                'authors': authors,
+                'year': year,
+                'doi': doi,
+                'source': 'Web of Science',
+                'citations': record.get('times_cited', 0)
+            })
+        
+        logger.info(f"Retrieved {len(papers)} papers from Web of Science")
+        return papers
+    
+    except Exception as e:
+        logger.error(f"Web of Science search failed: {e}")
+        return []
+
+
 def deduplicate_papers(papers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Deduplicate papers by DOI and title similarity.
@@ -253,18 +345,48 @@ def rerank_papers(papers: List[Dict[str, Any]], query: str, top_k: int = 10) -> 
         return papers[:top_k]
 
 
-def search_papers(query: str, top_k: int = 10) -> Dict[str, Any]:
+def search_papers(
+    query: str, 
+    top_k: int = 10, 
+    sources: Optional[List[str]] = None,
+    previous_papers: Optional[List[Dict[str, Any]]] = None
+) -> Dict[str, Any]:
     """
     Main search function that orchestrates the entire search pipeline:
     1. Query expansion (AutoResearch)
-    2. Multi-source search (DeepResearch - Python Reimpl): Semantic Scholar + arXiv
-    3. Deduplication
+    2. Multi-source search (DeepResearch - Python Reimpl)
+    3. Deduplication (including previous search results)
     4. Semantic reranking (DELM)
-
-    Returns a dictionary with papers and metadata, including execution details.
+    
+    Args:
+        query: Search query string
+        top_k: Number of top results to return
+        sources: List of sources to search. Options: 'semantic_scholar', 'arxiv', 'web_of_science'
+                 If None, defaults to ['semantic_scholar', 'arxiv']
+        previous_papers: Papers from previous searches in session to build upon
+    
+    Returns:
+        Dictionary with papers and metadata, including execution details.
     """
     start_time = time.time()
     execution_log = []  # Track execution steps for display
+    
+    # Default sources if not specified
+    if sources is None:
+        sources = ['semantic_scholar', 'arxiv']
+    
+    # Validate sources
+    valid_sources = {'semantic_scholar', 'arxiv', 'web_of_science'}
+    sources = [s for s in sources if s in valid_sources]
+    
+    if not sources:
+        return {
+            'success': False,
+            'papers': [],
+            'message': 'No valid sources specified.',
+            'elapsed_time': time.time() - start_time,
+            'execution_log': execution_log
+        }
 
     try:
         # Step 1: AutoResearch - Query expansion
@@ -283,29 +405,43 @@ def search_papers(query: str, top_k: int = 10) -> Dict[str, Any]:
         # Step 2: DeepResearch (Python Reimpl) - Multi-source search
         step2_start = time.time()
         all_papers = []
-
-        # Semantic Scholar (40 papers)
-        s2_start = time.time()
-        s2_papers = []
-        for q in queries[:1]:  # Use only the primary query for S2
-            s2_results = search_semantic_scholar(q, limit=40)
-            s2_papers.extend(s2_results)
-            all_papers.extend(s2_results)
-        s2_time = time.time() - s2_start
-        s2_count = len(s2_papers)
-
-        # arXiv (10 papers)
-        arxiv_start = time.time()
-        arxiv_papers = search_arxiv(query, limit=10)
-        all_papers.extend(arxiv_papers)
-        arxiv_time = time.time() - arxiv_start
-        arxiv_count = len(arxiv_papers)
+        source_details = []
+        
+        # Search Semantic Scholar if requested
+        if 'semantic_scholar' in sources:
+            s2_start = time.time()
+            s2_papers = []
+            for q in queries[:1]:  # Use only the primary query for S2
+                s2_results = search_semantic_scholar(q, limit=40)
+                s2_papers.extend(s2_results)
+                all_papers.extend(s2_results)
+            s2_time = time.time() - s2_start
+            s2_count = len(s2_papers)
+            source_details.append(f"Semantic Scholar ({s2_count} in {s2_time:.2f}s)")
+        
+        # Search arXiv if requested
+        if 'arxiv' in sources:
+            arxiv_start = time.time()
+            arxiv_papers = search_arxiv(query, limit=10)
+            all_papers.extend(arxiv_papers)
+            arxiv_time = time.time() - arxiv_start
+            arxiv_count = len(arxiv_papers)
+            source_details.append(f"arXiv ({arxiv_count} in {arxiv_time:.2f}s)")
+        
+        # Search Web of Science if requested
+        if 'web_of_science' in sources:
+            wos_start = time.time()
+            wos_papers = search_web_of_science(query, limit=20)
+            all_papers.extend(wos_papers)
+            wos_time = time.time() - wos_start
+            wos_count = len(wos_papers)
+            source_details.append(f"Web of Science ({wos_count} in {wos_time:.2f}s)")
 
         step2_time = time.time() - step2_start
         execution_log.append({
             'step': 'DeepResearch (Python Reimpl)',
             'description': 'Multi-Source Paper Retrieval',
-            'details': f"Retrieved {len(all_papers)} papers: Semantic Scholar ({s2_count} in {s2_time:.2f}s), arXiv ({arxiv_count} in {arxiv_time:.2f}s)",
+            'details': f"Retrieved {len(all_papers)} papers: {', '.join(source_details)}",
             'elapsed_ms': int(step2_time * 1000),
             'status': 'completed'
         })
@@ -319,14 +455,23 @@ def search_papers(query: str, top_k: int = 10) -> Dict[str, Any]:
                 'execution_log': execution_log
             }
 
-        # Step 2b: Deduplication (part of DeepResearch)
+        # Step 2b: Deduplication (including previous search results)
         dedup_start = time.time()
-        unique_papers = deduplicate_papers(all_papers)
+        
+        # Combine with previous papers if building on session
+        if previous_papers:
+            all_papers_combined = previous_papers + all_papers
+            unique_papers = deduplicate_papers(all_papers_combined)
+            dedup_details = f"Deduplicated {len(all_papers_combined)} papers (including {len(previous_papers)} from previous searches) to {len(unique_papers)} unique entries"
+        else:
+            unique_papers = deduplicate_papers(all_papers)
+            dedup_details = f"Deduplicated {len(all_papers)} papers to {len(unique_papers)} unique entries"
+        
         dedup_time = time.time() - dedup_start
         execution_log.append({
             'step': 'DeepResearch (Python Reimpl)',
             'description': 'Deduplication',
-            'details': f"Deduplicated {len(all_papers)} papers to {len(unique_papers)} unique entries",
+            'details': dedup_details,
             'elapsed_ms': int(dedup_time * 1000),
             'status': 'completed'
         })
@@ -352,16 +497,22 @@ def search_papers(query: str, top_k: int = 10) -> Dict[str, Any]:
                 paper['abstract_snippet'] = abstract
 
         elapsed_time = time.time() - start_time
+        
+        session_info = ""
+        if previous_papers:
+            session_info = f" (Building on {len(previous_papers)} papers from previous searches)"
 
         return {
             'success': True,
             'papers': reranked_papers,
+            'all_session_papers': unique_papers,  # All unique papers from this session
             'total_found': len(all_papers),
             'total_unique': len(unique_papers),
             'returned': len(reranked_papers),
             'elapsed_time': elapsed_time,
-            'message': f'Found {len(reranked_papers)} relevant papers in {elapsed_time:.2f}s',
-            'execution_log': execution_log
+            'message': f'Found {len(reranked_papers)} relevant papers in {elapsed_time:.2f}s{session_info}',
+            'execution_log': execution_log,
+            'sources_used': sources
         }
 
     except Exception as e:
@@ -380,3 +531,56 @@ def search_papers(query: str, top_k: int = 10) -> Dict[str, Any]:
             'elapsed_time': time.time() - start_time,
             'execution_log': execution_log
         }
+
+
+def get_available_sources() -> Dict[str, Any]:
+    """
+    Check which search sources are available based on installed libraries and API keys.
+    
+    Returns:
+        Dictionary with source availability information.
+    """
+    sources = {
+        'semantic_scholar': {
+            'name': 'Semantic Scholar',
+            'available': False,
+            'description': 'Open academic paper search from AI2',
+            'requires': 'semanticscholar package'
+        },
+        'arxiv': {
+            'name': 'arXiv',
+            'available': False,
+            'description': 'Preprint repository for physics, mathematics, CS, etc.',
+            'requires': 'arxiv package'
+        },
+        'web_of_science': {
+            'name': 'Web of Science',
+            'available': False,
+            'description': 'Comprehensive citation database',
+            'requires': 'woslite_client package and WOS_API_KEY environment variable'
+        }
+    }
+    
+    # Check Semantic Scholar
+    try:
+        _get_semantic_scholar()
+        sources['semantic_scholar']['available'] = True
+    except Exception:
+        pass
+    
+    # Check arXiv
+    try:
+        _get_arxiv()
+        sources['arxiv']['available'] = True
+    except Exception:
+        pass
+    
+    # Check Web of Science
+    try:
+        wos = _get_wos_client()
+        if wos is not None:
+            sources['web_of_science']['available'] = True
+    except Exception:
+        pass
+    
+    return sources

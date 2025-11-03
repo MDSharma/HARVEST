@@ -719,6 +719,7 @@ app.layout = dbc.Container(
         dcc.Store(id="upload-project-id-store"),  # Store project ID for upload
         dcc.Store(id="pdf-download-project-id", data=None),  # Store project ID for PDF download tracking
         dcc.Store(id="lit-search-selected-papers", data=[]),  # Store selected papers
+        dcc.Store(id="lit-search-session-papers", data=[], storage_type="session"),  # Store all papers from session
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
         dcc.Interval(id="pdf-download-progress-interval", interval=2000, disabled=True),  # Poll every 2 seconds
         dcc.Interval(id="markdown-reload-interval", interval=5000, disabled=False),  # Check for markdown updates every 5 seconds
@@ -940,9 +941,39 @@ app.layout = dbc.Container(
                                                     children=[
                                                         
                                                         html.P(
-                                                            "Search for relevant papers from Semantic Scholar and arXiv using natural language queries.",
-                                                            className="text-muted mb-4"
+                                                            "Search for relevant papers from multiple academic sources using natural language queries.",
+                                                            className="text-muted mb-3"
                                                         ),
+                                                        
+                                                        # Source selection
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Label("Select Search Sources", style={"fontWeight": "bold"}),
+                                                                        dbc.Checklist(
+                                                                            id="lit-search-sources",
+                                                                            options=[
+                                                                                {"label": " Semantic Scholar", "value": "semantic_scholar"},
+                                                                                {"label": " arXiv", "value": "arxiv"},
+                                                                                {"label": " Web of Science", "value": "web_of_science"},
+                                                                            ],
+                                                                            value=["semantic_scholar", "arxiv"],  # Default sources
+                                                                            inline=True,
+                                                                            className="mb-2",
+                                                                        ),
+                                                                        html.Small(
+                                                                            id="lit-search-sources-info",
+                                                                            className="text-muted"
+                                                                        ),
+                                                                    ],
+                                                                    md=12,
+                                                                ),
+                                                            ],
+                                                            className="mb-3",
+                                                        ),
+                                                        
+                                                        # Query and search button
                                                         dbc.Row(
                                                             [
                                                                 dbc.Col(
@@ -968,6 +999,39 @@ app.layout = dbc.Container(
                                                                             "Search Papers",
                                                                             id="btn-search-papers",
                                                                             color="primary",
+                                                                            className="w-100",
+                                                                        ),
+                                                                    ],
+                                                                    md=3,
+                                                                ),
+                                                            ],
+                                                            className="mb-3",
+                                                        ),
+                                                        
+                                                        # Session options
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Checkbox(
+                                                                            id="lit-search-build-session",
+                                                                            label="Build on previous searches (cumulative)",
+                                                                            value=False,
+                                                                        ),
+                                                                        html.Small(
+                                                                            "When enabled, new searches will add to existing results instead of replacing them",
+                                                                            className="text-muted"
+                                                                        ),
+                                                                    ],
+                                                                    md=9,
+                                                                ),
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Button(
+                                                                            "Clear Session",
+                                                                            id="btn-clear-session",
+                                                                            color="secondary",
+                                                                            size="sm",
                                                                             className="w-100",
                                                                         ),
                                                                     ],
@@ -1758,26 +1822,51 @@ def check_lit_search_auth(auth_data, active_tab):
     Output("search-results", "children"),
     Output("lit-search-selected-papers", "data"),
     Output("lit-search-export-controls", "style"),
+    Output("lit-search-session-papers", "data"),
     Input("btn-search-papers", "n_clicks"),
     State("lit-search-query", "value"),
+    State("lit-search-sources", "value"),
+    State("lit-search-build-session", "value"),
+    State("lit-search-session-papers", "data"),
     prevent_initial_call=True,
 )
-def perform_literature_search(n_clicks, query):
+def perform_literature_search(n_clicks, query, sources, build_session, session_papers):
     """
     Callback to perform literature search when button is clicked.
     Displays the execution pipeline for AutoResearch, DeepResearch, and DELM.
+    Supports multiple sources and session-based cumulative searching.
     """
     if not query or not query.strip():
         return (
             dbc.Alert("Please enter a search query", color="warning"),
             None,
             [],
-            {"display": "none"}
+            {"display": "none"},
+            session_papers or []
+        )
+    
+    if not sources:
+        return (
+            dbc.Alert("Please select at least one search source", color="warning"),
+            None,
+            [],
+            {"display": "none"},
+            session_papers or []
         )
 
     try:
-        # Perform search
-        result = literature_search.search_papers(query.strip(), top_k=10)
+        # Prepare previous papers for session build
+        previous_papers = None
+        if build_session and session_papers:
+            previous_papers = session_papers
+        
+        # Perform search with selected sources
+        result = literature_search.search_papers(
+            query.strip(), 
+            top_k=10,
+            sources=sources,
+            previous_papers=previous_papers
+        )
 
         if not result['success']:
             # Show execution log even on failure
@@ -1791,34 +1880,49 @@ def perform_literature_search(n_clicks, query):
                     ]),
                     None,
                     [],
-                    {"display": "none"}
+                    {"display": "none"},
+                    session_papers or []
                 )
             return (
                 dbc.Alert(result['message'], color="danger"),
                 None,
                 [],
-                {"display": "none"}
+                {"display": "none"},
+                session_papers or []
             )
 
         papers = result['papers']
 
         if not papers:
             return (
-                dbc.Alert("No papers found. Try a different query.", color="info"),
+                dbc.Alert("No papers found. Try a different query or different sources.", color="info"),
                 None,
                 [],
-                {"display": "none"}
+                {"display": "none"},
+                session_papers or []
             )
+
+        # Store all unique papers from session
+        new_session_papers = result.get('all_session_papers', papers)
 
         # Create execution log display
         execution_log = result.get('execution_log', [])
         log_display = create_execution_log_display(execution_log)
+        
+        # Create sources info
+        sources_used = result.get('sources_used', [])
+        sources_display = ', '.join([
+            {'semantic_scholar': 'Semantic Scholar', 'arxiv': 'arXiv', 'web_of_science': 'Web of Science'}.get(s, s)
+            for s in sources_used
+        ])
 
         # Create status message with execution log
         status = html.Div([
             dbc.Alert(
                 [
                     html.Strong(result['message']),
+                    html.Br(),
+                    html.Small(f"Sources: {sources_display}"),
                     html.Br(),
                     html.Small(f"Total found: {result['total_found']} | Unique: {result['total_unique']} | Displaying: {result['returned']}")
                 ],
@@ -1954,7 +2058,7 @@ def perform_literature_search(n_clicks, query):
 
             results_content.append(paper_card)
 
-        return status, html.Div(results_content), papers_data, {"display": "block"}
+        return status, html.Div(results_content), papers_data, {"display": "block"}, new_session_papers
 
     except Exception as e:
         logger.error(f"Literature search error: {e}")
@@ -1962,8 +2066,51 @@ def perform_literature_search(n_clicks, query):
             dbc.Alert(f"Search failed: {str(e)}", color="danger"),
             None,
             [],
-            {"display": "none"}
+            {"display": "none"},
+            session_papers or []
         )
+
+
+# Callback to clear search session
+@app.callback(
+    Output("lit-search-session-papers", "data", allow_duplicate=True),
+    Output("search-status", "children", allow_duplicate=True),
+    Input("btn-clear-session", "n_clicks"),
+    prevent_initial_call=True,
+)
+def clear_search_session(n_clicks):
+    """Clear the search session history"""
+    return [], dbc.Alert("Search session cleared", color="info", duration=3000)
+
+
+# Callback to display source availability info
+@app.callback(
+    Output("lit-search-sources-info", "children"),
+    Input("load-trigger", "n_intervals"),
+    prevent_initial_call=False,
+)
+def update_source_info(n_intervals):
+    """Display information about available search sources"""
+    try:
+        sources_info = literature_search.get_available_sources()
+        
+        info_parts = []
+        for source_key, source_data in sources_info.items():
+            if source_data['available']:
+                info_parts.append(f"✓ {source_data['name']}")
+            else:
+                info_parts.append(f"✗ {source_data['name']} (unavailable)")
+        
+        info_text = " | ".join(info_parts)
+        
+        # Add WoS API key hint if not available
+        if not sources_info['web_of_science']['available']:
+            info_text += " | Set WOS_API_KEY environment variable to enable Web of Science"
+        
+        return info_text
+    except Exception as e:
+        logger.error(f"Error getting source info: {e}")
+        return "Source availability check failed"
 
 
 # Callback for pipeline execution flow collapse
