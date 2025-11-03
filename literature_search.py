@@ -1151,8 +1151,6 @@ def search_papers(
                 })
         if progress_callback:
             progress_callback(execution_log[-1])
-                'status': 'completed'
-            })
 
         # Format abstracts (snippet only)
         for paper in reranked_papers:
