@@ -269,8 +269,10 @@ def create_execution_log_display(execution_log):
     # Define colors for each step type
     step_colors = {
         'AutoResearch': '#17a2b8',  # Info blue
+        'Query Processing': '#17a2b8',  # Info blue
         'DeepResearch (Python Reimpl)': '#28a745',  # Success green
         'DELM': '#ffc107',  # Warning yellow/gold
+        'Result Selection': '#ffc107',  # Warning yellow/gold
         'Error': '#dc3545'  # Danger red
     }
     
@@ -284,9 +286,11 @@ def create_execution_log_display(execution_log):
         # Get color for this step
         color = step_colors.get(step_name, '#6c757d')
         
-        # Create status icon
+        # Create status icon based on status
         if status == 'completed':
             status_icon = html.I(className="bi bi-check-circle-fill", style={"color": "#28a745"})
+        elif status == 'skipped':
+            status_icon = html.I(className="bi bi-dash-circle-fill", style={"color": "#6c757d"})
         elif status == 'error':
             status_icon = html.I(className="bi bi-x-circle-fill", style={"color": "#dc3545"})
         else:
@@ -1042,6 +1046,7 @@ app.layout = dbc.Container(
                                                                                 {"label": " Semantic Scholar", "value": "semantic_scholar"},
                                                                                 {"label": " arXiv", "value": "arxiv"},
                                                                                 {"label": " Web of Science", "value": "web_of_science"},
+                                                                                {"label": " OpenAlex", "value": "openalex"},
                                                                             ],
                                                                             value=["semantic_scholar", "arxiv"],  # Default sources
                                                                             inline=True,
@@ -1049,6 +1054,33 @@ app.layout = dbc.Container(
                                                                         ),
                                                                         html.Small(
                                                                             id="lit-search-sources-info",
+                                                                            className="text-muted"
+                                                                        ),
+                                                                    ],
+                                                                    md=12,
+                                                                ),
+                                                            ],
+                                                            className="mb-3",
+                                                        ),
+                                                        
+                                                        # Pipeline controls section
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Label("Pipeline Workflow Controls", style={"fontWeight": "bold"}),
+                                                                        dbc.Checklist(
+                                                                            id="lit-search-pipeline-controls",
+                                                                            options=[
+                                                                                {"label": " Query Expansion (AutoResearch)", "value": "query_expansion"},
+                                                                                {"label": " Deduplication", "value": "deduplication"},
+                                                                                {"label": " Semantic Reranking (DELM)", "value": "reranking"},
+                                                                            ],
+                                                                            value=["query_expansion", "deduplication", "reranking"],  # All enabled by default
+                                                                            className="mb-2",
+                                                                        ),
+                                                                        html.Small(
+                                                                            "Control which pipeline steps to execute. Disabling steps may speed up searches but affect result quality.",
                                                                             className="text-muted"
                                                                         ),
                                                                     ],
@@ -1960,15 +1992,16 @@ def check_lit_search_auth(auth_data, active_tab):
     Input("btn-search-papers", "n_clicks"),
     State("lit-search-query", "value"),
     State("lit-search-sources", "value"),
+    State("lit-search-pipeline-controls", "value"),
     State("lit-search-build-session", "value"),
     State("lit-search-session-papers", "data"),
     prevent_initial_call=True,
 )
-def perform_literature_search(n_clicks, query, sources, build_session, session_papers):
+def perform_literature_search(n_clicks, query, sources, pipeline_controls, build_session, session_papers):
     """
     Callback to perform literature search when button is clicked.
     Displays the execution pipeline for AutoResearch, DeepResearch, and DELM.
-    Supports multiple sources and session-based cumulative searching.
+    Supports multiple sources, session-based cumulative searching, and pipeline controls.
     """
     if not query or not query.strip():
         return (
@@ -1994,12 +2027,21 @@ def perform_literature_search(n_clicks, query, sources, build_session, session_p
         if build_session and session_papers:
             previous_papers = session_papers
         
-        # Perform search with selected sources
+        # Parse pipeline controls
+        pipeline_controls = pipeline_controls or []
+        enable_query_expansion = "query_expansion" in pipeline_controls
+        enable_deduplication = "deduplication" in pipeline_controls
+        enable_reranking = "reranking" in pipeline_controls
+        
+        # Perform search with selected sources and pipeline controls
         result = literature_search.search_papers(
             query.strip(), 
             top_k=10,
             sources=sources,
-            previous_papers=previous_papers
+            previous_papers=previous_papers,
+            enable_query_expansion=enable_query_expansion,
+            enable_deduplication=enable_deduplication,
+            enable_reranking=enable_reranking
         )
 
         if not result['success']:
@@ -2046,7 +2088,7 @@ def perform_literature_search(n_clicks, query, sources, build_session, session_p
         # Create sources info
         sources_used = result.get('sources_used', [])
         sources_display = ', '.join([
-            {'semantic_scholar': 'Semantic Scholar', 'arxiv': 'arXiv', 'web_of_science': 'Web of Science'}.get(s, s)
+            {'semantic_scholar': 'Semantic Scholar', 'arxiv': 'arXiv', 'web_of_science': 'Web of Science', 'openalex': 'OpenAlex'}.get(s, s)
             for s in sources_used
         ])
 
