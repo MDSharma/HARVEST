@@ -724,6 +724,69 @@ app.layout = dbc.Container(
         dcc.Interval(id="pdf-download-progress-interval", interval=2000, disabled=True),  # Poll every 2 seconds
         dcc.Interval(id="markdown-reload-interval", interval=5000, disabled=False),  # Check for markdown updates every 5 seconds
         
+        # Modal for Web of Science advanced syntax help
+        dbc.Modal(
+            [
+                dbc.ModalHeader(dbc.ModalTitle("Web of Science Advanced Search Syntax")),
+                dbc.ModalBody(
+                    [
+                        html.P("Web of Science supports powerful field-based searches with boolean operators:", className="mb-3"),
+                        
+                        html.H6("Common Field Tags:", className="mb-2"),
+                        html.Ul([
+                            html.Li([html.Strong("TS="), " Topic (title, abstract, keywords)"]),
+                            html.Li([html.Strong("TI="), " Title"]),
+                            html.Li([html.Strong("AB="), " Abstract"]),
+                            html.Li([html.Strong("AU="), " Author"]),
+                            html.Li([html.Strong("PY="), " Publication year"]),
+                            html.Li([html.Strong("SO="), " Journal/publication name"]),
+                            html.Li([html.Strong("DO="), " DOI"]),
+                        ], className="mb-3"),
+                        
+                        html.H6("Boolean Operators:", className="mb-2"),
+                        html.P([html.Strong("AND"), ", ", html.Strong("OR"), ", ", html.Strong("NOT")], className="mb-3"),
+                        
+                        html.H6("Wildcards:", className="mb-2"),
+                        html.Ul([
+                            html.Li([html.Strong("*"), " - multiple characters (e.g., genom* matches genomic, genomics)"]),
+                            html.Li([html.Strong("?"), " - single character"]),
+                        ], className="mb-3"),
+                        
+                        html.H6("Example Queries:", className="mb-2"),
+                        dbc.Alert([
+                            html.Code("AB=(genomic* OR transcriptom*)"),
+                            html.Br(),
+                            html.Code("TI=(CRISPR) AND PY=(2020-2024)"),
+                            html.Br(),
+                            html.Code("TS=(machine learning) AND SO=(Nature)"),
+                            html.Br(),
+                            html.Code("AU=(Smith J*) AND AB=(longevity*)"),
+                        ], color="light", className="mb-3"),
+                        
+                        html.P([
+                            "For more details, see the ",
+                            html.A("WoS Advanced Search Guide", 
+                                   href="https://webofscience.zendesk.com/hc/en-us/articles/20130361503249",
+                                   target="_blank"),
+                            " or our ",
+                            html.A("complete documentation",
+                                   href="docs/SEMANTIC_SEARCH.md#advanced-search-syntax",
+                                   target="_blank"),
+                            "."
+                        ], className="small text-muted"),
+                    ]
+                ),
+                dbc.ModalFooter(
+                    [
+                        dbc.Button("Close", id="wos-syntax-help-close", color="primary"),
+                    ]
+                ),
+            ],
+            id="wos-syntax-help-modal",
+            is_open=False,
+            size="lg",
+        ),
+        
         # Modal for exporting DOIs from literature search
         dbc.Modal(
             [
@@ -986,7 +1049,16 @@ app.layout = dbc.Container(
                                                                             debounce=True,
                                                                         ),
                                                                         html.Small(
-                                                                            "Enter a natural language query to find relevant papers",
+                                                                            [
+                                                                                "Enter a natural language query or ",
+                                                                                html.A(
+                                                                                    "Web of Science advanced syntax",
+                                                                                    href="#",
+                                                                                    id="wos-syntax-help-link",
+                                                                                    style={"cursor": "pointer"}
+                                                                                ),
+                                                                                " (e.g., AB=(genomic*) AND PY=(2020-2024))"
+                                                                            ],
                                                                             className="text-muted"
                                                                         ),
                                                                     ],
@@ -2081,6 +2153,19 @@ def perform_literature_search(n_clicks, query, sources, build_session, session_p
 def clear_search_session(n_clicks):
     """Clear the search session history"""
     return [], dbc.Alert("Search session cleared", color="info", duration=3000)
+
+
+# Callback to show/hide WoS syntax help modal
+@app.callback(
+    Output("wos-syntax-help-modal", "is_open"),
+    Input("wos-syntax-help-link", "n_clicks"),
+    Input("wos-syntax-help-close", "n_clicks"),
+    State("wos-syntax-help-modal", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_wos_syntax_help(link_clicks, close_clicks, is_open):
+    """Toggle the WoS advanced syntax help modal"""
+    return not is_open
 
 
 # Callback to display source availability info

@@ -148,13 +148,115 @@ The semantic search executes in three stages:
 - **Implementation**: Based on [Clarivate's official examples](https://github.com/clarivate/wos_api_usecases/tree/main/python/societal_impact_analytics)
 - **Max results per query**: 100
 
+### Advanced Search Syntax
+
+Web of Science supports powerful advanced search queries using **field tags** and **boolean operators**. When you use WoS as your search source, you can use either simple queries or advanced syntax.
+
+#### Simple Queries
+
+Simple queries are automatically converted to Topic Search format:
+- `"machine learning"` → `TS=(machine learning)`
+- `"climate change"` → `TS=(climate change)`
+
+#### Advanced Query Format
+
+Use field tags to search specific fields:
+
+**Common Field Tags:**
+- `TS=` - Topic (searches title, abstract, author keywords, and Keywords Plus®)
+- `TI=` - Title
+- `AB=` - Abstract
+- `AU=` - Author name
+- `PY=` - Publication year
+- `SO=` - Publication title (journal/book)
+- `DO=` - DOI
+- `UT=` - Accession number (WoS ID)
+- `PMID=` - PubMed ID
+
+**All Available Field Tags:**
+```
+TS=Topic            TI=Title            AB=Abstract
+AU=Author           AI=Author ID        AK=Author Keywords
+GP=Group Author     ED=Editor           KP=Keywords Plus
+SO=Publication      DO=DOI              PY=Year Published
+CF=Conference       AD=Address          OG=Organization
+OO=Organization     SG=Suborganization  SA=Street Address
+CI=City             PS=Province/State   CU=Country
+ZP=Zip/Postal Code  FO=Funding Agency   FG=Grant Number
+FD=Funding Details  FT=Funding Text     SU=Research Area
+WC=WoS Categories   IS=ISSN/ISBN        UT=Accession Number
+PMID=PubMed ID      DOP=Pub Date        LD=Index Date
+PUBL=Publisher      ALL=All Fields      FPY=Final Pub Year
+EAY=Early Access    SDG=SDG Goals       TMAC=Citation Topic
+```
+
+**Boolean Operators:**
+- `AND` - Both terms must be present
+- `OR` - Either term can be present
+- `NOT` - Exclude terms
+
+**Wildcards:**
+- `*` - Multiple characters (e.g., `genom*` matches genomic, genomics, genome)
+- `?` - Single character (e.g., `wom?n` matches woman, women)
+
+#### Example Queries
+
+**Basic searches:**
+```
+AB=(genomic* OR transcriptom*)
+TI=(machine learning)
+AU=(Smith J*)
+```
+
+**Complex searches with boolean operators:**
+```
+AB=(genomic* OR transcriptom*) AND PY=(2020-2024)
+TS=(CRISPR) AND AU=(Doudna) NOT TI=(review)
+(TI=(climate change) OR AB=(global warming)) AND PY=(2015-2024)
+```
+
+**Year ranges:**
+```
+PY=(2020-2024)           # Papers from 2020 to 2024
+PY=(2023)                # Papers from 2023 only
+```
+
+**Combining multiple fields:**
+```
+AB=(longevity* OR reproduction*) AND AU=(Tribolium) AND PY=(2015-2024)
+TS=(artificial intelligence) AND SO=(Nature) AND PY=(2020-2024)
+```
+
+### Query Behavior
+
+**When using Web of Science ONLY:**
+- Advanced queries (with field tags) skip query expansion and semantic reranking
+- Results are returned in WoS relevance order
+- This preserves the precision of your advanced query
+
+**When using Web of Science with other sources:**
+- Simple queries undergo semantic processing across all sources
+- Advanced queries are used as-is for WoS, expanded for other sources
+- Results are deduplicated and semantically reranked
+
+**Best Practices:**
+1. Use advanced syntax for precise, reproducible searches
+2. Use wildcards (`*`) for word variations
+3. Use field tags to narrow your search scope
+4. Test your query at [Web of Science Advanced Search](https://www.webofscience.com/wos/woscc/advanced-search) first
+5. Enclose phrases in quotes: `AB=("machine learning")`
+
 ### Usage Notes
 
 - Web of Science searches may have rate limits
 - Check your API plan for usage quotas
 - Results include citation metrics
 - Access to paywalled content metadata
-- Query syntax should be in WoS format (e.g., "TS=(machine learning)")
+- Advanced queries provide more control than natural language search
+
+**Resources:**
+- [WoS Advanced Search Guide](https://webofscience.zendesk.com/hc/en-us/articles/20130361503249-Advanced-Search-Query-Builder)
+- [WoS Search Tips](https://webofscience.zendesk.com/hc/en-us/sections/360007533194-Search-Tips)
 
 ## Configuration
 
@@ -173,7 +275,7 @@ export UNPAYWALL_EMAIL="your@email.com"
 In `literature_search.py`:
 
 ```python
-# Customize query expansion synonyms
+# Customize query expansion synonyms (not used for WoS advanced queries)
 synonym_map = {
     'ai': ['artificial intelligence', 'machine learning', 'deep learning'],
     # Add your domain-specific terms

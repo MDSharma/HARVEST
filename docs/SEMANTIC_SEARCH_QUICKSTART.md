@@ -72,6 +72,34 @@ Only if you want premium citation data:
 
 **Note**: Uses Web of Science Expanded API directly - no additional packages needed!
 
+### Web of Science Advanced Search
+
+When using Web of Science, you can use **advanced query syntax** for precise searches:
+
+**Simple queries** (auto-converted):
+- `"machine learning"` → searches topic field
+
+**Advanced queries** (use as-is):
+- `AB=(genomic* OR transcriptom*)` → searches abstracts
+- `TI=(CRISPR) AND PY=(2020-2024)` → searches titles and year range
+- `AU=(Smith J*) AND TS=(climate)` → searches authors and topic
+
+**Common field tags:**
+- `TS=` Topic (title + abstract + keywords)
+- `TI=` Title
+- `AB=` Abstract
+- `AU=` Author
+- `PY=` Year (use ranges like `PY=(2020-2024)`)
+- `SO=` Journal name
+- `DO=` DOI
+
+**Operators:** `AND`, `OR`, `NOT`  
+**Wildcards:** `*` (many chars), `?` (one char)
+
+**Example:** `AB=(longevity* OR reproduction*) AND PY=(2015-2024)`
+
+See [WoS Advanced Search Guide](https://webofscience.zendesk.com/hc/en-us/articles/20130361503249) for more details.
+
 ## What You Get
 
 Every paper includes:

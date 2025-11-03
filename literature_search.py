@@ -80,10 +80,66 @@ def _get_wos_api_key():
     return _wos_client if _wos_client else None
 
 
+def is_wos_advanced_query(query: str) -> bool:
+    """
+    Check if a query is in Web of Science advanced search format.
+    
+    Advanced queries use field tags like TS=, TI=, AB=, AU=, etc.
+    with boolean operators AND, OR, NOT.
+    
+    Examples:
+        - AB=(genomic* OR transcriptom*) returns True
+        - TS=(machine learning) AND PY=(2020-2024) returns True
+        - "simple query" returns False
+    """
+    # WoS field tags
+    wos_tags = [
+        'TS=', 'TI=', 'AB=', 'AU=', 'AI=', 'AK=', 'GP=', 'ED=', 'KP=',
+        'SO=', 'DO=', 'PY=', 'CF=', 'AD=', 'OG=', 'OO=', 'SG=', 'SA=',
+        'CI=', 'PS=', 'CU=', 'ZP=', 'FO=', 'FG=', 'FD=', 'FT=', 'SU=',
+        'WC=', 'IS=', 'UT=', 'PMID=', 'DOP=', 'LD=', 'PUBL=', 'ALL=',
+        'FPY=', 'EAY=', 'SDG=', 'TMAC=', 'TMSO=', 'TMIC='
+    ]
+    
+    # Check if query contains any WoS field tags
+    query_upper = query.upper()
+    return any(tag in query_upper for tag in wos_tags)
+
+
+def convert_to_wos_query(query: str, default_field: str = 'TS') -> str:
+    """
+    Convert a simple natural language query to Web of Science advanced search format.
+    
+    If the query is already in WoS format, return as-is.
+    Otherwise, wrap it in the default field tag.
+    
+    Args:
+        query: Search query (natural language or WoS advanced format)
+        default_field: Default WoS field tag to use (default: 'TS' for Topic)
+    
+    Returns:
+        WoS advanced search query
+    
+    Examples:
+        - "machine learning" -> "TS=(machine learning)"
+        - "AB=(genomic*)" -> "AB=(genomic*)" (unchanged)
+        - "AI ethics" -> "TS=(AI ethics)"
+    """
+    if is_wos_advanced_query(query):
+        # Already in advanced format, return as-is
+        return query
+    
+    # Convert simple query to WoS format
+    # For simple queries, use Topic Search (TS) which searches title, abstract, and keywords
+    return f"{default_field}=({query})"
+
+
 def expand_query(query: str) -> List[str]:
     """
     Simple query expansion using common synonyms.
     Returns a list of query variations.
+    
+    Note: Not applicable for Web of Science advanced queries.
     """
     # Basic synonym mapping for common terms
     synonym_map = {
@@ -208,6 +264,18 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
     Cached to avoid redundant API calls.
     Requires WOS_API_KEY environment variable to be set.
     
+    Supports Web of Science advanced search syntax with field tags:
+    - TS=(topic) - Topic (title, abstract, keywords)
+    - TI=(title) - Title
+    - AB=(abstract) - Abstract
+    - AU=(author) - Author
+    - PY=(year) - Publication year
+    And boolean operators: AND, OR, NOT
+    
+    Examples:
+        - Simple: "machine learning" -> converts to "TS=(machine learning)"
+        - Advanced: "AB=(genomic* OR transcriptom*) AND PY=(2020-2024)"
+    
     API Reference: https://github.com/clarivate/wos_api_usecases/
     """
     try:
@@ -219,11 +287,15 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
             logger.warning("Web of Science API key not available. Check WOS_API_KEY environment variable.")
             return []
         
+        # Convert to WoS advanced query format if needed
+        wos_query = convert_to_wos_query(query)
+        logger.info(f"Web of Science query: {wos_query}")
+        
         # Use Web of Science Expanded API endpoint
         # Search WOS Core Collection database
         params = {
             'databaseId': 'WOS',
-            'usrQuery': query,
+            'usrQuery': wos_query,  # Use converted query
             'count': min(limit, 100),  # API max is 100 per request
             'firstRecord': 1
         }
@@ -457,18 +529,33 @@ def search_papers(
         }
 
     try:
-        # Step 1: AutoResearch - Query expansion
+        # Detect if this is a WoS advanced query
+        is_wos_advanced = is_wos_advanced_query(query)
+        using_wos_only = sources == ['web_of_science']
+        
+        # Step 1: AutoResearch - Query expansion (skip for WoS advanced queries)
         step1_start = time.time()
-        queries = expand_query(query)
-        step1_time = time.time() - step1_start
-        logger.info(f"Expanded query '{query}' to {len(queries)} variations")
-        execution_log.append({
-            'step': 'AutoResearch',
-            'description': 'Query Expansion',
-            'details': f"Expanded '{query}' to {len(queries)} query variations",
-            'elapsed_ms': int(step1_time * 1000),
-            'status': 'completed'
-        })
+        if is_wos_advanced and using_wos_only:
+            queries = [query]  # No expansion for WoS advanced queries
+            logger.info(f"Using Web of Science advanced query syntax: {query}")
+            execution_log.append({
+                'step': 'Query Processing',
+                'description': 'Web of Science Advanced Query',
+                'details': f"Using advanced query syntax (no expansion): {query}",
+                'elapsed_ms': int((time.time() - step1_start) * 1000),
+                'status': 'completed'
+            })
+        else:
+            queries = expand_query(query)
+            step1_time = time.time() - step1_start
+            logger.info(f"Expanded query '{query}' to {len(queries)} variations")
+            execution_log.append({
+                'step': 'AutoResearch',
+                'description': 'Query Expansion',
+                'details': f"Expanded '{query}' to {len(queries)} query variations",
+                'elapsed_ms': int(step1_time * 1000),
+                'status': 'completed'
+            })
 
         # Step 2: DeepResearch (Python Reimpl) - Multi-source search
         step2_start = time.time()
@@ -544,17 +631,29 @@ def search_papers(
             'status': 'completed'
         })
 
-        # Step 3: DELM - Semantic reranking
+        # Step 3: DELM - Semantic reranking (skip for WoS advanced queries)
         step3_start = time.time()
-        reranked_papers = rerank_papers(unique_papers, query, top_k=top_k)
-        step3_time = time.time() - step3_start
-        execution_log.append({
-            'step': 'DELM',
-            'description': 'Semantic Reranking',
-            'details': f"Reranked {len(unique_papers)} papers using semantic similarity, returning top {len(reranked_papers)} results",
-            'elapsed_ms': int(step3_time * 1000),
-            'status': 'completed'
-        })
+        if is_wos_advanced and using_wos_only:
+            # For WoS advanced queries, skip semantic reranking and just limit results
+            reranked_papers = unique_papers[:top_k]
+            logger.info(f"Skipping semantic reranking for WoS advanced query, returning top {len(reranked_papers)} results")
+            execution_log.append({
+                'step': 'Result Selection',
+                'description': 'WoS Query Results',
+                'details': f"Returning top {len(reranked_papers)} results (no semantic reranking for advanced queries)",
+                'elapsed_ms': int((time.time() - step3_start) * 1000),
+                'status': 'completed'
+            })
+        else:
+            reranked_papers = rerank_papers(unique_papers, query, top_k=top_k)
+            step3_time = time.time() - step3_start
+            execution_log.append({
+                'step': 'DELM',
+                'description': 'Semantic Reranking',
+                'details': f"Reranked {len(unique_papers)} papers using semantic similarity, returning top {len(reranked_papers)} results",
+                'elapsed_ms': int(step3_time * 1000),
+                'status': 'completed'
+            })
 
         # Format abstracts (snippet only)
         for paper in reranked_papers:
