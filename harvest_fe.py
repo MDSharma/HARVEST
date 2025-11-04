@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 try:
     from config import (
         PARTNER_LOGOS, ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING,
-        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, URL_BASE_PATHNAME
+        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, URL_BASE_PATHNAME, EMAIL_HASH_SALT
     )
 except ImportError:
     # Fallback if config not available
@@ -35,6 +35,7 @@ except ImportError:
     DEPLOYMENT_MODE = os.getenv("HARVEST_DEPLOYMENT_MODE", "internal")
     BACKEND_PUBLIC_URL = os.getenv("HARVEST_BACKEND_PUBLIC_URL", "")
     URL_BASE_PATHNAME = os.getenv("HARVEST_URL_BASE_PATHNAME", "/")
+    EMAIL_HASH_SALT = os.getenv("EMAIL_HASH_SALT", "default-insecure-salt-change-me")
 
 # Override config with environment variables if present
 DEPLOYMENT_MODE = os.getenv("HARVEST_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
@@ -1623,24 +1624,26 @@ app.layout = dbc.Container(
                                                         dcc.Dropdown(
                                                             id="browse-field-selector",
                                                             options=[
-                                                                {"label": "Triple ID", "value": "id"},
+                                                                {"label": "Sentence ID", "value": "sentence_id"},
+                                                                {"label": "Triple ID", "value": "triple_id"},
                                                                 {"label": "Project ID", "value": "project_id"},
                                                                 {"label": "DOI", "value": "doi"},
+                                                                {"label": "DOI Hash", "value": "doi_hash"},
+                                                                {"label": "Literature Link", "value": "literature_link"},
                                                                 {"label": "Relation Type", "value": "relation_type"},
                                                                 {"label": "Source Entity Name", "value": "source_entity_name"},
                                                                 {"label": "Source Entity Attribute", "value": "source_entity_attr"},
                                                                 {"label": "Sink Entity Name", "value": "sink_entity_name"},
                                                                 {"label": "Sink Entity Attribute", "value": "sink_entity_attr"},
                                                                 {"label": "Sentence", "value": "sentence"},
-                                                                {"label": "Email (Hashed)", "value": "email"},
-                                                                {"label": "Timestamp", "value": "timestamp"},
+                                                                {"label": "Triple Contributor (Hashed)", "value": "triple_contributor"},
                                                             ],
                                                             value=["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"],
                                                             multi=True,
                                                             placeholder="Select fields to display...",
                                                             className="mb-3"
                                                         ),
-                                                        html.Small("Note: Email addresses are automatically hashed for privacy.", className="text-muted d-block mb-3"),
+                                                        html.Small("Note: Email addresses (Triple Contributor) are automatically hashed for privacy using installation-specific salt.", className="text-muted d-block mb-3"),
                                                         
                                                         html.Hr(className="mt-4"),
                                                         html.H6("Privacy & Compliance", className="mb-3"),
@@ -2303,7 +2306,7 @@ def update_source_info(n_intervals):
         
         # Add WoS API key hint if not available
         if not sources_info['web_of_science']['available']:
-            info_text += " | Set WOS_API_KEY environment variable to enable Web of Science"
+            info_text += " | Set WOS_API_KEY environment variable to enable Web of Science (see config.py)"
         
         return info_text
     except Exception as e:
@@ -3043,10 +3046,14 @@ def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, visi
         if not rows:
             return dbc.Alert("No records found. Try adding some data first!", color="info")
 
-        # Hash email addresses for privacy
+        # Hash email addresses for privacy using installation-specific salt
         for row in rows:
+            # Hash the 'email' field if present (legacy field name)
             if 'email' in row and row['email']:
-                row['email'] = hashlib.sha256(row['email'].encode()).hexdigest()[:12] + '...'
+                row['email'] = hashlib.sha256((EMAIL_HASH_SALT + row['email']).encode()).hexdigest()[:12] + '...'
+            # Hash the 'triple_contributor' field (actual field name from backend)
+            if 'triple_contributor' in row and row['triple_contributor']:
+                row['triple_contributor'] = hashlib.sha256((EMAIL_HASH_SALT + row['triple_contributor']).encode()).hexdigest()[:12] + '...'
         
         # Filter columns based on admin configuration
         if rows:
