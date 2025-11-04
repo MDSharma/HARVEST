@@ -17,8 +17,12 @@ import logging
 from typing import List, Dict, Any, Optional, Set
 from functools import lru_cache
 import time
+import os
 
 logger = logging.getLogger(__name__)
+
+# Default contact email for OpenAlex API if not configured
+DEFAULT_CONTACT_EMAIL = 'harvest-app@example.com'
 
 # Lazy imports to avoid loading heavy libraries at startup
 _semantic_scholar = None
@@ -136,6 +140,30 @@ def _get_wos_api_key():
             logger.warning("WOS_API_KEY not set in environment or config.py. Web of Science searches will be disabled.")
             _wos_client = False  # Use False to indicate checked but not available
     return _wos_client if _wos_client else None
+
+
+def _get_contact_email():
+    """
+    Get contact email for OpenAlex API from environment variable or config.
+    Environment variable takes precedence over config.py setting.
+    """
+    # Check environment variable first (takes precedence)
+    contact_email = os.getenv('HARVEST_CONTACT_EMAIL')
+
+    # If not in environment, try to get from config.py
+    if not contact_email:
+        try:
+            from config import HARVEST_CONTACT_EMAIL
+            if HARVEST_CONTACT_EMAIL:
+                contact_email = HARVEST_CONTACT_EMAIL
+        except ImportError:
+            pass  # config.py not available
+
+    # Use default if still not set
+    if not contact_email:
+        contact_email = DEFAULT_CONTACT_EMAIL
+
+    return contact_email
 
 
 def is_wos_advanced_query(query: str) -> bool:
@@ -717,7 +745,7 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
 
 
 @lru_cache(maxsize=100)
-def search_openalex(query: str, limit: int = 20) -> List[Dict[str, Any]]:
+def search_openalex(query: str, limit: int = 20, contact_email: str = DEFAULT_CONTACT_EMAIL) -> List[Dict[str, Any]]:
     """
     Search OpenAlex API for papers.
     OpenAlex is a free, open catalog of scholarly papers, authors, institutions, and more.
@@ -728,6 +756,7 @@ def search_openalex(query: str, limit: int = 20) -> List[Dict[str, Any]]:
     Args:
         query: Search query string (searches title and abstract)
         limit: Maximum number of papers to return (default: 20, max: 200)
+        contact_email: Contact email for OpenAlex polite pool (faster responses)
     
     Returns:
         List of paper dictionaries
@@ -736,15 +765,11 @@ def search_openalex(query: str, limit: int = 20) -> List[Dict[str, Any]]:
         - OpenAlex uses a different query syntax than other sources
         - The API is polite and includes automatic rate limiting
         - No API key required, but requests should include a User-Agent with email
+        - contact_email is part of the cache key to ensure cache invalidation when email changes
     """
     try:
         import requests
-        import os
-        
-        # Get contact email for OpenAlex polite pool (faster responses)
-        # Use environment variable or default
-        contact_email = os.getenv('HARVEST_CONTACT_EMAIL', 'harvest-app@example.com')
-        
+
         # OpenAlex search endpoint
         base_url = "https://api.openalex.org/works"
         
@@ -1076,7 +1101,8 @@ def search_papers(
         # Search OpenAlex if requested
         if 'openalex' in sources:
             openalex_start = time.time()
-            openalex_papers = search_openalex(query, limit=20)
+            contact_email = _get_contact_email()
+            openalex_papers = search_openalex(query, limit=20, contact_email=contact_email)
             all_papers.extend(openalex_papers)
             openalex_time = time.time() - openalex_start
             openalex_count = len(openalex_papers)

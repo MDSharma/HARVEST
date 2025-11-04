@@ -60,6 +60,11 @@ DB_PATH = "harvest.db"  # Path to SQLite database file
 # Please update this to your email address
 UNPAYWALL_EMAIL = "your-email@example.com"  # CHANGE THIS to your email
 
+# Contact email for OpenAlex API (polite pool for faster responses)
+# OpenAlex recommends including a contact email for better service
+# This can be the same as UNPAYWALL_EMAIL or a different contact email
+HARVEST_CONTACT_EMAIL = "your-email@example.com"  # CHANGE THIS to your email
+
 # Admin Configuration
 # Optional: Comma-separated list of admin email addresses
 # These emails will have admin access in addition to database admin_users
