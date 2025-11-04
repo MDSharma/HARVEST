@@ -158,11 +158,11 @@ def _get_contact_email():
                 contact_email = HARVEST_CONTACT_EMAIL
         except ImportError:
             pass  # config.py not available
-    
+
     # Use default if still not set
     if not contact_email:
         contact_email = DEFAULT_CONTACT_EMAIL
-    
+
     return contact_email
 
 
