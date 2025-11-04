@@ -17,8 +17,12 @@ import logging
 from typing import List, Dict, Any, Optional, Set
 from functools import lru_cache
 import time
+import os
 
 logger = logging.getLogger(__name__)
+
+# Default contact email for OpenAlex API if not configured
+DEFAULT_CONTACT_EMAIL = 'harvest-app@example.com'
 
 # Lazy imports to avoid loading heavy libraries at startup
 _semantic_scholar = None
@@ -143,8 +147,6 @@ def _get_contact_email():
     Get contact email for OpenAlex API from environment variable or config.
     Environment variable takes precedence over config.py setting.
     """
-    import os
-    
     # Check environment variable first (takes precedence)
     contact_email = os.getenv('HARVEST_CONTACT_EMAIL')
     
@@ -159,7 +161,7 @@ def _get_contact_email():
     
     # Use default if still not set
     if not contact_email:
-        contact_email = 'harvest-app@example.com'
+        contact_email = DEFAULT_CONTACT_EMAIL
     
     return contact_email
 
@@ -743,7 +745,7 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
 
 
 @lru_cache(maxsize=100)
-def search_openalex(query: str, limit: int = 20, contact_email: str = 'harvest-app@example.com') -> List[Dict[str, Any]]:
+def search_openalex(query: str, limit: int = 20, contact_email: str = DEFAULT_CONTACT_EMAIL) -> List[Dict[str, Any]]:
     """
     Search OpenAlex API for papers.
     OpenAlex is a free, open catalog of scholarly papers, authors, institutions, and more.
