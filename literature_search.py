@@ -110,15 +110,30 @@ def _get_arxiv():
 
 
 def _get_wos_api_key():
-    """Get Web of Science API key from environment"""
+    """
+    Get Web of Science API key from environment variable or config.
+    Environment variable takes precedence over config.py setting.
+    """
     global _wos_client
     if _wos_client is None:
         import os
+        
+        # Check environment variable first (takes precedence)
         api_key = os.getenv('WOS_API_KEY')
+        
+        # If not in environment, try to get from config.py
+        if not api_key:
+            try:
+                from config import WOS_API_KEY
+                if WOS_API_KEY:
+                    api_key = WOS_API_KEY
+            except ImportError:
+                pass  # config.py not available
+        
         if api_key:
             _wos_client = api_key
         else:
-            logger.warning("WOS_API_KEY not set. Web of Science searches will be disabled.")
+            logger.warning("WOS_API_KEY not set in environment or config.py. Web of Science searches will be disabled.")
             _wos_client = False  # Use False to indicate checked but not available
     return _wos_client if _wos_client else None
 
@@ -701,6 +716,158 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
         return []
 
 
+@lru_cache(maxsize=100)
+def search_openalex(query: str, limit: int = 20) -> List[Dict[str, Any]]:
+    """
+    Search OpenAlex API for papers.
+    OpenAlex is a free, open catalog of scholarly papers, authors, institutions, and more.
+    Cached to avoid redundant API calls.
+    
+    API Documentation: https://docs.openalex.org/
+    
+    Args:
+        query: Search query string (searches title and abstract)
+        limit: Maximum number of papers to return (default: 20, max: 200)
+    
+    Returns:
+        List of paper dictionaries
+    
+    Notes:
+        - OpenAlex uses a different query syntax than other sources
+        - The API is polite and includes automatic rate limiting
+        - No API key required, but requests should include a User-Agent with email
+    """
+    try:
+        import requests
+        import os
+        
+        # Get contact email for OpenAlex polite pool (faster responses)
+        # Use environment variable or default
+        contact_email = os.getenv('HARVEST_CONTACT_EMAIL', 'harvest-app@example.com')
+        
+        # OpenAlex search endpoint
+        base_url = "https://api.openalex.org/works"
+        
+        # Build search parameters
+        # OpenAlex uses a "search" parameter for full-text search across title and abstract
+        params = {
+            'search': query,
+            'per_page': min(limit, 200),  # OpenAlex max is 200 per page
+            'page': 1,
+            'sort': 'relevance_score:desc',  # Sort by relevance
+            'mailto': contact_email  # Polite pool - faster response
+        }
+        
+        # Make request with polite User-Agent
+        headers = {
+            'User-Agent': f'HARVEST Literature Search (mailto:{contact_email})'
+        }
+        
+        logger.debug(f"Searching OpenAlex: query='{query}', limit={limit}")
+        
+        response = requests.get(
+            base_url,
+            params=params,
+            headers=headers,
+            timeout=30
+        )
+        
+        if response.status_code != 200:
+            logger.error(f"OpenAlex API error {response.status_code}: {response.text}")
+            return []
+        
+        result = response.json()
+        
+        # Parse the response structure from OpenAlex API
+        papers = []
+        results = result.get('results', [])
+        
+        for work in results:
+            # Extract title
+            title = work.get('title', 'N/A')
+            
+            # Extract DOI
+            doi = work.get('doi')
+            if doi:
+                # OpenAlex returns full DOI URL, extract just the DOI
+                doi = doi.replace('https://doi.org/', '')
+            else:
+                # Use OpenAlex ID as fallback
+                openalex_id = work.get('id', '')
+                if openalex_id:
+                    doi = f"OpenAlex:{openalex_id.split('/')[-1]}"
+            
+            # Extract authors
+            authors = []
+            authorships = work.get('authorships', [])
+            for authorship in authorships[:3]:  # Limit to first 3 authors
+                author = authorship.get('author', {})
+                author_name = author.get('display_name')
+                if author_name:
+                    authors.append(author_name)
+            
+            # Extract year
+            year = None
+            publication_year = work.get('publication_year')
+            if publication_year:
+                try:
+                    year = int(publication_year)
+                except (ValueError, TypeError):
+                    pass
+            
+            # Extract abstract
+            # OpenAlex stores abstract as inverted index, need to reconstruct
+            abstract = ''
+            abstract_inverted_index = work.get('abstract_inverted_index')
+            if abstract_inverted_index:
+                # Reconstruct abstract from inverted index
+                # Each key is a word, each value is list of positions
+                word_positions = []
+                for word, positions in abstract_inverted_index.items():
+                    for pos in positions:
+                        word_positions.append((pos, word))
+                
+                # Sort by position and join words
+                word_positions.sort(key=lambda x: x[0])
+                abstract = ' '.join([word for _, word in word_positions])
+            
+            # Extract citation count
+            citations = work.get('cited_by_count', 0)
+            
+            # Extract open access status
+            open_access = work.get('open_access', {})
+            is_oa = open_access.get('is_oa', False)
+            oa_url = open_access.get('oa_url')
+            
+            paper_dict = {
+                'title': title,
+                'abstract': abstract,
+                'authors': authors,
+                'year': year,
+                'doi': doi,
+                'source': 'OpenAlex',
+                'citations': citations
+            }
+            
+            # Add open access information if available
+            if is_oa and oa_url:
+                paper_dict['is_open_access'] = True
+                paper_dict['pdf_url'] = oa_url
+            
+            papers.append(paper_dict)
+        
+        query_display = query[:50] + ('...' if len(query) > 50 else '')
+        logger.info(f"Retrieved {len(papers)} papers from OpenAlex (query: '{query_display}', requested: {limit})")
+        return papers
+    
+    except requests.RequestException as e:
+        logger.error(f"OpenAlex API request failed: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"OpenAlex search failed ({type(e).__name__}): {e}")
+        return []
+
+
 def deduplicate_papers(papers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Deduplicate papers by DOI and title similarity.
@@ -781,21 +948,29 @@ def search_papers(
     query: str, 
     top_k: int = 10, 
     sources: Optional[List[str]] = None,
-    previous_papers: Optional[List[Dict[str, Any]]] = None
+    previous_papers: Optional[List[Dict[str, Any]]] = None,
+    enable_query_expansion: bool = True,
+    enable_deduplication: bool = True,
+    enable_reranking: bool = True,
+    progress_callback: Optional[callable] = None
 ) -> Dict[str, Any]:
     """
     Main search function that orchestrates the entire search pipeline:
-    1. Query expansion (AutoResearch)
+    1. Query expansion (AutoResearch) - optional
     2. Multi-source search (DeepResearch - Python Reimpl)
-    3. Deduplication (including previous search results)
-    4. Semantic reranking (DELM)
+    3. Deduplication (including previous search results) - optional
+    4. Semantic reranking (DELM) - optional
     
     Args:
         query: Search query string
         top_k: Number of top results to return
-        sources: List of sources to search. Options: 'semantic_scholar', 'arxiv', 'web_of_science'
+        sources: List of sources to search. Options: 'semantic_scholar', 'arxiv', 'web_of_science', 'openalex'
                  If None, defaults to ['semantic_scholar', 'arxiv']
         previous_papers: Papers from previous searches in session to build upon
+        enable_query_expansion: Whether to expand the query (AutoResearch step)
+        enable_deduplication: Whether to deduplicate results
+        enable_reranking: Whether to semantically rerank results (DELM step)
+        progress_callback: Optional callback function to report progress updates
     
     Returns:
         Dictionary with papers and metadata, including execution details.
@@ -808,7 +983,7 @@ def search_papers(
         sources = ['semantic_scholar', 'arxiv']
     
     # Validate sources
-    valid_sources = {'semantic_scholar', 'arxiv', 'web_of_science'}
+    valid_sources = {'semantic_scholar', 'arxiv', 'web_of_science', 'openalex'}
     sources = [s for s in sources if s in valid_sources]
     
     if not sources:
@@ -825,19 +1000,9 @@ def search_papers(
         is_wos_advanced = is_wos_advanced_query(query)
         using_wos_only = sources == ['web_of_science']
         
-        # Step 1: AutoResearch - Query expansion (skip for WoS advanced queries)
+        # Step 1: AutoResearch - Query expansion (optional, skip for WoS advanced queries)
         step1_start = time.time()
-        if is_wos_advanced and using_wos_only:
-            queries = [query]  # No expansion for WoS advanced queries
-            logger.info(f"Using Web of Science advanced query syntax: {query}")
-            execution_log.append({
-                'step': 'Query Processing',
-                'description': 'Web of Science Advanced Query',
-                'details': f"Using advanced query syntax (no expansion): {query}",
-                'elapsed_ms': int((time.time() - step1_start) * 1000),
-                'status': 'completed'
-            })
-        else:
+        if enable_query_expansion and not (is_wos_advanced and using_wos_only):
             queries = expand_query(query)
             step1_time = time.time() - step1_start
             logger.info(f"Expanded query '{query}' to {len(queries)} variations")
@@ -848,6 +1013,30 @@ def search_papers(
                 'elapsed_ms': int(step1_time * 1000),
                 'status': 'completed'
             })
+            if progress_callback:
+                progress_callback(execution_log[-1])
+        else:
+            queries = [query]  # No expansion
+            if is_wos_advanced and using_wos_only:
+                logger.info(f"Using Web of Science advanced query syntax: {query}")
+                execution_log.append({
+                    'step': 'Query Processing',
+                    'description': 'Web of Science Advanced Query',
+                    'details': f"Using advanced query syntax (no expansion): {query}",
+                    'elapsed_ms': int((time.time() - step1_start) * 1000),
+                    'status': 'completed'
+                })
+            else:
+                logger.info(f"Query expansion disabled, using original query")
+                execution_log.append({
+                    'step': 'Query Processing',
+                    'description': 'No Expansion',
+                    'details': f"Using original query (expansion disabled): {query}",
+                    'elapsed_ms': int((time.time() - step1_start) * 1000),
+                    'status': 'skipped'
+                })
+            if progress_callback:
+                progress_callback(execution_log[-1])
 
         # Step 2: DeepResearch (Python Reimpl) - Multi-source search
         step2_start = time.time()
@@ -883,6 +1072,15 @@ def search_papers(
             wos_time = time.time() - wos_start
             wos_count = len(wos_papers)
             source_details.append(f"Web of Science ({wos_count} in {wos_time:.2f}s)")
+        
+        # Search OpenAlex if requested
+        if 'openalex' in sources:
+            openalex_start = time.time()
+            openalex_papers = search_openalex(query, limit=20)
+            all_papers.extend(openalex_papers)
+            openalex_time = time.time() - openalex_start
+            openalex_count = len(openalex_papers)
+            source_details.append(f"OpenAlex ({openalex_count} in {openalex_time:.2f}s)")
 
         step2_time = time.time() - step2_start
         execution_log.append({
@@ -892,6 +1090,8 @@ def search_papers(
             'elapsed_ms': int(step2_time * 1000),
             'status': 'completed'
         })
+        if progress_callback:
+            progress_callback(execution_log[-1])
 
         if not all_papers:
             return {
@@ -902,41 +1102,44 @@ def search_papers(
                 'execution_log': execution_log
             }
 
-        # Step 2b: Deduplication (including previous search results)
+        # Step 2b: Deduplication (optional, including previous search results)
         dedup_start = time.time()
         
-        # Combine with previous papers if building on session
-        if previous_papers:
-            all_papers_combined = previous_papers + all_papers
-            unique_papers = deduplicate_papers(all_papers_combined)
-            dedup_details = f"Deduplicated {len(all_papers_combined)} papers (including {len(previous_papers)} from previous searches) to {len(unique_papers)} unique entries"
-        else:
-            unique_papers = deduplicate_papers(all_papers)
-            dedup_details = f"Deduplicated {len(all_papers)} papers to {len(unique_papers)} unique entries"
-        
-        dedup_time = time.time() - dedup_start
-        execution_log.append({
-            'step': 'DeepResearch (Python Reimpl)',
-            'description': 'Deduplication',
-            'details': dedup_details,
-            'elapsed_ms': int(dedup_time * 1000),
-            'status': 'completed'
-        })
-
-        # Step 3: DELM - Semantic reranking (skip for WoS advanced queries)
-        step3_start = time.time()
-        if is_wos_advanced and using_wos_only:
-            # For WoS advanced queries, skip semantic reranking and just limit results
-            reranked_papers = unique_papers[:top_k]
-            logger.info(f"Skipping semantic reranking for WoS advanced query, returning top {len(reranked_papers)} results")
+        if enable_deduplication:
+            # Combine with previous papers if building on session
+            if previous_papers:
+                all_papers_combined = previous_papers + all_papers
+                unique_papers = deduplicate_papers(all_papers_combined)
+                dedup_details = f"Deduplicated {len(all_papers_combined)} papers (including {len(previous_papers)} from previous searches) to {len(unique_papers)} unique entries"
+            else:
+                unique_papers = deduplicate_papers(all_papers)
+                dedup_details = f"Deduplicated {len(all_papers)} papers to {len(unique_papers)} unique entries"
+            
+            dedup_time = time.time() - dedup_start
             execution_log.append({
-                'step': 'Result Selection',
-                'description': 'WoS Query Results',
-                'details': f"Returning top {len(reranked_papers)} results (no semantic reranking for advanced queries)",
-                'elapsed_ms': int((time.time() - step3_start) * 1000),
+                'step': 'DeepResearch (Python Reimpl)',
+                'description': 'Deduplication',
+                'details': dedup_details,
+                'elapsed_ms': int(dedup_time * 1000),
                 'status': 'completed'
             })
         else:
+            # Skip deduplication
+            unique_papers = all_papers
+            logger.info(f"Deduplication disabled, keeping all {len(all_papers)} papers")
+            execution_log.append({
+                'step': 'DeepResearch (Python Reimpl)',
+                'description': 'Deduplication',
+                'details': f"Deduplication disabled, keeping all {len(all_papers)} papers",
+                'elapsed_ms': int((time.time() - dedup_start) * 1000),
+                'status': 'skipped'
+            })
+        if progress_callback:
+            progress_callback(execution_log[-1])
+
+        # Step 3: DELM - Semantic reranking (optional, skip for WoS advanced queries)
+        step3_start = time.time()
+        if enable_reranking and not (is_wos_advanced and using_wos_only):
             reranked_papers = rerank_papers(unique_papers, query, top_k=top_k)
             step3_time = time.time() - step3_start
             execution_log.append({
@@ -946,6 +1149,29 @@ def search_papers(
                 'elapsed_ms': int(step3_time * 1000),
                 'status': 'completed'
             })
+        else:
+            # Skip reranking
+            reranked_papers = unique_papers[:top_k]
+            if is_wos_advanced and using_wos_only:
+                logger.info(f"Skipping semantic reranking for WoS advanced query, returning top {len(reranked_papers)} results")
+                execution_log.append({
+                    'step': 'Result Selection',
+                    'description': 'WoS Query Results',
+                    'details': f"Returning top {len(reranked_papers)} results (no semantic reranking for advanced queries)",
+                    'elapsed_ms': int((time.time() - step3_start) * 1000),
+                    'status': 'completed'
+                })
+            else:
+                logger.info(f"Semantic reranking disabled, returning top {len(reranked_papers)} results")
+                execution_log.append({
+                    'step': 'DELM',
+                    'description': 'Semantic Reranking',
+                    'details': f"Reranking disabled, returning top {len(reranked_papers)} results by original order",
+                    'elapsed_ms': int((time.time() - step3_start) * 1000),
+                    'status': 'skipped'
+                })
+        if progress_callback:
+            progress_callback(execution_log[-1])
 
         # Format abstracts (snippet only)
         for paper in reranked_papers:
@@ -1017,6 +1243,12 @@ def get_available_sources() -> Dict[str, Any]:
             'available': False,
             'description': 'Comprehensive citation database',
             'requires': 'WOS_API_KEY environment variable (Expanded API)'
+        },
+        'openalex': {
+            'name': 'OpenAlex',
+            'available': True,  # Always available, no special requirements
+            'description': 'Free, open catalog of scholarly works',
+            'requires': 'No API key required (uses requests)'
         }
     }
     

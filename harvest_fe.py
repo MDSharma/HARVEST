@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 try:
     from config import (
         PARTNER_LOGOS, ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING,
-        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, URL_BASE_PATHNAME
+        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, URL_BASE_PATHNAME, EMAIL_HASH_SALT
     )
 except ImportError:
     # Fallback if config not available
@@ -35,6 +35,7 @@ except ImportError:
     DEPLOYMENT_MODE = os.getenv("HARVEST_DEPLOYMENT_MODE", "internal")
     BACKEND_PUBLIC_URL = os.getenv("HARVEST_BACKEND_PUBLIC_URL", "")
     URL_BASE_PATHNAME = os.getenv("HARVEST_URL_BASE_PATHNAME", "/")
+    EMAIL_HASH_SALT = os.getenv("EMAIL_HASH_SALT", "default-insecure-salt-change-me")
 
 # Override config with environment variables if present
 DEPLOYMENT_MODE = os.getenv("HARVEST_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
@@ -269,8 +270,10 @@ def create_execution_log_display(execution_log):
     # Define colors for each step type
     step_colors = {
         'AutoResearch': '#17a2b8',  # Info blue
+        'Query Processing': '#17a2b8',  # Info blue
         'DeepResearch (Python Reimpl)': '#28a745',  # Success green
         'DELM': '#ffc107',  # Warning yellow/gold
+        'Result Selection': '#ffc107',  # Warning yellow/gold
         'Error': '#dc3545'  # Danger red
     }
     
@@ -284,9 +287,11 @@ def create_execution_log_display(execution_log):
         # Get color for this step
         color = step_colors.get(step_name, '#6c757d')
         
-        # Create status icon
+        # Create status icon based on status
         if status == 'completed':
             status_icon = html.I(className="bi bi-check-circle-fill", style={"color": "#28a745"})
+        elif status == 'skipped':
+            status_icon = html.I(className="bi bi-dash-circle-fill", style={"color": "#6c757d"})
         elif status == 'error':
             status_icon = html.I(className="bi bi-x-circle-fill", style={"color": "#dc3545"})
         else:
@@ -381,7 +386,7 @@ def create_execution_log_display(execution_log):
                     ]
                 ),
                 id="pipeline-collapse",
-                is_open=False,  # Collapsed by default
+                is_open=True,  # Open by default to show progress
             )
         ],
         className="mb-3"
@@ -1042,6 +1047,7 @@ app.layout = dbc.Container(
                                                                                 {"label": " Semantic Scholar", "value": "semantic_scholar"},
                                                                                 {"label": " arXiv", "value": "arxiv"},
                                                                                 {"label": " Web of Science", "value": "web_of_science"},
+                                                                                {"label": " OpenAlex", "value": "openalex"},
                                                                             ],
                                                                             value=["semantic_scholar", "arxiv"],  # Default sources
                                                                             inline=True,
@@ -1049,6 +1055,33 @@ app.layout = dbc.Container(
                                                                         ),
                                                                         html.Small(
                                                                             id="lit-search-sources-info",
+                                                                            className="text-muted"
+                                                                        ),
+                                                                    ],
+                                                                    md=12,
+                                                                ),
+                                                            ],
+                                                            className="mb-3",
+                                                        ),
+                                                        
+                                                        # Pipeline controls section
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Label("Pipeline Workflow Controls", style={"fontWeight": "bold"}),
+                                                                        dbc.Checklist(
+                                                                            id="lit-search-pipeline-controls",
+                                                                            options=[
+                                                                                {"label": " Query Expansion (AutoResearch)", "value": "query_expansion"},
+                                                                                {"label": " Deduplication", "value": "deduplication"},
+                                                                                {"label": " Semantic Reranking (DELM)", "value": "reranking"},
+                                                                            ],
+                                                                            value=["query_expansion", "deduplication", "reranking"],  # All enabled by default
+                                                                            className="mb-2",
+                                                                        ),
+                                                                        html.Small(
+                                                                            "Control which pipeline steps to execute. Disabling steps may speed up searches but affect result quality.",
                                                                             className="text-muted"
                                                                         ),
                                                                     ],
@@ -1591,24 +1624,26 @@ app.layout = dbc.Container(
                                                         dcc.Dropdown(
                                                             id="browse-field-selector",
                                                             options=[
-                                                                {"label": "Triple ID", "value": "id"},
+                                                                {"label": "Sentence ID", "value": "sentence_id"},
+                                                                {"label": "Triple ID", "value": "triple_id"},
                                                                 {"label": "Project ID", "value": "project_id"},
                                                                 {"label": "DOI", "value": "doi"},
+                                                                {"label": "DOI Hash", "value": "doi_hash"},
+                                                                {"label": "Literature Link", "value": "literature_link"},
                                                                 {"label": "Relation Type", "value": "relation_type"},
                                                                 {"label": "Source Entity Name", "value": "source_entity_name"},
                                                                 {"label": "Source Entity Attribute", "value": "source_entity_attr"},
                                                                 {"label": "Sink Entity Name", "value": "sink_entity_name"},
                                                                 {"label": "Sink Entity Attribute", "value": "sink_entity_attr"},
                                                                 {"label": "Sentence", "value": "sentence"},
-                                                                {"label": "Email (Hashed)", "value": "email"},
-                                                                {"label": "Timestamp", "value": "timestamp"},
+                                                                {"label": "Triple Contributor (Hashed)", "value": "triple_contributor"},
                                                             ],
                                                             value=["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"],
                                                             multi=True,
                                                             placeholder="Select fields to display...",
                                                             className="mb-3"
                                                         ),
-                                                        html.Small("Note: Email addresses are automatically hashed for privacy.", className="text-muted d-block mb-3"),
+                                                        html.Small("Note: Email addresses (Triple Contributor) are automatically hashed for privacy using installation-specific salt.", className="text-muted d-block mb-3"),
                                                         
                                                         html.Hr(className="mt-4"),
                                                         html.H6("Privacy & Compliance", className="mb-3"),
@@ -1960,15 +1995,25 @@ def check_lit_search_auth(auth_data, active_tab):
     Input("btn-search-papers", "n_clicks"),
     State("lit-search-query", "value"),
     State("lit-search-sources", "value"),
+    State("lit-search-pipeline-controls", "value"),
     State("lit-search-build-session", "value"),
     State("lit-search-session-papers", "data"),
     prevent_initial_call=True,
 )
-def perform_literature_search(n_clicks, query, sources, build_session, session_papers):
+def perform_literature_search(n_clicks, query, sources, pipeline_controls, build_session, session_papers):
     """
     Callback to perform literature search when button is clicked.
     Displays the execution pipeline for AutoResearch, DeepResearch, and DELM.
-    Supports multiple sources and session-based cumulative searching.
+    Supports multiple sources, session-based cumulative searching, and pipeline controls.
+    
+    Note: The search runs synchronously and displays results upon completion.
+    For true real-time progress updates during execution, the implementation would need:
+    - Background task processing (e.g., Celery, Redis Queue)
+    - WebSocket or Server-Sent Events for live updates
+    - State management for in-progress searches
+    Currently, users see a loading spinner during search, then full results with
+    execution timing details when complete. For typical searches (5-10s), this is
+    a reasonable user experience.
     """
     if not query or not query.strip():
         return (
@@ -1994,12 +2039,21 @@ def perform_literature_search(n_clicks, query, sources, build_session, session_p
         if build_session and session_papers:
             previous_papers = session_papers
         
-        # Perform search with selected sources
+        # Parse pipeline controls
+        pipeline_controls = pipeline_controls or []
+        enable_query_expansion = "query_expansion" in pipeline_controls
+        enable_deduplication = "deduplication" in pipeline_controls
+        enable_reranking = "reranking" in pipeline_controls
+        
+        # Perform search with selected sources and pipeline controls
         result = literature_search.search_papers(
             query.strip(), 
             top_k=10,
             sources=sources,
-            previous_papers=previous_papers
+            previous_papers=previous_papers,
+            enable_query_expansion=enable_query_expansion,
+            enable_deduplication=enable_deduplication,
+            enable_reranking=enable_reranking
         )
 
         if not result['success']:
@@ -2046,7 +2100,7 @@ def perform_literature_search(n_clicks, query, sources, build_session, session_p
         # Create sources info
         sources_used = result.get('sources_used', [])
         sources_display = ', '.join([
-            {'semantic_scholar': 'Semantic Scholar', 'arxiv': 'arXiv', 'web_of_science': 'Web of Science'}.get(s, s)
+            {'semantic_scholar': 'Semantic Scholar', 'arxiv': 'arXiv', 'web_of_science': 'Web of Science', 'openalex': 'OpenAlex'}.get(s, s)
             for s in sources_used
         ])
 
@@ -2252,7 +2306,7 @@ def update_source_info(n_intervals):
         
         # Add WoS API key hint if not available
         if not sources_info['web_of_science']['available']:
-            info_text += " | Set WOS_API_KEY environment variable to enable Web of Science"
+            info_text += " | Set WOS_API_KEY in config.py or environment variable to enable Web of Science"
         
         return info_text
     except Exception as e:
@@ -2992,10 +3046,14 @@ def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, visi
         if not rows:
             return dbc.Alert("No records found. Try adding some data first!", color="info")
 
-        # Hash email addresses for privacy
+        # Hash email addresses for privacy using installation-specific salt
         for row in rows:
+            # Hash the 'email' field if present (legacy field name)
             if 'email' in row and row['email']:
-                row['email'] = hashlib.sha256(row['email'].encode()).hexdigest()[:12] + '...'
+                row['email'] = hashlib.sha256((EMAIL_HASH_SALT + row['email']).encode()).hexdigest()[:12] + '...'
+            # Hash the 'triple_contributor' field (actual field name from backend)
+            if 'triple_contributor' in row and row['triple_contributor']:
+                row['triple_contributor'] = hashlib.sha256((EMAIL_HASH_SALT + row['triple_contributor']).encode()).hexdigest()[:12] + '...'
         
         # Filter columns based on admin configuration
         if rows:
