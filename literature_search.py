@@ -110,15 +110,30 @@ def _get_arxiv():
 
 
 def _get_wos_api_key():
-    """Get Web of Science API key from environment"""
+    """
+    Get Web of Science API key from environment variable or config.
+    Environment variable takes precedence over config.py setting.
+    """
     global _wos_client
     if _wos_client is None:
         import os
+        
+        # Check environment variable first (takes precedence)
         api_key = os.getenv('WOS_API_KEY')
+        
+        # If not in environment, try to get from config.py
+        if not api_key:
+            try:
+                from config import WOS_API_KEY
+                if WOS_API_KEY:
+                    api_key = WOS_API_KEY
+            except ImportError:
+                pass  # config.py not available
+        
         if api_key:
             _wos_client = api_key
         else:
-            logger.warning("WOS_API_KEY not set. Web of Science searches will be disabled.")
+            logger.warning("WOS_API_KEY not set in environment or config.py. Web of Science searches will be disabled.")
             _wos_client = False  # Use False to indicate checked but not available
     return _wos_client if _wos_client else None
 

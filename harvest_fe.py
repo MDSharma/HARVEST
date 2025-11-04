@@ -2306,7 +2306,7 @@ def update_source_info(n_intervals):
         
         # Add WoS API key hint if not available
         if not sources_info['web_of_science']['available']:
-            info_text += " | Set WOS_API_KEY environment variable to enable Web of Science (see config.py)"
+            info_text += " | Set WOS_API_KEY in config.py or environment variable to enable Web of Science"
         
         return info_text
     except Exception as e:

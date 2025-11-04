@@ -128,11 +128,10 @@ EMAIL_HASH_SALT = "change-this-to-a-random-secure-value-for-your-installation"
 # Web of Science API Configuration
 # To enable Web of Science searches in the Literature Search tab, you need an API key
 # Sign up for a Web of Science Expanded API key at: https://developer.clarivate.com/
-# After obtaining a key, set it as an environment variable:
-# export WOS_API_KEY="your-api-key-here"
-# 
-# Note: This is configured via environment variable (not directly in this file) for security
-# The WOS_API_KEY environment variable is checked by literature_search.py at runtime
+# After obtaining a key, enter it below or set the WOS_API_KEY environment variable
+# Environment variable takes precedence if both are set
+# Example: WOS_API_KEY = "your-api-key-here"
+WOS_API_KEY = ""  # Enter your Web of Science API key here
 
 # Partner Logos Configuration
 # Local logo files (jpg or png) in the document root
