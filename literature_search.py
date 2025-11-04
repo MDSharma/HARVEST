@@ -149,7 +149,7 @@ def _get_contact_email():
     """
     # Check environment variable first (takes precedence)
     contact_email = os.getenv('HARVEST_CONTACT_EMAIL')
-    
+
     # If not in environment, try to get from config.py
     if not contact_email:
         try:
@@ -769,7 +769,7 @@ def search_openalex(query: str, limit: int = 20, contact_email: str = DEFAULT_CO
     """
     try:
         import requests
-        
+
         # OpenAlex search endpoint
         base_url = "https://api.openalex.org/works"
         
