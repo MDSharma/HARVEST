@@ -60,6 +60,11 @@ DB_PATH = "harvest.db"  # Path to SQLite database file
 # Please update this to your email address
 UNPAYWALL_EMAIL = "your-email@example.com"  # CHANGE THIS to your email
 
+# Contact email for OpenAlex API (polite pool for faster responses)
+# OpenAlex recommends including a contact email for better service
+# This can be the same as UNPAYWALL_EMAIL or a different contact email
+HARVEST_CONTACT_EMAIL = "your-email@example.com"  # CHANGE THIS to your email
+
 # Admin Configuration
 # Optional: Comma-separated list of admin email addresses
 # These emails will have admin access in addition to database admin_users
@@ -117,6 +122,21 @@ PDF_CLEANUP_RETENTION_DAYS = 90  # Days to keep download attempt history before 
 # User Agent Rotation
 # Rotate User-Agent headers to avoid being blocked by some sources
 PDF_USER_AGENT_ROTATION = True  # Enable rotating User-Agent strings
+
+# Security Configuration
+# Email Hashing Salt - IMPORTANT: Change this to a unique value for your installation
+# This salt is used to hash email addresses for privacy in the Browse tab
+# Use a long, random string that is kept secret and consistent across application restarts
+# Example: Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+EMAIL_HASH_SALT = "change-this-to-a-random-secure-value-for-your-installation"
+
+# Web of Science API Configuration
+# To enable Web of Science searches in the Literature Search tab, you need an API key
+# Sign up for a Web of Science Expanded API key at: https://developer.clarivate.com/
+# After obtaining a key, enter it below or set the WOS_API_KEY environment variable
+# Environment variable takes precedence if both are set
+# Example: WOS_API_KEY = "your-api-key-here"
+WOS_API_KEY = ""  # Enter your Web of Science API key here
 
 # Partner Logos Configuration
 # Local logo files (jpg or png) in the document root

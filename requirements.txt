@@ -13,3 +13,7 @@ sentence-transformers>=2.2.2
 arxiv>=2.0.0
 PyMuPDF>=1.23.0
 watchdog>=3.0.0
+# Optional: Web of Science Expanded API integration
+# Requires WOS_API_KEY environment variable (no additional package needed)
+# Get API key from https://developer.clarivate.com/
+# Example: export WOS_API_KEY="your-key-here"
