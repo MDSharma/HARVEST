@@ -1044,10 +1044,10 @@ app.layout = dbc.Container(
                                                                         dbc.Checklist(
                                                                             id="lit-search-sources",
                                                                             options=[
-                                                                                {"label": " Semantic Scholar", "value": "semantic_scholar"},
-                                                                                {"label": " arXiv", "value": "arxiv"},
-                                                                                {"label": " Web of Science", "value": "web_of_science"},
-                                                                                {"label": " OpenAlex", "value": "openalex"},
+                                                                                {"label": " Semantic Scholar (natural language)", "value": "semantic_scholar"},
+                                                                                {"label": " arXiv (natural language)", "value": "arxiv"},
+                                                                                {"label": " Web of Science (advanced syntax)", "value": "web_of_science"},
+                                                                                {"label": " OpenAlex (natural language)", "value": "openalex"},
                                                                             ],
                                                                             value=["semantic_scholar", "arxiv"],  # Default sources
                                                                             inline=True,
@@ -1055,6 +1055,118 @@ app.layout = dbc.Container(
                                                                         ),
                                                                         html.Small(
                                                                             id="lit-search-sources-info",
+                                                                            className="text-muted"
+                                                                        ),
+                                                                    ],
+                                                                    md=12,
+                                                                ),
+                                                            ],
+                                                            className="mb-3",
+                                                        ),
+                                                        
+                                                        # Per-source result limits (Advanced settings)
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Button(
+                                                                            [
+                                                                                html.I(className="bi bi-gear me-2"),
+                                                                                "Advanced: Results per Source"
+                                                                            ],
+                                                                            id="toggle-per-source-limits",
+                                                                            color="link",
+                                                                            size="sm",
+                                                                            className="mb-2 p-0",
+                                                                        ),
+                                                                        dbc.Collapse(
+                                                                            dbc.Card(
+                                                                                dbc.CardBody(
+                                                                                    [
+                                                                                        html.P("Configure how many results to fetch from each source:", className="mb-2 small"),
+                                                                                        dbc.Row(
+                                                                                            [
+                                                                                                dbc.Col([
+                                                                                                    dbc.Label("Semantic Scholar (max 100)", className="small"),
+                                                                                                    dbc.Input(
+                                                                                                        id="limit-semantic-scholar",
+                                                                                                        type="number",
+                                                                                                        min=1,
+                                                                                                        max=100,
+                                                                                                        value=100,
+                                                                                                        size="sm",
+                                                                                                    ),
+                                                                                                ], md=3),
+                                                                                                dbc.Col([
+                                                                                                    dbc.Label("arXiv (max 100)", className="small"),
+                                                                                                    dbc.Input(
+                                                                                                        id="limit-arxiv",
+                                                                                                        type="number",
+                                                                                                        min=1,
+                                                                                                        max=100,
+                                                                                                        value=50,
+                                                                                                        size="sm",
+                                                                                                    ),
+                                                                                                ], md=3),
+                                                                                                dbc.Col([
+                                                                                                    dbc.Label("Web of Science (max 100)", className="small"),
+                                                                                                    dbc.Input(
+                                                                                                        id="limit-wos",
+                                                                                                        type="number",
+                                                                                                        min=1,
+                                                                                                        max=100,
+                                                                                                        value=100,
+                                                                                                        size="sm",
+                                                                                                    ),
+                                                                                                ], md=3),
+                                                                                                dbc.Col([
+                                                                                                    dbc.Label("OpenAlex (max 200)", className="small"),
+                                                                                                    dbc.Input(
+                                                                                                        id="limit-openalex",
+                                                                                                        type="number",
+                                                                                                        min=1,
+                                                                                                        max=200,
+                                                                                                        value=200,
+                                                                                                        size="sm",
+                                                                                                    ),
+                                                                                                ], md=3),
+                                                                                            ],
+                                                                                            className="g-2"
+                                                                                        ),
+                                                                                        html.Small(
+                                                                                            "Note: Higher limits may increase search time but return more comprehensive results.",
+                                                                                            className="text-muted mt-2 d-block"
+                                                                                        ),
+                                                                                    ]
+                                                                                ),
+                                                                                className="border-0 bg-light"
+                                                                            ),
+                                                                            id="collapse-per-source-limits",
+                                                                            is_open=False,
+                                                                        ),
+                                                                    ],
+                                                                    md=12,
+                                                                ),
+                                                            ],
+                                                            className="mb-3",
+                                                        ),
+                                                        
+                                                        # Results to display
+                                                        dbc.Row(
+                                                            [
+                                                                dbc.Col(
+                                                                    [
+                                                                        dbc.Label("Number of Results to Display", style={"fontWeight": "bold"}),
+                                                                        dbc.Input(
+                                                                            id="lit-search-top-k",
+                                                                            type="number",
+                                                                            min=1,
+                                                                            max=100,
+                                                                            value=20,
+                                                                            size="sm",
+                                                                        ),
+                                                                        html.Small(
+                                                                            "After deduplication and reranking, this many top results will be displayed (1-100)",
                                                                             className="text-muted"
                                                                         ),
                                                                     ],
@@ -1998,13 +2110,20 @@ def check_lit_search_auth(auth_data, active_tab):
     State("lit-search-pipeline-controls", "value"),
     State("lit-search-build-session", "value"),
     State("lit-search-session-papers", "data"),
+    State("lit-search-top-k", "value"),
+    State("limit-semantic-scholar", "value"),
+    State("limit-arxiv", "value"),
+    State("limit-wos", "value"),
+    State("limit-openalex", "value"),
     prevent_initial_call=True,
 )
-def perform_literature_search(n_clicks, query, sources, pipeline_controls, build_session, session_papers):
+def perform_literature_search(n_clicks, query, sources, pipeline_controls, build_session, session_papers, 
+                              top_k, s2_limit, arxiv_limit, wos_limit, openalex_limit):
     """
     Callback to perform literature search when button is clicked.
     Displays the execution pipeline for AutoResearch, DeepResearch, and DELM.
-    Supports multiple sources, session-based cumulative searching, and pipeline controls.
+    Supports multiple sources, session-based cumulative searching, pipeline controls,
+    and per-source result limits.
     
     Note: The search runs synchronously and displays results upon completion.
     For true real-time progress updates during execution, the implementation would need:
@@ -2045,15 +2164,32 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
         enable_deduplication = "deduplication" in pipeline_controls
         enable_reranking = "reranking" in pipeline_controls
         
+        # Validate and set top_k
+        if not top_k or top_k < 1:
+            top_k = 20
+        top_k = min(top_k, 100)  # Cap at 100
+        
+        # Build per-source limit dictionary
+        per_source_limit = {}
+        if s2_limit and s2_limit > 0:
+            per_source_limit['semantic_scholar'] = min(s2_limit, 100)
+        if arxiv_limit and arxiv_limit > 0:
+            per_source_limit['arxiv'] = min(arxiv_limit, 100)
+        if wos_limit and wos_limit > 0:
+            per_source_limit['web_of_science'] = min(wos_limit, 100)
+        if openalex_limit and openalex_limit > 0:
+            per_source_limit['openalex'] = min(openalex_limit, 200)
+        
         # Perform search with selected sources and pipeline controls
         result = literature_search.search_papers(
             query.strip(), 
-            top_k=10,
+            top_k=top_k,
             sources=sources,
             previous_papers=previous_papers,
             enable_query_expansion=enable_query_expansion,
             enable_deduplication=enable_deduplication,
-            enable_reranking=enable_reranking
+            enable_reranking=enable_reranking,
+            per_source_limit=per_source_limit if per_source_limit else None
         )
 
         if not result['success']:
@@ -4422,6 +4558,20 @@ def load_browse_field_config(n, stored_fields):
     if stored_fields:
         return stored_fields
     return ["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"]
+
+
+# Callback to toggle advanced per-source limits
+@app.callback(
+    Output("collapse-per-source-limits", "is_open"),
+    Input("toggle-per-source-limits", "n_clicks"),
+    State("collapse-per-source-limits", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_per_source_limits(n_clicks, is_open):
+    """Toggle the per-source limits collapse"""
+    if n_clicks:
+        return not is_open
+    return is_open
 
 
 # Callback to show/hide privacy policy modal

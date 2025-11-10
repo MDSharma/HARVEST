@@ -977,7 +977,8 @@ def search_papers(
     enable_query_expansion: bool = True,
     enable_deduplication: bool = True,
     enable_reranking: bool = True,
-    progress_callback: Optional[callable] = None
+    progress_callback: Optional[callable] = None,
+    per_source_limit: Optional[Dict[str, int]] = None
 ) -> Dict[str, Any]:
     """
     Main search function that orchestrates the entire search pipeline:
@@ -988,7 +989,7 @@ def search_papers(
     
     Args:
         query: Search query string
-        top_k: Number of top results to return
+        top_k: Number of top results to return after reranking
         sources: List of sources to search. Options: 'semantic_scholar', 'arxiv', 'web_of_science', 'openalex'
                  If None, defaults to ['semantic_scholar', 'arxiv']
         previous_papers: Papers from previous searches in session to build upon
@@ -996,6 +997,9 @@ def search_papers(
         enable_deduplication: Whether to deduplicate results
         enable_reranking: Whether to semantically rerank results (DELM step)
         progress_callback: Optional callback function to report progress updates
+        per_source_limit: Optional dict mapping source names to result limits. 
+                         If None, uses default limits per source.
+                         Example: {'semantic_scholar': 100, 'openalex': 50}
     
     Returns:
         Dictionary with papers and metadata, including execution details.
@@ -1068,45 +1072,58 @@ def search_papers(
         all_papers = []
         source_details = []
         
+        # Set default per-source limits if not provided
+        if per_source_limit is None:
+            per_source_limit = {
+                'semantic_scholar': 100,  # Increased from 40 to allow more results
+                'arxiv': 50,              # Increased from 10 to allow more results
+                'web_of_science': 100,    # Increased from 20 to allow more results (WoS API max is 100)
+                'openalex': 200           # Increased from 20 to allow more results (OpenAlex API max is 200)
+            }
+        
         # Search Semantic Scholar if requested
         if 'semantic_scholar' in sources:
             s2_start = time.time()
             s2_papers = []
+            s2_limit = per_source_limit.get('semantic_scholar', 100)
             for q in queries[:1]:  # Use only the primary query for S2
-                s2_results = search_semantic_scholar(q, limit=40)
+                s2_results = search_semantic_scholar(q, limit=s2_limit)
                 s2_papers.extend(s2_results)
                 all_papers.extend(s2_results)
             s2_time = time.time() - s2_start
             s2_count = len(s2_papers)
-            source_details.append(f"Semantic Scholar ({s2_count} in {s2_time:.2f}s)")
+            source_details.append(f"Semantic Scholar ({s2_count}/{s2_limit} in {s2_time:.2f}s)")
         
         # Search arXiv if requested
         if 'arxiv' in sources:
             arxiv_start = time.time()
-            arxiv_papers = search_arxiv(query, limit=10)
+            arxiv_limit = per_source_limit.get('arxiv', 50)
+            arxiv_papers = search_arxiv(query, limit=arxiv_limit)
             all_papers.extend(arxiv_papers)
             arxiv_time = time.time() - arxiv_start
             arxiv_count = len(arxiv_papers)
-            source_details.append(f"arXiv ({arxiv_count} in {arxiv_time:.2f}s)")
+            source_details.append(f"arXiv ({arxiv_count}/{arxiv_limit} in {arxiv_time:.2f}s)")
         
         # Search Web of Science if requested
         if 'web_of_science' in sources:
             wos_start = time.time()
-            wos_papers = search_web_of_science(query, limit=20)
+            wos_limit = per_source_limit.get('web_of_science', 100)
+            wos_papers = search_web_of_science(query, limit=wos_limit)
             all_papers.extend(wos_papers)
             wos_time = time.time() - wos_start
             wos_count = len(wos_papers)
-            source_details.append(f"Web of Science ({wos_count} in {wos_time:.2f}s)")
+            source_details.append(f"Web of Science ({wos_count}/{wos_limit} in {wos_time:.2f}s)")
         
         # Search OpenAlex if requested
         if 'openalex' in sources:
             openalex_start = time.time()
+            openalex_limit = per_source_limit.get('openalex', 200)
             contact_email = _get_contact_email()
-            openalex_papers = search_openalex(query, limit=20, contact_email=contact_email)
+            openalex_papers = search_openalex(query, limit=openalex_limit, contact_email=contact_email)
             all_papers.extend(openalex_papers)
             openalex_time = time.time() - openalex_start
             openalex_count = len(openalex_papers)
-            source_details.append(f"OpenAlex ({openalex_count} in {openalex_time:.2f}s)")
+            source_details.append(f"OpenAlex ({openalex_count}/{openalex_limit} in {openalex_time:.2f}s)")
 
         step2_time = time.time() - step2_start
         execution_log.append({
