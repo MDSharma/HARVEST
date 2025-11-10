@@ -102,11 +102,13 @@ The Application may use external APIs for enhanced functionality:
 
 - **Semantic Scholar**: For academic paper search (no personal data shared)
 - **arXiv**: For preprint repository access (no personal data shared)  
+- **OpenAlex**: For open catalog of scholarly papers (email recommended for polite pool, no personal data shared)
 - **Web of Science**: For citation database access (requires API key, no personal data shared)
 - **Unpaywall**: For open access PDF discovery (email required per API terms)
 
 These services have their own privacy policies. We recommend reviewing them:
 - [Semantic Scholar Privacy Policy](https://www.semanticscholar.org/product/api)
+- [OpenAlex Documentation](https://docs.openalex.org/)
 - [Unpaywall Data Policy](https://unpaywall.org/faq)
 
 ## Cookies and Browser Storage

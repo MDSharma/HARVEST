@@ -3186,10 +3186,10 @@ def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, visi
         for row in rows:
             # Hash the 'email' field if present (legacy field name)
             if 'email' in row and row['email']:
-                row['email'] = hashlib.sha256((EMAIL_HASH_SALT + row['email']).encode()).hexdigest()[:12] + '...'
+                row['email'] = hashlib.sha256((EMAIL_HASH_SALT + row['email']).encode()).hexdigest()[:16] + '...'
             # Hash the 'triple_contributor' field (actual field name from backend)
             if 'triple_contributor' in row and row['triple_contributor']:
-                row['triple_contributor'] = hashlib.sha256((EMAIL_HASH_SALT + row['triple_contributor']).encode()).hexdigest()[:12] + '...'
+                row['triple_contributor'] = hashlib.sha256((EMAIL_HASH_SALT + row['triple_contributor']).encode()).hexdigest()[:16] + '...'
         
         # Filter columns based on admin configuration
         if rows:

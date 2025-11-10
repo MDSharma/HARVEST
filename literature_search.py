@@ -847,14 +847,17 @@ def search_openalex(query: str, limit: int = 20, contact_email: str = DEFAULT_CO
             if abstract_inverted_index:
                 # Reconstruct abstract from inverted index
                 # Each key is a word, each value is list of positions
-                word_positions = []
+                # Pre-allocate list by finding max position for efficiency
+                max_pos = max(max(positions) for positions in abstract_inverted_index.values())
+                words = [None] * (max_pos + 1)
+                
+                # Populate words at their positions
                 for word, positions in abstract_inverted_index.items():
                     for pos in positions:
-                        word_positions.append((pos, word))
+                        words[pos] = word
                 
-                # Sort by position and join words
-                word_positions.sort(key=lambda x: x[0])
-                abstract = ' '.join([word for _, word in word_positions])
+                # Join words (filter None for any gaps)
+                abstract = ' '.join(w for w in words if w is not None)
             
             # Extract citation count
             citations = work.get('cited_by_count', 0)
