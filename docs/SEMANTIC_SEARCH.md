@@ -94,6 +94,79 @@ To build on previous searches:
    - Click "Clear Session" to start fresh
    - Session automatically resets on logout
 
+### Configuring Result Limits
+
+The search system allows you to control how many results are fetched from each source and displayed:
+
+#### Results Per Source (Advanced Settings)
+
+Click "Advanced: Results per Source" to configure individual source limits:
+
+- **Semantic Scholar**: 1-100 results (default: 100)
+  - API maximum: 100 per request
+  - Increased from original 40 to fetch comprehensive results
+  
+- **arXiv**: 1-100 results (default: 50)
+  - API supports up to 100+ results
+  - Increased from original 10 to capture more preprints
+  
+- **Web of Science**: 1-100 results (default: 100)
+  - API maximum: 100 per request
+  - Increased from original 20 to maximize coverage
+  
+- **OpenAlex**: 1-200 results (default: 200)
+  - API maximum: 200 per page
+  - Increased from original 20 to leverage full API capacity
+
+**Benefits of Higher Limits:**
+- **More comprehensive results** - Captures a wider range of relevant papers
+- **Better deduplication** - More papers to compare across sources
+- **Improved ranking** - More candidates for semantic reranking
+- **Fuller literature coverage** - Especially important for systematic reviews
+
+**Trade-offs:**
+- Higher limits increase search time (typically 5-15 seconds vs 2-5 seconds)
+- More results to review (use semantic reranking to focus on top papers)
+
+#### Number of Results to Display
+
+After fetching, deduplication, and reranking, you can control how many papers to display:
+
+- **Range**: 1-100 results
+- **Default**: 20 results (increased from original 10)
+- **Purpose**: Shows the most relevant papers after semantic reranking
+
+**Recommended Settings:**
+- **Quick overview**: 10-20 results
+- **Comprehensive review**: 50-100 results
+- **Literature mapping**: Use "Build on previous searches" with 20-30 results per query
+
+**Example Workflow:**
+1. Set Semantic Scholar to 100, OpenAlex to 200
+2. Enable all pipeline features (expansion, deduplication, reranking)
+3. Set display count to 30
+4. Run search
+5. Review top 30 semantically-ranked results from 300 total fetched
+
+### Query Format by Source
+
+Different sources expect different query formats:
+
+- **Semantic Scholar**: Natural language queries
+  - Examples: "AI in drug discovery", "CRISPR gene editing"
+  
+- **arXiv**: Natural language queries
+  - Examples: "quantum computing", "deep learning"
+  
+- **OpenAlex**: Natural language queries
+  - Examples: "climate change modeling", "protein folding"
+  
+- **Web of Science**: Advanced syntax or natural language
+  - Natural language is automatically converted to `TS=(query)` format
+  - For advanced syntax, see Advanced Search Syntax section below
+
+The source checkboxes indicate the expected query type in parentheses.
+
 ### Exporting Results
 
 1. **Select Papers**
