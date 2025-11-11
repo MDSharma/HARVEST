@@ -1458,6 +1458,396 @@ def export_triples_json():
         logger.error(f"Error exporting triples: {e}", exc_info=True)
         return jsonify({"ok": False, "error": "Failed to export triples"}), 500
 
+
+# =============================================================================
+# Literature Review API Endpoints (ASReview Integration)
+# =============================================================================
+
+@app.get("/api/literature-review/health")
+def literature_review_health():
+    """
+    Check if Literature Review feature is available and configured.
+    Returns health status of ASReview service integration.
+    """
+    try:
+        # Check if feature is enabled
+        try:
+            from config import ENABLE_LITERATURE_REVIEW
+            if not ENABLE_LITERATURE_REVIEW:
+                return jsonify({
+                    "ok": False,
+                    "available": False,
+                    "error": "Literature Review feature is disabled in config"
+                })
+        except ImportError:
+            ENABLE_LITERATURE_REVIEW = True  # Default to enabled
+        
+        # Check ASReview service configuration
+        from asreview_client import get_asreview_client
+        
+        client = get_asreview_client()
+        if not client.is_configured():
+            return jsonify({
+                "ok": True,
+                "available": False,
+                "configured": False,
+                "error": "ASReview service URL not configured. Please set ASREVIEW_SERVICE_URL in config.py"
+            })
+        
+        # Check ASReview service health
+        health_status = client.check_health()
+        
+        return jsonify({
+            "ok": True,
+            "available": health_status.get('available', False),
+            "configured": True,
+            "service_url": client.service_url if client.service_url else None,
+            "version": health_status.get('version'),
+            "status": health_status.get('status'),
+            "error": health_status.get('error')
+        })
+    
+    except Exception as e:
+        logger.error(f"Error checking literature review health: {e}", exc_info=True)
+        return jsonify({
+            "ok": False,
+            "available": False,
+            "error": str(e)
+        }), 500
+
+
+@app.post("/api/literature-review/projects")
+def create_literature_review_project():
+    """
+    Create a new ASReview project for literature screening.
+    Expected JSON: {
+        "project_name": "My Review Project",
+        "description": "Optional description",
+        "model_type": "nb"  # Optional: nb (Naive Bayes), svm, rf
+    }
+    """
+    # Check authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+    
+    project_name = payload.get('project_name', '').strip()
+    if not project_name:
+        return jsonify({"error": "project_name is required"}), 400
+    
+    description = payload.get('description', '').strip()
+    model_type = payload.get('model_type', 'nb').strip()
+    
+    # Validate model type
+    valid_models = ['nb', 'svm', 'rf', 'logistic']
+    if model_type not in valid_models:
+        return jsonify({"error": f"Invalid model_type. Must be one of: {', '.join(valid_models)}"}), 400
+    
+    try:
+        from asreview_client import get_asreview_client
+        
+        client = get_asreview_client()
+        result = client.create_project(
+            project_name=project_name,
+            description=description,
+            model_type=model_type
+        )
+        
+        if result.get('success'):
+            return jsonify({
+                "ok": True,
+                "project_id": result.get('project_id'),
+                "project_name": result.get('project_name'),
+                "message": "ASReview project created successfully"
+            })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": result.get('error', 'Failed to create project')
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error creating literature review project: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.post("/api/literature-review/projects/<project_id>/upload")
+def upload_papers_to_review(project_id):
+    """
+    Upload papers to an ASReview project for screening.
+    Expected JSON: {
+        "papers": [
+            {
+                "title": "Paper Title",
+                "abstract": "Abstract text",
+                "authors": ["Author 1", "Author 2"],
+                "doi": "10.1234/example",
+                "year": 2024
+            },
+            ...
+        ]
+    }
+    """
+    # Check authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+    
+    papers = payload.get('papers', [])
+    if not papers:
+        return jsonify({"error": "papers list is required"}), 400
+    
+    if not isinstance(papers, list):
+        return jsonify({"error": "papers must be a list"}), 400
+    
+    try:
+        from asreview_client import get_asreview_client
+        
+        client = get_asreview_client()
+        result = client.upload_papers(project_id=project_id, papers=papers)
+        
+        if result.get('success'):
+            return jsonify({
+                "ok": True,
+                "uploaded_count": result.get('uploaded_count'),
+                "message": result.get('message', 'Papers uploaded successfully')
+            })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": result.get('error', 'Failed to upload papers')
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error uploading papers to literature review: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.post("/api/literature-review/projects/<project_id>/start")
+def start_literature_review(project_id):
+    """
+    Start the active learning review process.
+    Expected JSON: {
+        "prior_relevant": ["doi1", "doi2"],  # Optional: papers known to be relevant
+        "prior_irrelevant": ["doi3", "doi4"]  # Optional: papers known to be irrelevant
+    }
+    """
+    # Check authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        payload = request.get_json(force=True, silent=True) or {}
+    except Exception:
+        payload = {}
+    
+    prior_relevant = payload.get('prior_relevant', [])
+    prior_irrelevant = payload.get('prior_irrelevant', [])
+    
+    try:
+        from asreview_client import get_asreview_client
+        
+        client = get_asreview_client()
+        result = client.start_review(
+            project_id=project_id,
+            prior_relevant=prior_relevant,
+            prior_irrelevant=prior_irrelevant
+        )
+        
+        if result.get('success'):
+            return jsonify({
+                "ok": True,
+                "message": result.get('message', 'Review started successfully')
+            })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": result.get('error', 'Failed to start review')
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error starting literature review: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.get("/api/literature-review/projects/<project_id>/next")
+def get_next_paper_to_review(project_id):
+    """
+    Get the next paper to review based on active learning predictions.
+    Returns the paper with the highest predicted relevance.
+    """
+    # Check authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        from asreview_client import get_asreview_client
+        
+        client = get_asreview_client()
+        result = client.get_next_paper(project_id=project_id)
+        
+        if result.get('success'):
+            paper = result.get('paper')
+            if paper is None:
+                return jsonify({
+                    "ok": True,
+                    "paper": None,
+                    "message": result.get('message', 'Review complete - no more papers to screen')
+                })
+            else:
+                return jsonify({
+                    "ok": True,
+                    "paper": paper,
+                    "relevance_score": result.get('relevance_score'),
+                    "progress": result.get('progress')
+                })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": result.get('error', 'Failed to get next paper')
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error getting next paper for literature review: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.post("/api/literature-review/projects/<project_id>/record")
+def record_review_decision(project_id):
+    """
+    Record a screening decision for a paper.
+    Expected JSON: {
+        "paper_id": "10.1234/example",
+        "relevant": true,
+        "note": "Optional note about decision"
+    }
+    """
+    # Check authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+    
+    paper_id = payload.get('paper_id', '').strip()
+    if not paper_id:
+        return jsonify({"error": "paper_id is required"}), 400
+    
+    relevant = payload.get('relevant')
+    if relevant is None:
+        return jsonify({"error": "relevant field is required (true/false)"}), 400
+    
+    note = payload.get('note', '').strip()
+    
+    try:
+        from asreview_client import get_asreview_client
+        
+        client = get_asreview_client()
+        result = client.record_decision(
+            project_id=project_id,
+            paper_id=paper_id,
+            relevant=bool(relevant),
+            note=note
+        )
+        
+        if result.get('success'):
+            return jsonify({
+                "ok": True,
+                "message": result.get('message', 'Decision recorded'),
+                "model_updated": result.get('model_updated', True)
+            })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": result.get('error', 'Failed to record decision')
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error recording literature review decision: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.get("/api/literature-review/projects/<project_id>/progress")
+def get_review_progress(project_id):
+    """
+    Get review progress statistics.
+    Returns total papers, reviewed count, relevant/irrelevant counts, etc.
+    """
+    # Check authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        from asreview_client import get_asreview_client
+        
+        client = get_asreview_client()
+        result = client.get_progress(project_id=project_id)
+        
+        if result.get('success'):
+            return jsonify({
+                "ok": True,
+                "total_papers": result.get('total_papers', 0),
+                "reviewed_papers": result.get('reviewed_papers', 0),
+                "relevant_papers": result.get('relevant_papers', 0),
+                "irrelevant_papers": result.get('irrelevant_papers', 0),
+                "progress_percent": result.get('progress_percent', 0),
+                "estimated_remaining": result.get('estimated_remaining', 0)
+            })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": result.get('error', 'Failed to get progress')
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error getting literature review progress: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.get("/api/literature-review/projects/<project_id>/export")
+def export_review_results(project_id):
+    """
+    Export review results (relevant papers).
+    Returns list of papers marked as relevant during screening.
+    """
+    # Check authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        from asreview_client import get_asreview_client
+        
+        client = get_asreview_client()
+        result = client.export_results(project_id=project_id)
+        
+        if result.get('success'):
+            return jsonify({
+                "ok": True,
+                "relevant_papers": result.get('relevant_papers', []),
+                "irrelevant_papers": result.get('irrelevant_papers', []),
+                "export_format": result.get('export_format', 'json')
+            })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": result.get('error', 'Failed to export results')
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error exporting literature review results: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 if __name__ == "__main__":
     # Cleanup old progress entries on startup (older than 1 hour)
     print("[PDF Download] Cleaning up old progress entries...")
