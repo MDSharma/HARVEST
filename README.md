@@ -179,6 +179,31 @@ The Literature Search feature enables semantic paper discovery from multiple aca
 - Smart deduplication across sources
 - Export to projects for annotation
 
+### Literature Review (AI-Assisted Screening)
+
+The Literature Review feature uses ASReview, an AI-powered active learning tool, to efficiently screen and shortlist papers. This significantly reduces manual review effort by prioritizing papers most likely to be relevant. See **[docs/LITERATURE_REVIEW.md](docs/LITERATURE_REVIEW.md)** for detailed documentation.
+
+**Quick Start:**
+1. Complete a Literature Search to gather candidate papers
+2. Click "Start Literature Review" to create a screening project
+3. Upload papers to remote ASReview service
+4. Screen papers presented in order of predicted relevance
+5. Mark papers as relevant or irrelevant
+6. AI model learns your criteria and re-ranks remaining papers
+7. Export relevant papers to HARVEST projects for annotation
+
+**Key Features:**
+- **Active learning**: AI learns from your decisions
+- **Smart prioritization**: Review most relevant papers first
+- **Reduces workload**: Can cut manual screening by 95%+
+- **GPU-accelerated**: Deployed on remote GPU host for optimal performance
+- **Systematic approach**: Structured review with progress tracking
+
+**Requirements:**
+- ASReview service deployed on GPU-enabled host (see docs)
+- `ASREVIEW_SERVICE_URL` configured in config.py
+- Admin authentication
+
 ### For Annotators
 
 1. Enter your email address (required for attribution)

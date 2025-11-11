@@ -13,7 +13,17 @@ sentence-transformers>=2.2.2
 arxiv>=2.0.0
 PyMuPDF>=1.23.0
 watchdog>=3.0.0
+
 # Optional: Web of Science Expanded API integration
 # Requires WOS_API_KEY environment variable (no additional package needed)
 # Get API key from https://developer.clarivate.com/
 # Example: export WOS_API_KEY="your-key-here"
+
+# Optional: Literature Review (ASReview Integration)
+# ASReview service runs on separate GPU-enabled host
+# No additional Python packages needed for HARVEST (uses requests for API calls)
+# To deploy ASReview service, see docs/LITERATURE_REVIEW.md
+# Requirements:
+# - ASReview service deployed on GPU host: pip install asreview[all]
+# - ASREVIEW_SERVICE_URL configured in config.py
+# Example: ASREVIEW_SERVICE_URL = "http://gpu-server:5275"
