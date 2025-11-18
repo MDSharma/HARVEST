@@ -532,6 +532,7 @@ def sidebar():
     schema_md = markdown_cache.get('schema.md', "Schema content not found.")
     admin_guide_md = markdown_cache.get('admin_guide.md', "Admin guide not found.")
     db_model_md = markdown_cache.get('db_model.md', "Database model content not found.")
+    participate_md = markdown_cache.get('participate.md', "Participate content not found.")
     
     # Create tabs with horizontal layout and scrollable content
     info_tabs = dbc.Card(
@@ -597,6 +598,21 @@ def sidebar():
                         ),
                         label="🗄️ Database Model",
                         tab_id="dbmodel",
+                    ),
+                    dbc.Tab(
+                        html.Div(
+                            participate_md,
+                            style={
+                                "maxHeight": "500px",
+                                "overflowY": "auto",
+                                "padding": "15px",
+                                "backgroundColor": "#f8f9fa",
+                                "borderRadius": "4px"
+                            },
+                            id="participate-tab-content"
+                        ),
+                        label="🤝 Participate",
+                        tab_id="participate",
                     ),
                 ],
                 id="info-tabs",
@@ -4507,6 +4523,7 @@ def export_triples_callback(n_clicks, auth_data):
         Output("schema-tab-content", "children"),
         Output("admin-guide-content", "children"),
         Output("dbmodel-tab-content", "children"),
+        Output("participate-tab-content", "children"),
     ],
     Input("markdown-reload-interval", "n_intervals"),
     prevent_initial_call=True
@@ -4526,10 +4543,11 @@ def reload_markdown_on_change(n_intervals):
             markdown_cache.get('schema.md', "Schema content not found."),
             markdown_cache.get('admin_guide.md', "Admin guide not found."),
             markdown_cache.get('db_model.md', "Database model content not found."),
+            markdown_cache.get('participate.md', "Participate content not found."),
         )
     
     # No updates, return no_update for all outputs
-    return no_update, no_update, no_update, no_update
+    return no_update, no_update, no_update, no_update, no_update
 
 
 # Callback to save browse field configuration
