@@ -1459,6 +1459,310 @@ def export_triples_json():
         return jsonify({"ok": False, "error": "Failed to export triples"}), 500
 
 
+
+# =============================================================================
+# Email Verification API Endpoints (OTP Authentication)
+# =============================================================================
+
+@app.post("/api/email-verification/request-code")
+def request_verification_code():
+    """
+    Request OTP verification code for email.
+    Sends verification code to the provided email address.
+    """
+    try:
+        # Check if feature is enabled
+        try:
+            from config import ENABLE_OTP_VALIDATION
+            if not ENABLE_OTP_VALIDATION:
+                return jsonify({
+                    "success": False,
+                    "error": "Email verification feature is disabled"
+                }), 503
+        except ImportError:
+            return jsonify({
+                "success": False,
+                "error": "Email verification configuration not found"
+            }), 503
+        
+        # Import email verification modules
+        try:
+            from email_service import get_email_service, EmailService
+            from email_verification_store import (
+                check_rate_limit,
+                record_code_request,
+                store_verification_code
+            )
+        except ImportError as e:
+            return jsonify({
+                "success": False,
+                "error": f"Email verification modules not available: {str(e)}"
+            }), 500
+        
+        # Get request data
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "No data provided"
+            }), 400
+        
+        email = data.get("email", "").strip().lower()
+        if not email:
+            return jsonify({
+                "success": False,
+                "error": "Email is required"
+            }), 400
+        
+        # Validate email format
+        import re
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, email):
+            return jsonify({
+                "success": False,
+                "error": "Invalid email format"
+            }), 400
+        
+        # Get IP address for rate limiting
+        ip_address = request.remote_addr or ""
+        
+        # Check rate limit
+        allowed, msg = check_rate_limit(DB_PATH, email, ip_address)
+        if not allowed:
+            return jsonify({
+                "success": False,
+                "error": msg
+            }), 429
+        
+        # Record code request
+        record_code_request(DB_PATH, email, ip_address)
+        
+        # Generate and send verification code
+        try:
+            email_service = get_email_service()
+            success, message, code_hash = email_service.send_verification_email(email)
+            
+            if success and code_hash:
+                # Store code in database
+                store_verification_code(DB_PATH, email, code_hash, ip_address=ip_address)
+                
+                return jsonify({
+                    "success": True,
+                    "message": "Verification code sent to your email"
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "error": message
+                }), 500
+                
+        except Exception as e:
+            logger.error(f"Error sending verification email: {e}")
+            return jsonify({
+                "success": False,
+                "error": f"Failed to send verification email: {str(e)}"
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error in request_verification_code: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.post("/api/email-verification/verify-code")
+def verify_verification_code():
+    """
+    Verify OTP code for email.
+    Creates verified session if code is valid.
+    """
+    try:
+        # Check if feature is enabled
+        try:
+            from config import ENABLE_OTP_VALIDATION
+            if not ENABLE_OTP_VALIDATION:
+                return jsonify({
+                    "success": False,
+                    "error": "Email verification feature is disabled"
+                }), 503
+        except ImportError:
+            return jsonify({
+                "success": False,
+                "error": "Email verification configuration not found"
+            }), 503
+        
+        # Import email verification modules
+        try:
+            from email_service import EmailService
+            from email_verification_store import verify_code, create_verified_session
+            import uuid
+        except ImportError as e:
+            return jsonify({
+                "success": False,
+                "error": f"Email verification modules not available: {str(e)}"
+            }), 500
+        
+        # Get request data
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "No data provided"
+            }), 400
+        
+        email = data.get("email", "").strip().lower()
+        code = data.get("code", "").strip()
+        
+        if not email or not code:
+            return jsonify({
+                "success": False,
+                "error": "Email and code are required"
+            }), 400
+        
+        # Verify code
+        result = verify_code(DB_PATH, email, code, EmailService.verify_code)
+        
+        if result["valid"]:
+            # Create verified session
+            session_id = str(uuid.uuid4())
+            ip_address = request.remote_addr or ""
+            
+            if create_verified_session(DB_PATH, session_id, email, ip_address=ip_address):
+                return jsonify({
+                    "success": True,
+                    "message": "Email verified successfully",
+                    "session_id": session_id,
+                    "email": email
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "error": "Failed to create verified session"
+                }), 500
+        else:
+            status_code = 400
+            if result.get("expired"):
+                status_code = 410  # Gone
+            elif result.get("attempts_exceeded"):
+                status_code = 429  # Too Many Requests
+            
+            return jsonify({
+                "success": False,
+                "error": result["message"],
+                "expired": result.get("expired", False),
+                "attempts_exceeded": result.get("attempts_exceeded", False)
+            }), status_code
+            
+    except Exception as e:
+        logger.error(f"Error in verify_verification_code: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.post("/api/email-verification/check-session")
+def check_verification_session():
+    """
+    Check if session is verified and not expired.
+    Returns email if valid.
+    """
+    try:
+        # Check if feature is enabled
+        try:
+            from config import ENABLE_OTP_VALIDATION
+            if not ENABLE_OTP_VALIDATION:
+                return jsonify({
+                    "verified": False,
+                    "error": "Email verification feature is disabled"
+                }), 503
+        except ImportError:
+            return jsonify({
+                "verified": False,
+                "error": "Email verification configuration not found"
+            }), 503
+        
+        # Import email verification modules
+        try:
+            from email_verification_store import check_verified_session
+        except ImportError as e:
+            return jsonify({
+                "verified": False,
+                "error": f"Email verification modules not available: {str(e)}"
+            }), 500
+        
+        # Get request data
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "verified": False,
+                "error": "No data provided"
+            }), 400
+        
+        session_id = data.get("session_id", "").strip()
+        if not session_id:
+            return jsonify({
+                "verified": False,
+                "error": "Session ID is required"
+            }), 400
+        
+        # Check session
+        email = check_verified_session(DB_PATH, session_id)
+        
+        if email:
+            return jsonify({
+                "verified": True,
+                "email": email
+            })
+        else:
+            return jsonify({
+                "verified": False,
+                "error": "Session not found or expired"
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"Error in check_verification_session: {e}")
+        return jsonify({
+            "verified": False,
+            "error": str(e)
+        }), 500
+
+
+@app.get("/api/email-verification/config")
+def get_verification_config():
+    """
+    Get email verification configuration (non-sensitive info).
+    Returns whether feature is enabled and configuration details.
+    """
+    try:
+        # Check if feature is enabled
+        try:
+            from config import ENABLE_OTP_VALIDATION
+            from email_config import OTP_CONFIG, EMAIL_PROVIDER
+            
+            return jsonify({
+                "enabled": ENABLE_OTP_VALIDATION,
+                "provider": EMAIL_PROVIDER if ENABLE_OTP_VALIDATION else None,
+                "code_length": OTP_CONFIG["code_length"] if ENABLE_OTP_VALIDATION else None,
+                "code_expiry_minutes": OTP_CONFIG["code_expiry_seconds"] // 60 if ENABLE_OTP_VALIDATION else None,
+                "session_expiry_hours": OTP_CONFIG["session_expiry_seconds"] // 3600 if ENABLE_OTP_VALIDATION else None,
+                "max_attempts": OTP_CONFIG["max_attempts"] if ENABLE_OTP_VALIDATION else None
+            })
+        except ImportError:
+            return jsonify({
+                "enabled": False,
+                "error": "Email verification not configured"
+            })
+            
+    except Exception as e:
+        logger.error(f"Error in get_verification_config: {e}")
+        return jsonify({
+            "enabled": False,
+            "error": str(e)
+        }), 500
+
+
 # =============================================================================
 # Literature Review API Endpoints (ASReview Integration)
 # =============================================================================
@@ -1854,6 +2158,35 @@ if __name__ == "__main__":
     deleted = cleanup_old_pdf_download_progress(DB_PATH, max_age_seconds=3600)
     if deleted > 0:
         print(f"[PDF Download] Cleaned up {deleted} old progress entries")
+    
+    # Start background cleanup task for email verification if enabled
+    try:
+        from config import ENABLE_OTP_VALIDATION
+        if ENABLE_OTP_VALIDATION:
+            from email_verification_store import cleanup_expired_records
+            
+            def cleanup_verification_task():
+                """Background task to cleanup expired verification records."""
+                while True:
+                    time.sleep(3600)  # Run every hour
+                    try:
+                        deleted = cleanup_expired_records(DB_PATH)
+                        if any(deleted.values()):
+                            logger.info(f"[Email Verification] Cleaned up {deleted['verifications']} codes, "
+                                      f"{deleted['sessions']} sessions, {deleted['rate_limits']} rate limits")
+                    except Exception as e:
+                        logger.error(f"[Email Verification] Cleanup task error: {e}")
+            
+            # Start cleanup thread
+            cleanup_thread = threading.Thread(
+                target=cleanup_verification_task,
+                daemon=True,
+                name="EmailVerificationCleanup"
+            )
+            cleanup_thread.start()
+            logger.info("[Email Verification] Background cleanup task started")
+    except ImportError:
+        pass  # Feature not enabled or modules not available
     
     # Never run with debug=True in production - it allows arbitrary code execution
     app.run(host=HOST, port=PORT, debug=False)
