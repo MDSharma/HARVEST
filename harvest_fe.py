@@ -741,7 +741,7 @@ app.layout = dbc.Container(
         dcc.Store(id="pdf-download-project-id", data=None),  # Store project ID for PDF download tracking
         dcc.Store(id="lit-search-selected-papers", data=[]),  # Store selected papers
         dcc.Store(id="lit-search-session-papers", data=[], storage_type="session"),  # Store all papers from session
-        dcc.Store(id="browse-field-config", data=["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"], storage_type="session"),  # Store browse field configuration
+        dcc.Store(id="browse-field-config", data=["project_id", "sentence_id", "sentence", "source_entity_name", "source_entity_attr", "relation_type", "sink_entity_name", "sink_entity_attr", "triple_id"], storage_type="local"),  # Store browse field configuration
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
         dcc.Interval(id="pdf-download-progress-interval", interval=2000, disabled=True),  # Poll every 2 seconds
         dcc.Interval(id="markdown-reload-interval", interval=5000, disabled=False),  # Check for markdown updates every 5 seconds
@@ -1766,7 +1766,7 @@ app.layout = dbc.Container(
                                                                 {"label": "Sentence", "value": "sentence"},
                                                                 {"label": "Triple Contributor (Hashed)", "value": "triple_contributor"},
                                                             ],
-                                                            value=["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"],
+                                                            value=["project_id", "sentence_id", "sentence", "source_entity_name", "source_entity_attr", "relation_type", "sink_entity_name", "sink_entity_attr", "triple_id"],
                                                             multi=True,
                                                             placeholder="Select fields to display...",
                                                             className="mb-3"
@@ -3152,7 +3152,7 @@ def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, visi
     
     # Use default fields if none configured
     if not visible_fields:
-        visible_fields = ["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"]
+        visible_fields = ["project_id", "sentence_id", "sentence", "source_entity_name", "source_entity_attr", "relation_type", "sink_entity_name", "sink_entity_attr", "triple_id"]
     
     # Rate limiting: check if enough time has passed since last fetch
     # Allow manual refresh button to bypass cooldown
@@ -4560,7 +4560,7 @@ def save_browse_field_config(selected_fields):
     """Save the selected fields to session storage"""
     if not selected_fields:
         # Default fields if nothing selected
-        return ["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"]
+        return ["project_id", "sentence_id", "sentence", "source_entity_name", "source_entity_attr", "relation_type", "sink_entity_name", "sink_entity_attr", "triple_id"]
     return selected_fields
 
 
@@ -4575,7 +4575,7 @@ def load_browse_field_config(n, stored_fields):
     """Load the stored field configuration on page load"""
     if stored_fields:
         return stored_fields
-    return ["project_id", "relation_type", "source_entity_name", "sink_entity_name", "sentence"]
+    return ["project_id", "sentence_id", "sentence", "source_entity_name", "source_entity_attr", "relation_type", "sink_entity_name", "sink_entity_attr", "triple_id"]
 
 
 # Callback to toggle advanced per-source limits
