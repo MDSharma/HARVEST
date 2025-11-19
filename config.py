@@ -78,6 +78,7 @@ ENABLE_PDF_DOWNLOAD = True  # Enable automatic PDF downloading
 ENABLE_PDF_VIEWER = True  # Enable embedded PDF viewer on Annotate tab
 ENABLE_PDF_HIGHLIGHTING = True  # Enable PDF highlighting/annotation feature in PDF viewer
 ENABLE_LITERATURE_SEARCH = True  # Enable Literature Search tab (requires admin authentication)
+ENABLE_OTP_VALIDATION = False  # Enable OTP email verification for annotations (prevents fake emails)
 
 # Literature Review Configuration (ASReview Integration)
 # ASReview provides AI-powered systematic review with active learning

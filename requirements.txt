@@ -27,3 +27,26 @@ watchdog>=3.0.0
 # - ASReview service deployed on GPU host: pip install asreview[all]
 # - ASREVIEW_SERVICE_URL configured in config.py
 # Example: ASREVIEW_SERVICE_URL = "http://gpu-server:5275"
+
+# Optional: Email Verification (OTP)
+# Requires SMTP provider configuration
+# Enable with: ENABLE_OTP_VALIDATION = True in config.py
+# 
+# For SendPulse REST API (recommended, 15k free emails/month):
+#   pip install pysendpulse
+#   export EMAIL_PROVIDER=sendpulse
+#   export SENDPULSE_USER_ID="your-user-id"
+#   export SENDPULSE_SECRET="your-secret"
+#
+# For SendPulse SMTP (12k free emails/month):
+#   export EMAIL_PROVIDER=sendpulse_smtp
+#   export SENDPULSE_SMTP_USERNAME="your-email"
+#   export SENDPULSE_SMTP_PASSWORD="your-password"
+#
+# For Gmail SMTP:
+#   export EMAIL_PROVIDER=gmail
+#   export GMAIL_USERNAME="your@gmail.com"
+#   export GMAIL_APP_PASSWORD="your-app-password"
+#
+# See docs/EMAIL_VERIFICATION_CONFIG_PLAN.md for full configuration options
+
