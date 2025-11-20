@@ -25,13 +25,15 @@ logger = logging.getLogger(__name__)
 try:
     from config import (
         PARTNER_LOGOS, ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING,
-        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, URL_BASE_PATHNAME, EMAIL_HASH_SALT
+        ENABLE_LITERATURE_REVIEW, DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, 
+        URL_BASE_PATHNAME, EMAIL_HASH_SALT
     )
 except ImportError:
     # Fallback if config not available
     PARTNER_LOGOS = []
     ENABLE_LITERATURE_SEARCH = True  # Default to enabled
     ENABLE_PDF_HIGHLIGHTING = True  # Default to enabled
+    ENABLE_LITERATURE_REVIEW = False  # Default to disabled (requires ASReview service)
     DEPLOYMENT_MODE = os.getenv("HARVEST_DEPLOYMENT_MODE", "internal")
     BACKEND_PUBLIC_URL = os.getenv("HARVEST_BACKEND_PUBLIC_URL", "")
     URL_BASE_PATHNAME = os.getenv("HARVEST_URL_BASE_PATHNAME", "/")
@@ -1535,6 +1537,108 @@ app.layout = dbc.Container(
                                         )
                                     ],
                                 ) if ENABLE_LITERATURE_SEARCH else None,
+                                dcc.Tab(
+                                    label="📚 Literature Review",
+                                    value="tab-literature-review",
+                                    children=[
+                                        dbc.Card(
+                                            [
+                                                html.H5("AI-Powered Literature Review (ASReview Integration)", className="mb-3"),
+                                                
+                                                # Service availability check
+                                                html.Div(
+                                                    id="lit-review-status",
+                                                    children=[
+                                                        dbc.Spinner(
+                                                            html.Div(id="lit-review-availability-check"),
+                                                            color="primary"
+                                                        )
+                                                    ],
+                                                    className="mb-3"
+                                                ),
+                                                
+                                                # Main content - shown when service is available
+                                                html.Div(
+                                                    id="lit-review-content",
+                                                    style={"display": "none"},
+                                                    children=[
+                                                        html.P(
+                                                            "Use ASReview's AI-powered active learning to efficiently screen and prioritize literature. "
+                                                            "The system learns from your decisions to predict which papers are most relevant.",
+                                                            className="text-muted mb-4"
+                                                        ),
+                                                        dbc.Alert(
+                                                            [
+                                                                html.H6([
+                                                                    html.I(className="bi bi-lightbulb-fill me-2"),
+                                                                    "How It Works"
+                                                                ], className="mb-2"),
+                                                                html.Ol([
+                                                                    html.Li("Create a review project from Literature Search results"),
+                                                                    html.Li("Mark initial papers as relevant/irrelevant"),
+                                                                    html.Li("AI model learns and predicts relevance for remaining papers"),
+                                                                    html.Li("System shows most relevant papers first"),
+                                                                    html.Li("Export results when done"),
+                                                                ]),
+                                                            ],
+                                                            color="info",
+                                                            className="mb-4"
+                                                        ),
+                                                        
+                                                        html.Div([
+                                                            html.H6("Coming Soon:", className="mb-2"),
+                                                            html.P(
+                                                                "The interactive Literature Review interface is under development. "
+                                                                "For now, you can export DOIs from Literature Search and use the ASReview service directly.",
+                                                                className="text-muted"
+                                                            ),
+                                                            dbc.Alert(
+                                                                [
+                                                                    html.Strong("ASReview Service: "),
+                                                                    html.Span(id="asreview-service-url", className="font-monospace"),
+                                                                ],
+                                                                color="light",
+                                                                className="mb-0"
+                                                            ),
+                                                        ]),
+                                                    ]
+                                                ),
+                                                
+                                                # Error/unavailable message
+                                                html.Div(
+                                                    id="lit-review-unavailable",
+                                                    style={"display": "none"},
+                                                    children=[
+                                                        dbc.Alert(
+                                                            [
+                                                                html.H6([
+                                                                    html.I(className="bi bi-exclamation-triangle-fill me-2"),
+                                                                    "ASReview Service Not Available"
+                                                                ], className="mb-2"),
+                                                                html.P(
+                                                                    "The ASReview service is not configured or not reachable. "
+                                                                    "Please configure ASREVIEW_SERVICE_URL in config.py to enable this feature.",
+                                                                    className="mb-2"
+                                                                ),
+                                                                html.P([
+                                                                    "See ",
+                                                                    html.A("Literature Review Documentation", 
+                                                                          href="docs/LITERATURE_REVIEW.md", 
+                                                                          target="_blank",
+                                                                          className="alert-link"),
+                                                                    " for setup instructions."
+                                                                ], className="mb-0"),
+                                                            ],
+                                                            color="warning"
+                                                        ),
+                                                    ]
+                                                ),
+                                            ],
+                                            body=True,
+                                            className="shadow-custom-md"
+                                        )
+                                    ]
+                                ) if ENABLE_LITERATURE_REVIEW else None,
                                 dcc.Tab(
                                     label="✏️ Annotate",
                                     value="tab-annotate",
@@ -5139,6 +5243,63 @@ def dashboard_quick_actions(lit_clicks, ann_clicks, browse_clicks, admin_clicks)
         return "tab-admin"
     
     return no_update
+
+
+# -----------------------
+# Literature Review (ASReview) Callbacks
+# -----------------------
+@app.callback(
+    [
+        Output("lit-review-availability-check", "children"),
+        Output("lit-review-content", "style"),
+        Output("lit-review-unavailable", "style"),
+        Output("asreview-service-url", "children"),
+    ],
+    Input("load-trigger", "n_intervals"),
+    prevent_initial_call=False
+)
+def check_literature_review_availability(n):
+    """Check if ASReview service is available"""
+    try:
+        # Check service health
+        r = requests.get(f"{API_BASE}/api/literature-review/health", timeout=5)
+        
+        if r.ok:
+            data = r.json()
+            if data.get("configured") and data.get("available"):
+                # Service is available
+                service_url = data.get("service_url", "Configured")
+                return (
+                    "",  # Clear loading spinner
+                    {"display": "block"},  # Show content
+                    {"display": "none"},  # Hide unavailable message
+                    service_url  # Show service URL
+                )
+            else:
+                # Service not configured or not available
+                error_msg = data.get("error", "Service not available")
+                return (
+                    "",  # Clear loading spinner
+                    {"display": "none"},  # Hide content
+                    {"display": "block"},  # Show unavailable message
+                    error_msg
+                )
+        else:
+            return (
+                "",
+                {"display": "none"},
+                {"display": "block"},
+                "Backend error"
+            )
+    
+    except Exception as e:
+        logger.error(f"Error checking literature review availability: {e}")
+        return (
+            "",
+            {"display": "none"},
+            {"display": "block"},
+            f"Error: {str(e)}"
+        )
 
 
 # Callback to load privacy policy content
