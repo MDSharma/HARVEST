@@ -26,7 +26,7 @@ BE_PORT = 5001  # Port for the Flask backend
 #   - Ideal for: Production deployments, multiple instances, SSL termination, load balancing
 #   - Security: Requires proper firewall rules and reverse proxy configuration
 #
-DEPLOYMENT_MODE = "internal"  # Options: "internal" or "nginx"
+DEPLOYMENT_MODE = "nginx"  # Options: "internal" or "nginx"
 
 # Backend Public URL (for documentation/reference in nginx mode)
 # NOTE: This is currently NOT used by the application code.
@@ -50,7 +50,7 @@ BACKEND_PUBLIC_URL = ""  # For reference only (e.g., "https://yourdomain.com/har
 #   - "/harvest/" (app at https://domain.com/harvest/)
 #   - "/t2t/" (app at https://domain.com/t2t/)
 # IMPORTANT: Must start and end with forward slashes
-URL_BASE_PATHNAME = "/"  # Default: "/" for root deployment
+URL_BASE_PATHNAME = "/harvest/"  # Default: "/" for root deployment
 
 # Database Configuration
 DB_PATH = "harvest.db"  # Path to SQLite database file
@@ -76,7 +76,7 @@ PDF_STORAGE_DIR = "project_pdfs"  # Directory for storing project PDFs
 # Feature Flags
 ENABLE_PDF_DOWNLOAD = True  # Enable automatic PDF downloading
 ENABLE_PDF_VIEWER = True  # Enable embedded PDF viewer on Annotate tab
-ENABLE_PDF_HIGHLIGHTING = True  # Enable PDF highlighting/annotation feature in PDF viewer
+ENABLE_PDF_HIGHLIGHTING = False  # Enable PDF highlighting/annotation feature in PDF viewer
 ENABLE_LITERATURE_SEARCH = True  # Enable Literature Search tab (requires admin authentication)
 ENABLE_OTP_VALIDATION = False  # Enable OTP email verification for annotations (prevents fake emails)
 
