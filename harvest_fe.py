@@ -733,6 +733,8 @@ app.layout = dbc.Container(
         dcc.Store(id="choices-store"),
         dcc.Store(id="triple-count", data=1),
         dcc.Store(id="email-store", storage_type="session"),
+        dcc.Store(id="otp-verification-store", storage_type="session"),  # NEW: OTP state
+        dcc.Store(id="otp-session-store", storage_type="local"),  # NEW: Verified session (24h)
         dcc.Store(id="doi-metadata-store"),
         dcc.Store(id="admin-auth-store", storage_type="session"),
         dcc.Store(id="projects-store"),
@@ -1380,6 +1382,41 @@ app.layout = dbc.Container(
                                                                                 html.Small(
                                                                                     id="email-validation",
                                                                                     className="text-muted",
+                                                                                ),
+                                                                                # NEW: OTP Verification Section (hidden by default)
+                                                                                html.Div(
+                                                                                    id="otp-verification-section",
+                                                                                    children=[
+                                                                                        dbc.Label("Verification Code", className="mt-2", style={"fontWeight": "bold"}),
+                                                                                        html.Small("Check your email for the 6-digit code", className="text-muted d-block mb-1"),
+                                                                                        dbc.InputGroup(
+                                                                                            [
+                                                                                                dbc.Input(
+                                                                                                    id="otp-code-input",
+                                                                                                    placeholder="Enter 6-digit code",
+                                                                                                    type="text",
+                                                                                                    maxLength=6,
+                                                                                                    pattern="[0-9]{6}",
+                                                                                                ),
+                                                                                                dbc.Button(
+                                                                                                    "Verify",
+                                                                                                    id="otp-verify-button",
+                                                                                                    color="primary",
+                                                                                                    disabled=True
+                                                                                                ),
+                                                                                            ],
+                                                                                            className="mb-2"
+                                                                                        ),
+                                                                                        html.Div(id="otp-verification-feedback"),
+                                                                                        dbc.Button(
+                                                                                            "Resend Code",
+                                                                                            id="otp-resend-button",
+                                                                                            color="link",
+                                                                                            size="sm",
+                                                                                            className="p-0"
+                                                                                        ),
+                                                                                    ],
+                                                                                    style={"display": "none"}  # Hidden by default
                                                                                 ),
                                                                             ],
                                                                             md=12,
@@ -2089,6 +2126,194 @@ def validate_email(email):
 
 # Note: Removed restore_email callback to prevent circular dependency
 # The email-store serves as validation state, not as a persistent storage for the input field
+
+
+# OTP Email Verification Callbacks
+@app.callback(
+    Output("otp-verification-section", "style"),
+    Output("otp-verification-store", "data"),
+    Output("email-validation", "children", allow_duplicate=True),
+    Output("email-validation", "style", allow_duplicate=True),
+    Input("email-store", "data"),
+    State("otp-session-store", "data"),
+    prevent_initial_call=True
+)
+def request_otp_code(email, session_data):
+    """
+    Request OTP code when email is validated.
+    Check if OTP validation is enabled first.
+    """
+    # Check if OTP is enabled
+    try:
+        config_response = requests.get(f"{API_BASE}/api/email-verification/config")
+        if not config_response.ok or not config_response.json().get("enabled"):
+            # OTP not enabled, keep section hidden
+            return {"display": "none"}, None, "", {}
+    except:
+        # API error, keep section hidden
+        return {"display": "none"}, None, "", {}
+    
+    # Check if already verified
+    if session_data and session_data.get("session_id"):
+        # Check session validity
+        try:
+            check_response = requests.post(
+                f"{API_BASE}/api/email-verification/check-session",
+                json={"session_id": session_data["session_id"]}
+            )
+            if check_response.ok and check_response.json().get("verified"):
+                # Already verified, keep section hidden
+                return {"display": "none"}, session_data, "✓ Email verified", {"color": "green"}
+        except:
+            pass
+    
+    if not email:
+        return {"display": "none"}, None, "", {}
+    
+    # Request OTP code
+    try:
+        response = requests.post(
+            f"{API_BASE}/api/email-verification/request-code",
+            json={"email": email}
+        )
+        
+        if response.ok:
+            return (
+                {"display": "block"},  # Show OTP section
+                {"email": email, "code_requested": True},
+                "Verification code sent to your email",
+                {"color": "blue"}
+            )
+        else:
+            error = response.json().get("error", "Failed to send code")
+            return (
+                {"display": "none"},
+                None,
+                f"Error: {error}",
+                {"color": "red"}
+            )
+    except Exception as e:
+        return (
+            {"display": "none"},
+            None,
+            f"Error requesting code: {str(e)}",
+            {"color": "red"}
+        )
+
+
+@app.callback(
+    Output("otp-verify-button", "disabled"),
+    Input("otp-code-input", "value"),
+)
+def enable_verify_button(code):
+    """Enable verify button when code is 6 digits."""
+    if code and len(code) == 6 and code.isdigit():
+        return False
+    return True
+
+
+@app.callback(
+    Output("otp-verification-feedback", "children"),
+    Output("otp-session-store", "data"),
+    Output("email-validation", "children", allow_duplicate=True),
+    Output("email-validation", "style", allow_duplicate=True),
+    Output("otp-verification-section", "style", allow_duplicate=True),
+    Input("otp-verify-button", "n_clicks"),
+    State("otp-code-input", "value"),
+    State("otp-verification-store", "data"),
+    prevent_initial_call=True
+)
+def verify_otp_code(n_clicks, code, otp_data):
+    """Verify OTP code and create session."""
+    if not n_clicks or not code or not otp_data:
+        return "", None, "", {}, {"display": "block"}
+    
+    email = otp_data.get("email")
+    if not email:
+        return (
+            dbc.Alert("Error: Email not found", color="danger", dismissable=True, duration=4000),
+            None,
+            "",
+            {},
+            {"display": "block"}
+        )
+    
+    try:
+        response = requests.post(
+            f"{API_BASE}/api/email-verification/verify-code",
+            json={"email": email, "code": code}
+        )
+        
+        if response.ok:
+            data = response.json()
+            session_id = data.get("session_id")
+            
+            return (
+                dbc.Alert("✓ Email verified successfully!", color="success", dismissable=True, duration=3000),
+                {"session_id": session_id, "email": email},
+                "✓ Email verified",
+                {"color": "green"},
+                {"display": "none"}  # Hide OTP section
+            )
+        else:
+            error_data = response.json()
+            error_msg = error_data.get("error", "Invalid code")
+            
+            if error_data.get("expired"):
+                error_msg = "Code expired. Please request a new code."
+            elif error_data.get("attempts_exceeded"):
+                error_msg = "Too many attempts. Please request a new code."
+            
+            return (
+                dbc.Alert(error_msg, color="danger", dismissable=True, duration=4000),
+                None,
+                "",
+                {},
+                {"display": "block"}
+            )
+    except Exception as e:
+        return (
+            dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True, duration=4000),
+            None,
+            "",
+            {},
+            {"display": "block"}
+        )
+
+
+@app.callback(
+    Output("otp-verification-feedback", "children", allow_duplicate=True),
+    Input("otp-resend-button", "n_clicks"),
+    State("otp-verification-store", "data"),
+    prevent_initial_call=True
+)
+def resend_otp_code(n_clicks, otp_data):
+    """Resend OTP code."""
+    if not n_clicks or not otp_data:
+        return ""
+    
+    email = otp_data.get("email")
+    if not email:
+        return dbc.Alert("Error: Email not found", color="danger", dismissable=True, duration=4000)
+    
+    try:
+        response = requests.post(
+            f"{API_BASE}/api/email-verification/request-code",
+            json={"email": email}
+        )
+        
+        if response.ok:
+            return dbc.Alert(
+                "New code sent to your email",
+                color="info",
+                dismissable=True,
+                duration=3000
+            )
+        else:
+            error = response.json().get("error", "Failed to send code")
+            return dbc.Alert(error, color="danger", dismissable=True, duration=4000)
+    except Exception as e:
+        return dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True, duration=4000)
 
 
 # Literature Search Authentication check - use Admin panel auth
@@ -3015,6 +3240,7 @@ def toggle_sink_other(values):
     State("literature-link", "value"),
     State("contributor-email", "value"),
     State("email-store", "data"),
+    State("otp-session-store", "data"),  # NEW: Check verified session
     State("doi-metadata-store", "data"),
     State("project-selector", "value"),  # Add project selector
     State({"type": "src-name", "index": ALL}, "value"),
@@ -3028,6 +3254,7 @@ def toggle_sink_other(values):
     prevent_initial_call=True,
 )
 def save_triples(n_clicks, sentence_text, literature_link, contributor_email, email_validated,
+                otp_session,  # NEW: OTP session parameter
                 doi_metadata, project_id,  # Add project_id parameter
                 src_names, src_attrs, src_other,
                 rel_types, rel_other,
@@ -3037,6 +3264,40 @@ def save_triples(n_clicks, sentence_text, literature_link, contributor_email, em
 
     if not email_validated:
         return dbc.Alert("Please enter a valid email address.", color="danger", dismissable=True, duration=4000)
+
+    # NEW: Check OTP verification if enabled
+    try:
+        config_response = requests.get(f"{API_BASE}/api/email-verification/config")
+        if config_response.ok and config_response.json().get("enabled"):
+            # OTP is enabled, check verification
+            if not otp_session or not otp_session.get("session_id"):
+                return dbc.Alert(
+                    "Please verify your email address before submitting annotations.",
+                    color="warning",
+                    dismissable=True,
+                    duration=6000
+                )
+            
+            # Verify session is still valid
+            check_response = requests.post(
+                f"{API_BASE}/api/email-verification/check-session",
+                json={"session_id": otp_session["session_id"]}
+            )
+            
+            if not check_response.ok or not check_response.json().get("verified"):
+                return dbc.Alert(
+                    "Your verification session has expired. Please verify your email again.",
+                    color="warning",
+                    dismissable=True,
+                    duration=6000
+                )
+            
+            # Use verified email from session
+            email_validated = check_response.json().get("email")
+    except Exception as e:
+        # If OTP check fails, log error but continue with basic validation
+        logger.warning(f"OTP verification check failed: {e}")
+        pass
 
     num_rows = max(
         len(src_names or []),
