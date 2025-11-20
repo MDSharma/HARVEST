@@ -534,16 +534,22 @@ class EmailService:
             msg.attach(MIMEText(html_content, 'html'))
             
             # Send email
-            if self.config['smtp_tls']:
-                # Use STARTTLS
-                with smtplib.SMTP(self.config['smtp_host'], self.config['smtp_port']) as server:
-                    server.starttls()
-                    server.login(self.config['smtp_username'], self.config['smtp_password'])
+            port = self.config['smtp_port']
+            host = self.config['smtp_host']
+            username = self.config['smtp_username']
+            password = self.config['smtp_password']
+
+            if port == 465:
+                # Use SSL for port 465
+                with smtplib.SMTP_SSL(host, port) as server:
+                    server.login(username, password)
                     server.send_message(msg)
             else:
-                # Use SSL
-                with smtplib.SMTP_SSL(self.config['smtp_host'], self.config['smtp_port']) as server:
-                    server.login(self.config['smtp_username'], self.config['smtp_password'])
+                # Use STARTTLS for other ports (e.g., 587)
+                with smtplib.SMTP(host, port) as server:
+                    if self.config['smtp_tls']:
+                        server.starttls()
+                    server.login(username, password)
                     server.send_message(msg)
             
             return True
