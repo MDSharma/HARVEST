@@ -171,7 +171,11 @@ class MarkdownCache:
                 schema_json_block = f"```json\n{schema_json_str}\n```\n\n"
                 content = content.replace("{SCHEMA_JSON}", schema_json_block)
             
-            rendered = dcc.Markdown(content)
+            # Special handling for participate.md to allow HTML/iframe rendering
+            if filename == 'participate.md':
+                rendered = dcc.Markdown(content, dangerously_allow_html=True)
+            else:
+                rendered = dcc.Markdown(content)
             
             with self.lock:
                 self.cache[filename] = {
