@@ -29,14 +29,6 @@ This directory contains test scripts for the HARVEST application. These scripts 
   ```bash
   python3 test_literature_search_improvements.py
   ```
-- **test_literature_review_integration.py** - Integration test for the Literature Review feature with ASReview
-  ```bash
-  # Start mock ASReview service first:
-  python3 ../asreview_mock_service.py &
-  
-  # Then run the test:
-  python3 test_literature_review_integration.py
-  ```
 
 ### PDF Feature Tests
 - **test_pdf_annotation.py** - Tests the PDF annotation and highlighting functionality
