@@ -1458,12 +1458,734 @@ def export_triples_json():
         logger.error(f"Error exporting triples: {e}", exc_info=True)
         return jsonify({"ok": False, "error": "Failed to export triples"}), 500
 
+
+
+# =============================================================================
+# Email Verification API Endpoints (OTP Authentication)
+# =============================================================================
+
+@app.post("/api/email-verification/request-code")
+def request_verification_code():
+    """
+    Request OTP verification code for email.
+    Sends verification code to the provided email address.
+    """
+    try:
+        # Check if feature is enabled
+        try:
+            from config import ENABLE_OTP_VALIDATION
+            if not ENABLE_OTP_VALIDATION:
+                return jsonify({
+                    "success": False,
+                    "error": "Email verification feature is disabled"
+                }), 503
+        except ImportError:
+            return jsonify({
+                "success": False,
+                "error": "Email verification configuration not found"
+            }), 503
+        
+        # Import email verification modules
+        try:
+            from email_service import get_email_service, EmailService
+            from email_verification_store import (
+                check_rate_limit,
+                record_code_request,
+                store_verification_code
+            )
+        except ImportError as e:
+            return jsonify({
+                "success": False,
+                "error": f"Email verification modules not available: {str(e)}"
+            }), 500
+        
+        # Get request data
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "No data provided"
+            }), 400
+        
+        email = data.get("email", "").strip().lower()
+        if not email:
+            return jsonify({
+                "success": False,
+                "error": "Email is required"
+            }), 400
+        
+        # Validate email format
+        import re
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, email):
+            return jsonify({
+                "success": False,
+                "error": "Invalid email format"
+            }), 400
+        
+        # Get IP address for rate limiting
+        ip_address = request.remote_addr or ""
+        
+        # Check rate limit
+        allowed, msg = check_rate_limit(DB_PATH, email, ip_address)
+        if not allowed:
+            return jsonify({
+                "success": False,
+                "error": msg
+            }), 429
+        
+        # Record code request
+        record_code_request(DB_PATH, email, ip_address)
+        
+        # Generate and send verification code
+        try:
+            email_service = get_email_service()
+            success, message, code_hash = email_service.send_verification_email(email)
+            
+            if success and code_hash:
+                # Store code in database
+                store_verification_code(DB_PATH, email, code_hash, ip_address=ip_address)
+                
+                return jsonify({
+                    "success": True,
+                    "message": "Verification code sent to your email"
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "error": message
+                }), 500
+                
+        except Exception as e:
+            logger.error(f"Error sending verification email: {e}")
+            return jsonify({
+                "success": False,
+                "error": f"Failed to send verification email: {str(e)}"
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error in request_verification_code: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": "An unexpected server error occurred."
+        }), 500
+
+
+@app.post("/api/email-verification/verify-code")
+def verify_verification_code():
+    """
+    Verify OTP code for email.
+    Creates verified session if code is valid.
+    """
+    try:
+        # Check if feature is enabled
+        try:
+            from config import ENABLE_OTP_VALIDATION
+            if not ENABLE_OTP_VALIDATION:
+                return jsonify({
+                    "success": False,
+                    "error": "Email verification feature is disabled"
+                }), 503
+        except ImportError:
+            return jsonify({
+                "success": False,
+                "error": "Email verification configuration not found"
+            }), 503
+        
+        # Import email verification modules
+        try:
+            from email_service import EmailService
+            from email_verification_store import verify_code, create_verified_session
+            import uuid
+        except ImportError as e:
+            return jsonify({
+                "success": False,
+                "error": f"Email verification modules not available: {str(e)}"
+            }), 500
+        
+        # Get request data
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "No data provided"
+            }), 400
+        
+        email = data.get("email", "").strip().lower()
+        code = data.get("code", "").strip()
+        
+        if not email or not code:
+            return jsonify({
+                "success": False,
+                "error": "Email and code are required"
+            }), 400
+        
+        # Verify code
+        result = verify_code(DB_PATH, email, code, EmailService.verify_code)
+        
+        if result["valid"]:
+            # Create verified session
+            session_id = str(uuid.uuid4())
+            ip_address = request.remote_addr or ""
+            
+            if create_verified_session(DB_PATH, session_id, email, ip_address=ip_address):
+                return jsonify({
+                    "success": True,
+                    "message": "Email verified successfully",
+                    "session_id": session_id,
+                    "email": email
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "error": "Failed to create verified session"
+                }), 500
+        else:
+            status_code = 400
+            if result.get("expired"):
+                status_code = 410  # Gone
+            elif result.get("attempts_exceeded"):
+                status_code = 429  # Too Many Requests
+            
+            return jsonify({
+                "success": False,
+                "error": result["message"],
+                "expired": result.get("expired", False),
+                "attempts_exceeded": result.get("attempts_exceeded", False)
+            }), status_code
+            
+    except Exception as e:
+        logger.error(f"Error in verify_verification_code: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.post("/api/email-verification/check-session")
+def check_verification_session():
+    """
+    Check if session is verified and not expired.
+    Returns email if valid.
+    """
+    try:
+        # Check if feature is enabled
+        try:
+            from config import ENABLE_OTP_VALIDATION
+            if not ENABLE_OTP_VALIDATION:
+                return jsonify({
+                    "verified": False,
+                    "error": "Email verification feature is disabled"
+                }), 503
+        except ImportError:
+            return jsonify({
+                "verified": False,
+                "error": "Email verification configuration not found"
+            }), 503
+        
+        # Import email verification modules
+        try:
+            from email_verification_store import check_verified_session
+        except ImportError as e:
+            return jsonify({
+                "verified": False,
+                "error": f"Email verification modules not available: {str(e)}"
+            }), 500
+        
+        # Get request data
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "verified": False,
+                "error": "No data provided"
+            }), 400
+        
+        session_id = data.get("session_id", "").strip()
+        if not session_id:
+            return jsonify({
+                "verified": False,
+                "error": "Session ID is required"
+            }), 400
+        
+        # Check session
+        email = check_verified_session(DB_PATH, session_id)
+        
+        if email:
+            return jsonify({
+                "verified": True,
+                "email": email
+            })
+        else:
+            return jsonify({
+                "verified": False,
+                "error": "Session not found or expired"
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"Error in check_verification_session: {e}")
+        return jsonify({
+            "verified": False,
+            "error": str(e)
+        }), 500
+
+
+@app.get("/api/email-verification/config")
+def get_verification_config():
+    """
+    Get email verification configuration (non-sensitive info).
+    Returns whether feature is enabled and configuration details.
+    """
+    try:
+        # Check if feature is enabled
+        try:
+            from config import ENABLE_OTP_VALIDATION
+            from email_config import OTP_CONFIG, EMAIL_PROVIDER
+            
+            return jsonify({
+                "enabled": ENABLE_OTP_VALIDATION,
+                "provider": EMAIL_PROVIDER if ENABLE_OTP_VALIDATION else None,
+                "code_length": OTP_CONFIG["code_length"] if ENABLE_OTP_VALIDATION else None,
+                "code_expiry_minutes": OTP_CONFIG["code_expiry_seconds"] // 60 if ENABLE_OTP_VALIDATION else None,
+                "session_expiry_hours": OTP_CONFIG["session_expiry_seconds"] // 3600 if ENABLE_OTP_VALIDATION else None,
+                "max_attempts": OTP_CONFIG["max_attempts"] if ENABLE_OTP_VALIDATION else None
+            })
+        except ImportError:
+            return jsonify({
+                "enabled": False,
+                "error": "Email verification not configured"
+            })
+            
+    except Exception as e:
+        logger.error(f"Error in get_verification_config: {e}")
+        return jsonify({
+            "enabled": False,
+            "error": str(e)
+        }), 500
+
+
+# =============================================================================
+# Literature Review API Endpoints (ASReview Integration)
+# =============================================================================
+
+@app.get("/api/literature-review/health")
+def literature_review_health():
+    """
+    Check if Literature Review feature is available and configured.
+    Returns health status of ASReview service integration.
+    """
+    try:
+        # Check if feature is enabled
+        try:
+            from config import ENABLE_LITERATURE_REVIEW
+            if not ENABLE_LITERATURE_REVIEW:
+                return jsonify({
+                    "ok": False,
+                    "available": False,
+                    "error": "Literature Review feature is disabled in config"
+                })
+        except ImportError:
+            ENABLE_LITERATURE_REVIEW = True  # Default to enabled
+        
+        # Check ASReview service configuration
+        from asreview_client import get_asreview_client
+        
+        client = get_asreview_client()
+        if not client.is_configured():
+            return jsonify({
+                "ok": True,
+                "available": False,
+                "configured": False,
+                "error": "ASReview service URL not configured. Please set ASREVIEW_SERVICE_URL in config.py"
+            })
+        
+        # Check ASReview service health
+        health_status = client.check_health()
+        
+        return jsonify({
+            "ok": True,
+            "available": health_status.get('available', False),
+            "configured": True,
+            "service_url": client.service_url if client.service_url else None,
+            "version": health_status.get('version'),
+            "status": health_status.get('status'),
+            "error": health_status.get('error')
+        })
+    
+    except Exception as e:
+        logger.error(f"Error checking literature review health: {e}", exc_info=True)
+        return jsonify({
+            "ok": False,
+            "available": False,
+            "error": str(e)
+        }), 500
+
+
+@app.post("/api/literature-review/projects")
+def create_literature_review_project():
+    """
+    Create a new ASReview project for literature screening.
+    Expected JSON: {
+        "project_name": "My Review Project",
+        "description": "Optional description",
+        "model_type": "nb"  # Optional: nb (Naive Bayes), svm, rf
+    }
+    """
+    # Check authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    payload = request.get_json()
+    if payload is None:
+        return jsonify({"error": "Invalid JSON or missing Content-Type: application/json header"}), 400
+    
+    project_name = payload.get('project_name', '').strip()
+    if not project_name:
+        return jsonify({"error": "project_name is required"}), 400
+    
+    description = payload.get('description', '').strip()
+    model_type = payload.get('model_type', 'nb').strip()
+    
+    # Validate model type
+    valid_models = ['nb', 'svm', 'rf', 'logistic']
+    if model_type not in valid_models:
+        return jsonify({"error": f"Invalid model_type. Must be one of: {', '.join(valid_models)}"}), 400
+    
+    try:
+        from asreview_client import get_asreview_client
+        
+        client = get_asreview_client()
+        result = client.create_project(
+            project_name=project_name,
+            description=description,
+            model_type=model_type
+        )
+        
+        if result.get('success'):
+            return jsonify({
+                "ok": True,
+                "project_id": result.get('project_id'),
+                "project_name": result.get('project_name'),
+                "message": "ASReview project created successfully"
+            })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": result.get('error', 'Failed to create project')
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error creating literature review project: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.post("/api/literature-review/projects/<project_id>/upload")
+def upload_papers_to_review(project_id):
+    """
+    Upload papers to an ASReview project for screening.
+    Expected JSON: {
+        "papers": [
+            {
+                "title": "Paper Title",
+                "abstract": "Abstract text",
+                "authors": ["Author 1", "Author 2"],
+                "doi": "10.1234/example",
+                "year": 2024
+            },
+            ...
+        ]
+    }
+    """
+    # Check authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+    
+    papers = payload.get('papers', [])
+    if not papers:
+        return jsonify({"error": "papers list is required"}), 400
+    
+    if not isinstance(papers, list):
+        return jsonify({"error": "papers must be a list"}), 400
+    
+    try:
+        from asreview_client import get_asreview_client
+        
+        client = get_asreview_client()
+        result = client.upload_papers(project_id=project_id, papers=papers)
+        
+        if result.get('success'):
+            return jsonify({
+                "ok": True,
+                "uploaded_count": result.get('uploaded_count'),
+                "message": result.get('message', 'Papers uploaded successfully')
+            })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": result.get('error', 'Failed to upload papers')
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error uploading papers to literature review: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.post("/api/literature-review/projects/<project_id>/start")
+def start_literature_review(project_id):
+    """
+    Start the active learning review process.
+    Expected JSON: {
+        "prior_relevant": ["doi1", "doi2"],  # Optional: papers known to be relevant
+        "prior_irrelevant": ["doi3", "doi4"]  # Optional: papers known to be irrelevant
+    }
+    """
+    # Check authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        payload = request.get_json(force=True, silent=True) or {}
+    except Exception:
+        payload = {}
+    
+    prior_relevant = payload.get('prior_relevant', [])
+    prior_irrelevant = payload.get('prior_irrelevant', [])
+    
+    try:
+        from asreview_client import get_asreview_client
+        
+        client = get_asreview_client()
+        result = client.start_review(
+            project_id=project_id,
+            prior_relevant=prior_relevant,
+            prior_irrelevant=prior_irrelevant
+        )
+        
+        if result.get('success'):
+            return jsonify({
+                "ok": True,
+                "message": result.get('message', 'Review started successfully')
+            })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": result.get('error', 'Failed to start review')
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error starting literature review: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.get("/api/literature-review/projects/<project_id>/next")
+def get_next_paper_to_review(project_id):
+    """
+    Get the next paper to review based on active learning predictions.
+    Returns the paper with the highest predicted relevance.
+    """
+    # Check authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        from asreview_client import get_asreview_client
+        
+        client = get_asreview_client()
+        result = client.get_next_paper(project_id=project_id)
+        
+        if result.get('success'):
+            paper = result.get('paper')
+            if paper is None:
+                return jsonify({
+                    "ok": True,
+                    "paper": None,
+                    "message": result.get('message', 'Review complete - no more papers to screen')
+                })
+            else:
+                return jsonify({
+                    "ok": True,
+                    "paper": paper,
+                    "relevance_score": result.get('relevance_score'),
+                    "progress": result.get('progress')
+                })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": result.get('error', 'Failed to get next paper')
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error getting next paper for literature review: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.post("/api/literature-review/projects/<project_id>/record")
+def record_review_decision(project_id):
+    """
+    Record a screening decision for a paper.
+    Expected JSON: {
+        "paper_id": "10.1234/example",
+        "relevant": true,
+        "note": "Optional note about decision"
+    }
+    """
+    # Check authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+    
+    paper_id = payload.get('paper_id', '').strip()
+    if not paper_id:
+        return jsonify({"error": "paper_id is required"}), 400
+    
+    relevant = payload.get('relevant')
+    if relevant is None:
+        return jsonify({"error": "relevant field is required (true/false)"}), 400
+    
+    note = payload.get('note', '').strip()
+    
+    try:
+        from asreview_client import get_asreview_client
+        
+        client = get_asreview_client()
+        result = client.record_decision(
+            project_id=project_id,
+            paper_id=paper_id,
+            relevant=bool(relevant),
+            note=note
+        )
+        
+        if result.get('success'):
+            return jsonify({
+                "ok": True,
+                "message": result.get('message', 'Decision recorded'),
+                "model_updated": result.get('model_updated', True)
+            })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": result.get('error', 'Failed to record decision')
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error recording literature review decision: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.get("/api/literature-review/projects/<project_id>/progress")
+def get_review_progress(project_id):
+    """
+    Get review progress statistics.
+    Returns total papers, reviewed count, relevant/irrelevant counts, etc.
+    """
+    # Check authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        from asreview_client import get_asreview_client
+        
+        client = get_asreview_client()
+        result = client.get_progress(project_id=project_id)
+        
+        if result.get('success'):
+            return jsonify({
+                "ok": True,
+                "total_papers": result.get('total_papers', 0),
+                "reviewed_papers": result.get('reviewed_papers', 0),
+                "relevant_papers": result.get('relevant_papers', 0),
+                "irrelevant_papers": result.get('irrelevant_papers', 0),
+                "progress_percent": result.get('progress_percent', 0),
+                "estimated_remaining": result.get('estimated_remaining', 0)
+            })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": result.get('error', 'Failed to get progress')
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error getting literature review progress: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.get("/api/literature-review/projects/<project_id>/export")
+def export_review_results(project_id):
+    """
+    Export review results (relevant papers).
+    Returns list of papers marked as relevant during screening.
+    """
+    # Check authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        from asreview_client import get_asreview_client
+        
+        client = get_asreview_client()
+        result = client.export_results(project_id=project_id)
+        
+        if result.get('success'):
+            return jsonify({
+                "ok": True,
+                "relevant_papers": result.get('relevant_papers', []),
+                "irrelevant_papers": result.get('irrelevant_papers', []),
+                "export_format": result.get('export_format', 'json')
+            })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": result.get('error', 'Failed to export results')
+            }), 500
+    
+    except Exception as e:
+        logger.error(f"Error exporting literature review results: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 if __name__ == "__main__":
     # Cleanup old progress entries on startup (older than 1 hour)
     print("[PDF Download] Cleaning up old progress entries...")
     deleted = cleanup_old_pdf_download_progress(DB_PATH, max_age_seconds=3600)
     if deleted > 0:
         print(f"[PDF Download] Cleaned up {deleted} old progress entries")
+    
+    # Start background cleanup task for email verification if enabled
+    try:
+        from config import ENABLE_OTP_VALIDATION
+        if ENABLE_OTP_VALIDATION:
+            from email_verification_store import cleanup_expired_records
+            
+            def cleanup_verification_task():
+                """Background task to cleanup expired verification records."""
+                while True:
+                    time.sleep(3600)  # Run every hour
+                    try:
+                        deleted = cleanup_expired_records(DB_PATH)
+                        if any(deleted.values()):
+                            logger.info(f"[Email Verification] Cleaned up {deleted['verifications']} codes, "
+                                      f"{deleted['sessions']} sessions, {deleted['rate_limits']} rate limits")
+                    except Exception as e:
+                        logger.error(f"[Email Verification] Cleanup task error: {e}")
+            
+            # Start cleanup thread
+            cleanup_thread = threading.Thread(
+                target=cleanup_verification_task,
+                daemon=True,
+                name="EmailVerificationCleanup"
+            )
+            cleanup_thread.start()
+            logger.info("[Email Verification] Background cleanup task started")
+    except ImportError:
+        pass  # Feature not enabled or modules not available
     
     # Never run with debug=True in production - it allows arbitrary code execution
     app.run(host=HOST, port=PORT, debug=False)

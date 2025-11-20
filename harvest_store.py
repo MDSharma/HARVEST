@@ -179,7 +179,6 @@ def init_db(db_path: str) -> None:
         );
     """)
     
-    # Table for tracking PDF download progress (replaces in-memory dictionary)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS pdf_download_progress (
             project_id INTEGER PRIMARY KEY,
@@ -195,6 +194,54 @@ def init_db(db_path: str) -> None:
             end_time REAL,
             updated_at REAL NOT NULL
         );
+    """)
+    
+    # Email verification tables for OTP authentication
+    # These tables support the email verification feature (ENABLE_OTP_VALIDATION)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS email_verifications (
+            email TEXT PRIMARY KEY,
+            code_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            attempts INTEGER DEFAULT 0,
+            last_attempt_at TEXT,
+            ip_address_hash TEXT
+        );
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS verified_sessions (
+            session_id TEXT PRIMARY KEY,
+            email TEXT NOT NULL,
+            verified_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            ip_address_hash TEXT
+        );
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS email_verification_rate_limit (
+            email TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            ip_address_hash TEXT
+        );
+    """)
+    
+    # Indexes for email verification tables
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_email_verifications_expires 
+        ON email_verifications(expires_at);
+    """)
+    
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_verified_sessions_expires 
+        ON verified_sessions(expires_at);
+    """)
+    
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_rate_limit_email_time
+        ON email_verification_rate_limit(email, timestamp);
     """)
 
     for name, value in SCHEMA_JSON["span-attribute"].items():

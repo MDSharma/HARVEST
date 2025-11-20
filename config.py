@@ -78,6 +78,37 @@ ENABLE_PDF_DOWNLOAD = True  # Enable automatic PDF downloading
 ENABLE_PDF_VIEWER = True  # Enable embedded PDF viewer on Annotate tab
 ENABLE_PDF_HIGHLIGHTING = True  # Enable PDF highlighting/annotation feature in PDF viewer
 ENABLE_LITERATURE_SEARCH = True  # Enable Literature Search tab (requires admin authentication)
+ENABLE_OTP_VALIDATION = False  # Enable OTP email verification for annotations (prevents fake emails)
+
+# Literature Review Configuration (ASReview Integration)
+# ASReview provides AI-powered systematic review with active learning
+# This feature helps researchers efficiently screen and shortlist papers
+ENABLE_LITERATURE_REVIEW = True  # Enable Literature Review feature (requires admin authentication)
+
+# ASReview Service URL - Remote service endpoint for GPU-enabled ML inference
+# ASReview should be deployed separately on a GPU-enabled host for optimal performance
+# The service runs independently and HARVEST communicates via REST API
+# 
+# Setup instructions:
+# 1. Deploy ASReview on a GPU-enabled server (see docs/LITERATURE_REVIEW.md)
+# 2. Configure the service URL below (include protocol and port)
+# 3. Ensure network connectivity between HARVEST and ASReview service
+# 4. ASReview service should be accessible via nginx proxy or direct connection
+#
+# Examples:
+#   - Direct connection: "http://asreview-server.local:5000"
+#   - Via nginx proxy: "https://yourdomain.com/asreview"
+#   - Same host: "http://localhost:5275" (if ASReview runs on same machine)
+ASREVIEW_SERVICE_URL = ""  # Enter ASReview service URL here (e.g., "http://asreview-host:5000")
+
+# ASReview API Key (optional)
+# If your ASReview service requires authentication, enter the API key here
+# This can also be set via ASREVIEW_API_KEY environment variable
+ASREVIEW_API_KEY = ""  # Enter ASReview API key here if service requires authentication
+
+# ASReview Timeout Configuration
+ASREVIEW_REQUEST_TIMEOUT = 300  # Timeout in seconds for ASReview API requests (default: 5 minutes)
+ASREVIEW_CONNECTION_TIMEOUT = 10  # Connection timeout in seconds (default: 10 seconds)
 
 # PDF Download Options - Legacy Sources
 ENABLE_METAPUB_FALLBACK = False  # Try metapub if Unpaywall fails (requires NCBI_API_KEY environment variable)
