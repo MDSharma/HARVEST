@@ -13,6 +13,15 @@ sentence-transformers>=2.2.2
 arxiv>=2.0.0
 PyMuPDF>=1.23.0
 watchdog>=3.0.0
+# Uncomment for SendPulse integration
+pysendpulse
+
+# Development/Security Tools (Optional)
+# Uncomment for development and security scanning
+pip-audit>=2.0.0  # Dependency vulnerability scanner
+bandit>=1.7.0  # Security linter for Python
+safety>=2.3.0  # Checks dependencies for known security vulnerabilities
+
 
 # Optional: Web of Science Expanded API integration
 # Requires WOS_API_KEY environment variable (no additional package needed)
@@ -50,9 +59,5 @@ watchdog>=3.0.0
 #
 # See docs/EMAIL_VERIFICATION_CONFIG_PLAN.md for full configuration options
 
-# Development/Security Tools (Optional)
-# Uncomment for development and security scanning
-# pip-audit>=2.0.0  # Dependency vulnerability scanner
-# bandit>=1.7.0  # Security linter for Python
-# safety>=2.3.0  # Checks dependencies for known security vulnerabilities
+
 
