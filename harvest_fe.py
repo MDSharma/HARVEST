@@ -693,6 +693,8 @@ app.index_string = '''
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
+        <!-- Bootstrap Icons -->
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
         <script>
             // Listen for messages from PDF viewer iframe
             window.addEventListener('message', function(event) {
@@ -996,25 +998,198 @@ app.layout = dbc.Container(
             [
                 dbc.Col(
                     [
-                        # Logo and title section
+                        # Enhanced logo and title section with branding
                         html.Div([
-                            html.Img(
-                                src=app.get_asset_url("HARVEST.png"),
-                                alt="HARVEST",
-                                style={
-                                    "height": "120px",
-                                    "marginBottom": "10px"
-                                },
-                                id="harvest-logo"
-                            ),
-                        ], className="mt-3 mb-4", style={"textAlign": "left"}),
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Img(
+                                        src=app.get_asset_url("HARVEST.png"),
+                                        alt="HARVEST",
+                                        style={
+                                            "height": "100px",
+                                            "transition": "transform 0.2s ease"
+                                        },
+                                        id="harvest-logo",
+                                        className="logo-hover"
+                                    ),
+                                ], width="auto", className="d-flex align-items-center"),
+                                dbc.Col([
+                                    html.H1("HARVEST", 
+                                           className="mb-0 text-primary-custom", 
+                                           style={"fontWeight": "700", "fontSize": "2rem"}),
+                                    html.P("Human-in-the-loop Actionable Research and Vocabulary Extraction Technology",
+                                          className="text-muted mb-0", 
+                                          style={"fontSize": "0.9rem", "lineHeight": "1.4"})
+                                ], className="d-flex flex-column justify-content-center"),
+                            ], align="center", className="mb-4 mt-3")
+                        ], className="logo-container"),
 
                         dcc.Tabs(
                             id="main-tabs",
-                            value="tab-literature" if ENABLE_LITERATURE_SEARCH else "tab-annotate",
+                            value="tab-dashboard",
                             children=[tab for tab in [
+                                # Dashboard/Welcome Tab
                                 dcc.Tab(
-                                    label="Literature Search",
+                                    label="🏠 Dashboard",
+                                    value="tab-dashboard",
+                                    children=[
+                                        dbc.Card(
+                                            [
+                                                html.Div([
+                                                    html.H3([
+                                                        html.I(className="bi bi-house-fill me-2 text-primary-custom"),
+                                                        "Welcome to HARVEST"
+                                                    ], className="mb-3"),
+                                                    html.P(
+                                                        "Your annotation and literature review hub for biological research.",
+                                                        className="text-muted mb-4"
+                                                    ),
+                                                    
+                                                    # Quick Stats Section
+                                                    html.H5([
+                                                        html.I(className="bi bi-graph-up me-2"),
+                                                        "Quick Statistics"
+                                                    ], className="mb-3"),
+                                                    dbc.Row([
+                                                        dbc.Col([
+                                                            dbc.Card([
+                                                                dbc.CardBody([
+                                                                    html.Div([
+                                                                        html.I(className="bi bi-clipboard-data", 
+                                                                              style={"fontSize": "2.5rem", "color": "var(--primary-color)"}),
+                                                                    ], className="text-center mb-2"),
+                                                                    html.H4(id="dashboard-total-triples", 
+                                                                           children="0",
+                                                                           className="text-center mb-1 text-primary-custom"),
+                                                                    html.P("Total Annotations", 
+                                                                          className="text-center text-muted mb-0 small"),
+                                                                ])
+                                                            ], className="shadow-custom-md mb-3")
+                                                        ], md=3, sm=6, xs=12),
+                                                        dbc.Col([
+                                                            dbc.Card([
+                                                                dbc.CardBody([
+                                                                    html.Div([
+                                                                        html.I(className="bi bi-folder-fill", 
+                                                                              style={"fontSize": "2.5rem", "color": "var(--secondary-color)"}),
+                                                                    ], className="text-center mb-2"),
+                                                                    html.H4(id="dashboard-total-projects", 
+                                                                           children="0",
+                                                                           className="text-center mb-1 text-secondary-custom"),
+                                                                    html.P("Active Projects", 
+                                                                          className="text-center text-muted mb-0 small"),
+                                                                ])
+                                                            ], className="shadow-custom-md mb-3")
+                                                        ], md=3, sm=6, xs=12),
+                                                        dbc.Col([
+                                                            dbc.Card([
+                                                                dbc.CardBody([
+                                                                    html.Div([
+                                                                        html.I(className="bi bi-file-earmark-text-fill", 
+                                                                              style={"fontSize": "2.5rem", "color": "var(--accent-color)"}),
+                                                                    ], className="text-center mb-2"),
+                                                                    html.H4(id="dashboard-total-dois", 
+                                                                           children="0",
+                                                                           className="text-center mb-1",
+                                                                           style={"color": "var(--accent-color)"}),
+                                                                    html.P("Papers Annotated", 
+                                                                          className="text-center text-muted mb-0 small"),
+                                                                ])
+                                                            ], className="shadow-custom-md mb-3")
+                                                        ], md=3, sm=6, xs=12),
+                                                        dbc.Col([
+                                                            dbc.Card([
+                                                                dbc.CardBody([
+                                                                    html.Div([
+                                                                        html.I(className="bi bi-clock-history", 
+                                                                              style={"fontSize": "2.5rem", "color": "var(--success-color)"}),
+                                                                    ], className="text-center mb-2"),
+                                                                    html.H4(id="dashboard-recent-activity", 
+                                                                           children="0",
+                                                                           className="text-center mb-1",
+                                                                           style={"color": "var(--success-color)"}),
+                                                                    html.P("Recent (7 days)", 
+                                                                          className="text-center text-muted mb-0 small"),
+                                                                ])
+                                                            ], className="shadow-custom-md mb-3")
+                                                        ], md=3, sm=6, xs=12),
+                                                    ], className="mb-4"),
+                                                    
+                                                    # Quick Actions Section
+                                                    html.H5([
+                                                        html.I(className="bi bi-lightning-fill me-2"),
+                                                        "Quick Actions"
+                                                    ], className="mb-3"),
+                                                    dbc.Row([
+                                                        dbc.Col([
+                                                            dbc.Button([
+                                                                html.I(className="bi bi-search me-2"),
+                                                                "Search Literature"
+                                                            ], id="dashboard-goto-literature", 
+                                                               color="primary", 
+                                                               size="lg",
+                                                               className="w-100 mb-2 shadow-custom-sm"),
+                                                        ], md=3, sm=6, xs=12),
+                                                        dbc.Col([
+                                                            dbc.Button([
+                                                                html.I(className="bi bi-pencil-square me-2"),
+                                                                "Annotate Paper"
+                                                            ], id="dashboard-goto-annotate", 
+                                                               color="success", 
+                                                               size="lg",
+                                                               className="w-100 mb-2 shadow-custom-sm"),
+                                                        ], md=3, sm=6, xs=12),
+                                                        dbc.Col([
+                                                            dbc.Button([
+                                                                html.I(className="bi bi-table me-2"),
+                                                                "Browse Data"
+                                                            ], id="dashboard-goto-browse", 
+                                                               color="info", 
+                                                               size="lg",
+                                                               className="w-100 mb-2 shadow-custom-sm"),
+                                                        ], md=3, sm=6, xs=12),
+                                                        dbc.Col([
+                                                            dbc.Button([
+                                                                html.I(className="bi bi-gear-fill me-2"),
+                                                                "Admin Panel"
+                                                            ], id="dashboard-goto-admin", 
+                                                               color="secondary", 
+                                                               size="lg",
+                                                               className="w-100 mb-2 shadow-custom-sm"),
+                                                        ], md=3, sm=6, xs=12),
+                                                    ], className="mb-4"),
+                                                    
+                                                    # Getting Started Guide
+                                                    html.H5([
+                                                        html.I(className="bi bi-signpost-2-fill me-2"),
+                                                        "Getting Started"
+                                                    ], className="mb-3"),
+                                                    dbc.Alert([
+                                                        html.H6([
+                                                            html.I(className="bi bi-info-circle-fill me-2"),
+                                                            "New to HARVEST?"
+                                                        ], className="mb-2"),
+                                                        html.Ol([
+                                                            html.Li([html.Strong("Search"), " for relevant papers in the Literature Search tab"]),
+                                                            html.Li([html.Strong("Annotate"), " biological entities and relationships in the Annotate tab"]),
+                                                            html.Li([html.Strong("Browse"), " and export your annotations in the Browse tab"]),
+                                                            html.Li([html.Strong("Manage"), " projects and users in the Admin tab"]),
+                                                        ], className="mb-2"),
+                                                        html.P([
+                                                            "For detailed guides, check the ",
+                                                            html.I(className="bi bi-book"),
+                                                            " information tabs on the right →"
+                                                        ], className="mb-0 small text-muted"),
+                                                    ], color="info", className="shadow-custom-sm"),
+                                                ]),
+                                            ],
+                                            body=True,
+                                            className="shadow-custom-md"
+                                        )
+                                    ]
+                                ) if True else None,  # Always show dashboard
+                                dcc.Tab(
+                                    label="🔍 Literature Search",
                                     value="tab-literature",
                                     children=[
                                         dbc.Card(
@@ -1357,7 +1532,7 @@ app.layout = dbc.Container(
                                     ],
                                 ) if ENABLE_LITERATURE_SEARCH else None,
                                 dcc.Tab(
-                                    label="Annotate",
+                                    label="✏️ Annotate",
                                     value="tab-annotate",
                                     children=[
                                         dbc.Row(
@@ -1552,7 +1727,7 @@ app.layout = dbc.Container(
                                     ],
                                 ),
                                 dcc.Tab(
-                                    label="Browse",
+                                    label="📊 Browse",
                                     value="tab-browse",
                                     children=[
                                         dbc.Card(
@@ -1587,7 +1762,7 @@ app.layout = dbc.Container(
                                     ],
                                 ),
                                 dcc.Tab(
-                                    label="Admin",
+                                    label="👤 Admin",
                                     value="tab-admin",
                                     children=[
                                         dbc.Card(
@@ -4869,6 +5044,75 @@ def toggle_per_source_limits(n_clicks, is_open):
 def toggle_privacy_policy_modal(open_click, close_click, is_open):
     """Toggle the privacy policy modal"""
     return not is_open
+
+
+# -----------------------
+# Dashboard Callbacks
+# -----------------------
+# Dashboard statistics callback
+@app.callback(
+    [
+        Output("dashboard-total-triples", "children"),
+        Output("dashboard-total-projects", "children"),
+        Output("dashboard-total-dois", "children"),
+        Output("dashboard-recent-activity", "children"),
+    ],
+    Input("load-trigger", "n_intervals"),
+)
+def update_dashboard_stats(n):
+    """Update dashboard statistics"""
+    try:
+        # Get total triples count
+        r_triples = requests.get(f"{API_BASE}/api/triples", timeout=5)
+        total_triples = len(r_triples.json().get("data", [])) if r_triples.ok else 0
+        
+        # Get total projects count
+        r_projects = requests.get(f"{API_BASE}/api/projects", timeout=5)
+        total_projects = len(r_projects.json().get("projects", [])) if r_projects.ok else 0
+        
+        # Get unique DOIs count
+        r_dois = requests.get(f"{API_BASE}/api/recent", params={"limit": 1000}, timeout=5)
+        unique_dois = len(set([item.get("doi", "") for item in r_dois.json().get("data", []) if item.get("doi")])) if r_dois.ok else 0
+        
+        # Get recent activity (last 7 days)
+        from datetime import datetime, timedelta
+        seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
+        recent_count = 0
+        if r_triples.ok:
+            recent_count = sum(1 for item in r_triples.json().get("data", []) 
+                             if item.get("created_at", "") >= seven_days_ago)
+        
+        return str(total_triples), str(total_projects), str(unique_dois), str(recent_count)
+    except Exception as e:
+        logger.error(f"Error updating dashboard stats: {e}")
+        return "—", "—", "—", "—"
+
+
+# Dashboard quick action callbacks
+@app.callback(
+    Output("main-tabs", "value"),
+    [
+        Input("dashboard-goto-literature", "n_clicks"),
+        Input("dashboard-goto-annotate", "n_clicks"),
+        Input("dashboard-goto-browse", "n_clicks"),
+        Input("dashboard-goto-admin", "n_clicks"),
+    ],
+    prevent_initial_call=True,
+)
+def dashboard_quick_actions(lit_clicks, ann_clicks, browse_clicks, admin_clicks):
+    """Handle dashboard quick action button clicks"""
+    trigger_id = ctx.triggered_id
+    
+    if trigger_id == "dashboard-goto-literature":
+        return "tab-literature"
+    elif trigger_id == "dashboard-goto-annotate":
+        return "tab-annotate"
+    elif trigger_id == "dashboard-goto-browse":
+        return "tab-browse"
+    elif trigger_id == "dashboard-goto-admin":
+        return "tab-admin"
+    
+    return no_update
 
 
 # Callback to load privacy policy content
