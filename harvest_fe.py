@@ -3295,9 +3295,14 @@ def save_triples(n_clicks, sentence_text, literature_link, contributor_email, em
             # Use verified email from session
             email_validated = check_response.json().get("email")
     except Exception as e:
-        # If OTP check fails, log error but continue with basic validation
-        logger.warning(f"OTP verification check failed: {e}")
-        pass
+        # If OTP check fails, block submission and notify user
+        logger.error(f"OTP verification check failed, blocking submission: {e}")
+        return dbc.Alert(
+            "Could not verify your email session. Please try again.",
+            color="danger",
+            dismissable=True,
+            duration=6000
+        )
 
     num_rows = max(
         len(src_names or []),
