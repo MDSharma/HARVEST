@@ -1834,10 +1834,9 @@ def create_literature_review_project():
     if not check_admin_status(DB_PATH, request):
         return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
     
-    try:
-        payload = request.get_json(force=True, silent=False)
-    except Exception:
-        return jsonify({"error": "Invalid JSON"}), 400
+    payload = request.get_json()
+    if payload is None:
+        return jsonify({"error": "Invalid JSON or missing Content-Type: application/json header"}), 400
     
     project_name = payload.get('project_name', '').strip()
     if not project_name:
