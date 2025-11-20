@@ -5,12 +5,6 @@ dash-bootstrap-components>=1.6.0
 requests>=2.31.0
 bcrypt>=4.0.1
 gunicorn>=21.2.0
-metapub>=0.6.4
-habanero>=1.2.6
-unpywall>=0.2.0
-semanticscholar>=0.8.0
-sentence-transformers>=2.2.2
-arxiv>=2.0.0
 PyMuPDF>=1.23.0
 watchdog>=3.0.0
 # Uncomment for SendPulse integration
@@ -21,3 +15,15 @@ pysendpulse
 pip-audit>=2.0.0  # Dependency vulnerability scanner
 bandit>=1.7.0  # Security linter for Python
 safety>=2.3.0  # Checks dependencies for known security vulnerabilities
+
+# Enhanced Unpaywall Access
+unpywall>=0.2.0  # Improved Unpaywall library for better PDF link detection
+
+# Literature Search Dependencies
+semanticscholar>=0.8.0      # Semantic Scholar API for paper search
+arxiv>=2.0.0                # arXiv paper search
+metapub>=0.6.4  # Access to PubMed Central and biomedical literature (requires NCBI API key)
+habanero>=1.2.6  # Crossref API for institutional access to papers (if on university network)
+
+# Semantic Literature Search Dependencies
+sentence-transformers>=2.2.2  # For semantic reranking of search results
