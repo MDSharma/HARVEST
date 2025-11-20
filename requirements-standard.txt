@@ -4,13 +4,3 @@
 # Include all minimal requirements
 -r requirements-minimal.txt
 
-# Enhanced Unpaywall Access
-unpywall>=0.2.0  # Improved Unpaywall library for better PDF link detection
-
-# Literature Search Dependencies
-semanticscholar>=0.8.0      # Semantic Scholar API for paper search
-sentence-transformers>=2.2.2  # For semantic reranking of search results
-arxiv>=2.0.0                # arXiv paper search
-
-# Optional: Crossref institutional access (if on university network)
-habanero>=1.2.6  # Crossref API for institutional access to papers
