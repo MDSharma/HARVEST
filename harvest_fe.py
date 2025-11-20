@@ -752,7 +752,7 @@ app.layout = dbc.Container(
         dcc.Store(id="browse-field-config", data=["project_id", "sentence_id", "sentence", "source_entity_name", "source_entity_attr", "relation_type", "sink_entity_name", "sink_entity_attr", "triple_id"], storage_type="local"),  # Store browse field configuration
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
         dcc.Interval(id="pdf-download-progress-interval", interval=2000, disabled=True),  # Poll every 2 seconds
-        dcc.Interval(id="markdown-reload-interval", interval=5000, disabled=True),  # Disabled by default, enabled after initial load
+        dcc.Interval(id="markdown-reload-interval", interval=5000, disabled=True),  # Disabled by default to prevent callback errors during app initialization, enabled after page load
         
         # Modal for Privacy Policy
         dbc.Modal(
@@ -4969,7 +4969,7 @@ def export_triples_callback(n_clicks, auth_data):
     prevent_initial_call=False
 )
 def enable_markdown_reload(n):
-    """Enable the markdown reload interval after page loads"""
+    """Enable the markdown reload interval after page loads to prevent 'Callback function not found' errors during app initialization"""
     return False  # Enable the interval
 
 
