@@ -1004,7 +1004,7 @@ app.layout = dbc.Container(
             [
                 dbc.Col(
                     [
-                        # Enhanced logo and title section with branding
+                        # Enhanced logo section with branding
                         html.Div([
                             dbc.Row([
                                 dbc.Col([
@@ -1012,21 +1012,13 @@ app.layout = dbc.Container(
                                         src=app.get_asset_url("HARVEST.png"),
                                         alt="HARVEST",
                                         style={
-                                            "height": "100px",
+                                            "height": "120px",
                                             "transition": "transform 0.2s ease"
                                         },
                                         id="harvest-logo",
                                         className="logo-hover"
                                     ),
                                 ], width="auto", className="d-flex align-items-center"),
-                                dbc.Col([
-                                    html.H1("HARVEST", 
-                                           className="mb-0 text-primary-custom", 
-                                           style={"fontWeight": "700", "fontSize": "2rem"}),
-                                    html.P("Human-in-the-loop Actionable Research and Vocabulary Extraction Technology",
-                                          className="text-muted mb-0", 
-                                          style={"fontSize": "0.9rem", "lineHeight": "1.4"})
-                                ], className="d-flex flex-column justify-content-center"),
                             ], align="center", className="mb-4 mt-3")
                         ], className="logo-container"),
 
@@ -2417,6 +2409,8 @@ def validate_email(email):
     Output("otp-verification-store", "data"),
     Output("email-validation", "children", allow_duplicate=True),
     Output("email-validation", "style", allow_duplicate=True),
+    Output("contributor-email", "value", allow_duplicate=True),
+    Output("contributor-email", "disabled", allow_duplicate=True),
     Input("email-store", "data"),
     State("otp-session-store", "data"),
     prevent_initial_call=True
@@ -2431,10 +2425,10 @@ def request_otp_code(email, session_data):
         config_response = requests.get(f"{API_BASE}/api/email-verification/config")
         if not config_response.ok or not config_response.json().get("enabled"):
             # OTP not enabled, keep section hidden
-            return {"display": "none"}, None, "", {}
+            return {"display": "none"}, None, "", {}, no_update, False
     except:
         # API error, keep section hidden
-        return {"display": "none"}, None, "", {}
+        return {"display": "none"}, None, "", {}, no_update, False
     
     # Check if already verified
     if session_data and session_data.get("session_id"):
@@ -2445,13 +2439,14 @@ def request_otp_code(email, session_data):
                 json={"session_id": session_data["session_id"]}
             )
             if check_response.ok and check_response.json().get("verified"):
-                # Already verified, keep section hidden
-                return {"display": "none"}, session_data, "✓ Email verified", {"color": "green"}
+                # Already verified, keep section hidden and lock email field
+                verified_email = check_response.json().get("email")
+                return {"display": "none"}, session_data, "✓ Email verified", {"color": "green"}, verified_email, True
         except:
             pass
     
     if not email:
-        return {"display": "none"}, None, "", {}
+        return {"display": "none"}, None, "", {}, no_update, False
     
     # Request OTP code
     try:
@@ -2465,7 +2460,9 @@ def request_otp_code(email, session_data):
                 {"display": "block"},  # Show OTP section
                 {"email": email, "code_requested": True},
                 "Verification code sent to your email",
-                {"color": "blue"}
+                {"color": "blue"},
+                no_update,
+                False
             )
         else:
             error = response.json().get("error", "Failed to send code")
@@ -2473,14 +2470,18 @@ def request_otp_code(email, session_data):
                 {"display": "none"},
                 None,
                 f"Error: {error}",
-                {"color": "red"}
+                {"color": "red"},
+                no_update,
+                False
             )
     except Exception as e:
         return (
             {"display": "none"},
             None,
             f"Error requesting code: {str(e)}",
-            {"color": "red"}
+            {"color": "red"},
+            no_update,
+            False
         )
 
 
@@ -2501,6 +2502,8 @@ def enable_verify_button(code):
     Output("email-validation", "children", allow_duplicate=True),
     Output("email-validation", "style", allow_duplicate=True),
     Output("otp-verification-section", "style", allow_duplicate=True),
+    Output("contributor-email", "value", allow_duplicate=True),
+    Output("contributor-email", "disabled", allow_duplicate=True),
     Input("otp-verify-button", "n_clicks"),
     State("otp-code-input", "value"),
     State("otp-verification-store", "data"),
@@ -2509,7 +2512,7 @@ def enable_verify_button(code):
 def verify_otp_code(n_clicks, code, otp_data):
     """Verify OTP code and create session."""
     if not n_clicks or not code or not otp_data:
-        return "", None, "", {}, {"display": "block"}
+        return "", None, "", {}, {"display": "block"}, no_update, no_update
     
     email = otp_data.get("email")
     if not email:
@@ -2518,7 +2521,9 @@ def verify_otp_code(n_clicks, code, otp_data):
             None,
             "",
             {},
-            {"display": "block"}
+            {"display": "block"},
+            no_update,
+            no_update
         )
     
     try:
@@ -2536,7 +2541,9 @@ def verify_otp_code(n_clicks, code, otp_data):
                 {"session_id": session_id, "email": email},
                 "✓ Email verified",
                 {"color": "green"},
-                {"display": "none"}  # Hide OTP section
+                {"display": "none"},  # Hide OTP section
+                email,  # Set the verified email in the field
+                True  # Disable the email field
             )
         else:
             error_data = response.json()
@@ -2552,7 +2559,9 @@ def verify_otp_code(n_clicks, code, otp_data):
                 None,
                 "",
                 {},
-                {"display": "block"}
+                {"display": "block"},
+                no_update,
+                no_update
             )
     except Exception as e:
         return (
@@ -2560,8 +2569,38 @@ def verify_otp_code(n_clicks, code, otp_data):
             None,
             "",
             {},
-            {"display": "block"}
+            {"display": "block"},
+            no_update,
+            no_update
         )
+
+
+@app.callback(
+    Output("contributor-email", "value"),
+    Output("contributor-email", "disabled"),
+    Input("otp-session-store", "data"),
+    prevent_initial_call=False
+)
+def populate_verified_email(otp_session):
+    """
+    Auto-populate and lock the email field when OTP is verified.
+    This prevents users from changing to an unverified email address.
+    """
+    if otp_session and otp_session.get("session_id") and otp_session.get("email"):
+        # Verify session is still valid
+        try:
+            check_response = requests.post(
+                f"{API_BASE}/api/email-verification/check-session",
+                json={"session_id": otp_session["session_id"]}
+            )
+            if check_response.ok and check_response.json().get("verified"):
+                verified_email = check_response.json().get("email")
+                return verified_email, True  # Set email and disable field
+        except:
+            pass
+    
+    # Not verified or session invalid - leave field editable
+    return no_update, False
 
 
 @app.callback(
