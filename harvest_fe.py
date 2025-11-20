@@ -7,7 +7,7 @@ import base64
 import time
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 
 import dash
@@ -5074,16 +5074,22 @@ def update_dashboard_stats(n):
         r_projects = requests.get(f"{API_BASE}/api/projects", timeout=5)
         total_projects = len(r_projects.json().get("projects", [])) if r_projects.ok else 0
         
-        # Get unique DOIs count
-        r_dois = requests.get(f"{API_BASE}/api/recent", params={"limit": 1000}, timeout=5)
-        unique_dois = len(set([item.get("doi", "") for item in r_dois.json().get("data", []) if item.get("doi")])) if r_dois.ok else 0
+        # Get unique DOIs count - limit to reasonable number for performance
+        # Note: This is a simplified approach. For large datasets, consider adding 
+        # a dedicated API endpoint that returns statistics directly from the database
+        r_dois = requests.get(f"{API_BASE}/api/recent", params={"limit": 100}, timeout=5)
+        dois_data = r_dois.json().get("data", []) if r_dois.ok else []
+        unique_dois = len(set([item.get("doi", "") for item in dois_data if item.get("doi")]))
         
         # Get recent activity (last 7 days)
-        from datetime import datetime, timedelta
+        # Note: This uses string comparison. For better performance with large datasets,
+        # consider adding a date filter parameter to the API endpoint
         seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
         recent_count = 0
         if r_triples.ok:
-            recent_count = sum(1 for item in r_triples.json().get("data", []) 
+            triples_data = r_triples.json().get("data", [])
+            # Only check a subset for performance
+            recent_count = sum(1 for item in triples_data[:100] 
                              if item.get("created_at", "") >= seven_days_ago)
         
         return str(total_triples), str(total_projects), str(unique_dois), str(recent_count)
