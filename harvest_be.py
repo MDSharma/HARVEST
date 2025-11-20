@@ -1564,10 +1564,10 @@ def request_verification_code():
             }), 500
             
     except Exception as e:
-        logger.error(f"Error in request_verification_code: {e}")
+        logger.error(f"Error in request_verification_code: {e}", exc_info=True)
         return jsonify({
             "success": False,
-            "error": str(e)
+            "error": "An unexpected server error occurred."
         }), 500
 
 
