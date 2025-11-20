@@ -3,7 +3,7 @@ flask-cors>=4.0.0
 dash>=2.17.0
 dash-bootstrap-components>=1.6.0
 requests>=2.31.0
-bcrypt>=3.2.0
+bcrypt>=4.0.1
 gunicorn>=21.2.0
 metapub>=0.6.4
 habanero>=1.2.6
@@ -49,4 +49,10 @@ watchdog>=3.0.0
 #   export GMAIL_APP_PASSWORD="your-app-password"
 #
 # See docs/EMAIL_VERIFICATION_CONFIG_PLAN.md for full configuration options
+
+# Development/Security Tools (Optional)
+# Uncomment for development and security scanning
+# pip-audit>=2.0.0  # Dependency vulnerability scanner
+# bandit>=1.7.0  # Security linter for Python
+# safety>=2.3.0  # Checks dependencies for known security vulnerabilities
 

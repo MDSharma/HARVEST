@@ -7,10 +7,19 @@ All operations use the main harvest.db database.
 
 import sqlite3
 import hashlib
+import secrets
+import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Tuple
 
 from email_config import OTP_CONFIG
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 def hash_ip(ip_address: str, salt: str = "") -> str:
@@ -151,7 +160,7 @@ def record_code_request(db_path: str, email: str, ip_address: str = None, salt: 
             conn.commit()
             return True
     except Exception as e:
-        print(f"Error recording code request: {e}")
+        logger.error(f"Error recording code request: {e}")
         return False
 
 
@@ -191,7 +200,7 @@ def store_verification_code(
             conn.commit()
             return True
     except Exception as e:
-        print(f"Error storing verification code: {e}")
+        logger.error(f"Error storing verification code: {e}")
         return False
 
 
@@ -262,12 +271,14 @@ def verify_code(
                 WHERE email = ?
             """, (datetime.utcnow().isoformat(), email.strip().lower()))
             
-            # Verify code
+            # Verify code using constant-time comparison to prevent timing attacks
+            # The verify_func should internally use secrets.compare_digest()
             if verify_func(code, stored_hash):
                 # Delete verification record (one-time use)
                 cur.execute("DELETE FROM email_verifications WHERE email = ?", 
                            (email.strip().lower(),))
                 conn.commit()
+                logger.info(f"Code verified successfully for email: {email[:3]}***@{email.split('@')[1] if '@' in email else 'unknown'}")
                 return {
                     'valid': True,
                     'expired': False,
@@ -277,6 +288,7 @@ def verify_code(
             else:
                 conn.commit()
                 remaining = OTP_CONFIG["max_attempts"] - attempts - 1
+                logger.warning(f"Invalid code attempt for email: {email[:3]}***@{email.split('@')[1] if '@' in email else 'unknown'}, {remaining} attempts remaining")
                 return {
                     'valid': False,
                     'expired': False,

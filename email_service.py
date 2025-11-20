@@ -8,16 +8,24 @@ Handles email sending via SMTP or SendPulse REST API with support for multiple p
 import smtplib
 import secrets
 import hashlib
+import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Tuple, Optional
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 try:
     import bcrypt
     BCRYPT_AVAILABLE = True
 except ImportError:
     BCRYPT_AVAILABLE = False
-    print("Warning: bcrypt not available, using SHA256 for password hashing")
+    logger.warning("bcrypt not available, using SHA256 for password hashing")
 
 # Try to import SendPulse REST API library
 try:
@@ -25,7 +33,7 @@ try:
     SENDPULSE_API_AVAILABLE = True
 except ImportError:
     SENDPULSE_API_AVAILABLE = False
-    print("Info: pysendpulse library not available. Install with: pip install pysendpulse")
+    logger.info("pysendpulse library not available. Install with: pip install pysendpulse")
 
 from email_config import (
     get_smtp_config,
@@ -119,7 +127,7 @@ class EmailService:
     @staticmethod
     def verify_code(plain_code: str, hashed_code: str) -> bool:
         """
-        Verify OTP code against hash.
+        Verify OTP code against hash using constant-time comparison to prevent timing attacks.
         
         Args:
             plain_code: Plain text OTP code
@@ -130,12 +138,15 @@ class EmailService:
         """
         if BCRYPT_AVAILABLE:
             try:
+                # bcrypt.checkpw already uses constant-time comparison internally
                 return bcrypt.checkpw(plain_code.encode('utf-8'), hashed_code.encode('utf-8'))
             except Exception:
                 return False
         else:
-            # Fallback to SHA256 comparison
-            return hashlib.sha256(plain_code.encode('utf-8')).hexdigest() == hashed_code
+            # Fallback to SHA256 comparison with constant-time comparison
+            plain_hash = hashlib.sha256(plain_code.encode('utf-8')).hexdigest()
+            # Use secrets.compare_digest for constant-time comparison to prevent timing attacks
+            return secrets.compare_digest(plain_hash, hashed_code)
     
     def send_otp_email(self, to_email: str, code: str) -> Tuple[bool, str]:
         """
