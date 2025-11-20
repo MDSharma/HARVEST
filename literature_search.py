@@ -635,6 +635,8 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
             'firstRecord': 1
         }
         
+        logger.info(f"WoS API request params: {params}")
+        
         response = requests.get(
             url='https://api.clarivate.com/api/wos',
             params=params,
@@ -642,15 +644,43 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
             timeout=30
         )
         
+        logger.info(f"WoS API response status: {response.status_code}")
+        
         if response.status_code != 200:
-            logger.error(f"Web of Science API error {response.status_code}: {response.text}")
+            logger.error(f"Web of Science API error {response.status_code}: {response.text[:500]}")
             return []
         
         result = response.json()
         
+        # Log the response structure for debugging
+        logger.info(f"WoS API response keys: {list(result.keys())}")
+        
         # Parse the response structure from WoS Expanded API
         papers = []
+        
+        # Try different response structures
+        # Structure 1: Data -> Records -> records -> REC
         records = result.get('Data', {}).get('Records', {}).get('records', {}).get('REC', [])
+        
+        if not records:
+            # Structure 2: Try direct records access
+            records = result.get('records', {}).get('REC', [])
+        
+        if not records:
+            # Structure 3: Try QueryResult structure
+            query_result = result.get('QueryResult', {})
+            records = query_result.get('Records', {}).get('REC', [])
+        
+        if not records:
+            logger.warning(f"No records found in WoS response. Response structure: {list(result.keys())}")
+            # Log more details about what's in the response
+            if 'Data' in result:
+                logger.info(f"Data keys: {list(result['Data'].keys())}")
+                if 'Records' in result.get('Data', {}):
+                    logger.info(f"Records keys: {list(result['Data']['Records'].keys())}")
+            return []
+        
+        logger.info(f"Found {len(records)} records in WoS response")
         
         for record in records:
             # Extract basic metadata
@@ -740,7 +770,7 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
         logger.error(f"Web of Science API request failed: {e}")
         return []
     except Exception as e:
-        logger.error(f"Web of Science search failed: {e}")
+        logger.error(f"Web of Science search failed ({type(e).__name__}): {e}", exc_info=True)
         return []
 
 
