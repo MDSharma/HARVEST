@@ -7,7 +7,7 @@ import base64
 import time
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 
 import dash
@@ -25,13 +25,15 @@ logger = logging.getLogger(__name__)
 try:
     from config import (
         PARTNER_LOGOS, ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING,
-        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, URL_BASE_PATHNAME, EMAIL_HASH_SALT
+        ENABLE_LITERATURE_REVIEW, DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, 
+        URL_BASE_PATHNAME, EMAIL_HASH_SALT
     )
 except ImportError:
     # Fallback if config not available
     PARTNER_LOGOS = []
     ENABLE_LITERATURE_SEARCH = True  # Default to enabled
     ENABLE_PDF_HIGHLIGHTING = True  # Default to enabled
+    ENABLE_LITERATURE_REVIEW = False  # Default to disabled (requires ASReview service)
     DEPLOYMENT_MODE = os.getenv("HARVEST_DEPLOYMENT_MODE", "internal")
     BACKEND_PUBLIC_URL = os.getenv("HARVEST_BACKEND_PUBLIC_URL", "")
     URL_BASE_PATHNAME = os.getenv("HARVEST_URL_BASE_PATHNAME", "/")
@@ -152,7 +154,7 @@ class MarkdownCache:
     
     def _load_all_markdown_files(self):
         """Load all markdown files from assets directory"""
-        md_files = ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md']
+        md_files = ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md', 'participate.md']
         for filename in md_files:
             filepath = os.path.join(self.assets_dir, filename)
             if os.path.exists(filepath):
@@ -171,7 +173,11 @@ class MarkdownCache:
                 schema_json_block = f"```json\n{schema_json_str}\n```\n\n"
                 content = content.replace("{SCHEMA_JSON}", schema_json_block)
             
-            rendered = dcc.Markdown(content)
+            # Special handling for participate.md to allow HTML/iframe rendering
+            if filename == 'participate.md':
+                rendered = dcc.Markdown(content, dangerously_allow_html=True)
+            else:
+                rendered = dcc.Markdown(content)
             
             with self.lock:
                 self.cache[filename] = {
@@ -203,7 +209,7 @@ class MarkdownCache:
                 def on_modified(self, event):
                     if not event.is_directory and event.src_path.endswith('.md'):
                         filename = os.path.basename(event.src_path)
-                        if filename in ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md']:
+                        if filename in ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md', 'participate.md']:
                             logger.info(f"Detected change in {filename}, reloading...")
                             self.cache._load_file(filename, event.src_path)
                             self.cache._update_flag.set()
@@ -211,7 +217,7 @@ class MarkdownCache:
                 def on_created(self, event):
                     if not event.is_directory and event.src_path.endswith('.md'):
                         filename = os.path.basename(event.src_path)
-                        if filename in ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md']:
+                        if filename in ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md', 'participate.md']:
                             logger.info(f"Detected new file {filename}, loading...")
                             self.cache._load_file(filename, event.src_path)
                             self.cache._update_flag.set()
@@ -693,6 +699,8 @@ app.index_string = '''
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
+        <!-- Bootstrap Icons -->
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
         <script>
             // Listen for messages from PDF viewer iframe
             window.addEventListener('message', function(event) {
@@ -746,7 +754,7 @@ app.layout = dbc.Container(
         dcc.Store(id="browse-field-config", data=["project_id", "sentence_id", "sentence", "source_entity_name", "source_entity_attr", "relation_type", "sink_entity_name", "sink_entity_attr", "triple_id"], storage_type="local"),  # Store browse field configuration
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
         dcc.Interval(id="pdf-download-progress-interval", interval=2000, disabled=True),  # Poll every 2 seconds
-        dcc.Interval(id="markdown-reload-interval", interval=5000, disabled=False),  # Check for markdown updates every 5 seconds
+        dcc.Interval(id="markdown-reload-interval", interval=5000, disabled=True),  # Disabled by default to prevent callback errors during app initialization, enabled after page load
         
         # Modal for Privacy Policy
         dbc.Modal(
@@ -996,25 +1004,198 @@ app.layout = dbc.Container(
             [
                 dbc.Col(
                     [
-                        # Logo and title section
+                        # Enhanced logo and title section with branding
                         html.Div([
-                            html.Img(
-                                src=app.get_asset_url("HARVEST.png"),
-                                alt="HARVEST",
-                                style={
-                                    "height": "120px",
-                                    "marginBottom": "10px"
-                                },
-                                id="harvest-logo"
-                            ),
-                        ], className="mt-3 mb-4", style={"textAlign": "left"}),
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Img(
+                                        src=app.get_asset_url("HARVEST.png"),
+                                        alt="HARVEST",
+                                        style={
+                                            "height": "100px",
+                                            "transition": "transform 0.2s ease"
+                                        },
+                                        id="harvest-logo",
+                                        className="logo-hover"
+                                    ),
+                                ], width="auto", className="d-flex align-items-center"),
+                                dbc.Col([
+                                    html.H1("HARVEST", 
+                                           className="mb-0 text-primary-custom", 
+                                           style={"fontWeight": "700", "fontSize": "2rem"}),
+                                    html.P("Human-in-the-loop Actionable Research and Vocabulary Extraction Technology",
+                                          className="text-muted mb-0", 
+                                          style={"fontSize": "0.9rem", "lineHeight": "1.4"})
+                                ], className="d-flex flex-column justify-content-center"),
+                            ], align="center", className="mb-4 mt-3")
+                        ], className="logo-container"),
 
                         dcc.Tabs(
                             id="main-tabs",
-                            value="tab-literature" if ENABLE_LITERATURE_SEARCH else "tab-annotate",
+                            value="tab-dashboard",
                             children=[tab for tab in [
+                                # Dashboard/Welcome Tab
                                 dcc.Tab(
-                                    label="Literature Search",
+                                    label="🏠 Dashboard",
+                                    value="tab-dashboard",
+                                    children=[
+                                        dbc.Card(
+                                            [
+                                                html.Div([
+                                                    html.H3([
+                                                        html.I(className="bi bi-house-fill me-2 text-primary-custom"),
+                                                        "Welcome to HARVEST"
+                                                    ], className="mb-3"),
+                                                    html.P(
+                                                        "Your annotation and literature review hub for biological research.",
+                                                        className="text-muted mb-4"
+                                                    ),
+                                                    
+                                                    # Quick Stats Section
+                                                    html.H5([
+                                                        html.I(className="bi bi-graph-up me-2"),
+                                                        "Quick Statistics"
+                                                    ], className="mb-3"),
+                                                    dbc.Row([
+                                                        dbc.Col([
+                                                            dbc.Card([
+                                                                dbc.CardBody([
+                                                                    html.Div([
+                                                                        html.I(className="bi bi-clipboard-data", 
+                                                                              style={"fontSize": "2.5rem", "color": "var(--primary-color)"}),
+                                                                    ], className="text-center mb-2"),
+                                                                    html.H4(id="dashboard-total-triples", 
+                                                                           children="0",
+                                                                           className="text-center mb-1 text-primary-custom"),
+                                                                    html.P("Total Annotations", 
+                                                                          className="text-center text-muted mb-0 small"),
+                                                                ])
+                                                            ], className="shadow-custom-md mb-3")
+                                                        ], md=3, sm=6, xs=12),
+                                                        dbc.Col([
+                                                            dbc.Card([
+                                                                dbc.CardBody([
+                                                                    html.Div([
+                                                                        html.I(className="bi bi-folder-fill", 
+                                                                              style={"fontSize": "2.5rem", "color": "var(--secondary-color)"}),
+                                                                    ], className="text-center mb-2"),
+                                                                    html.H4(id="dashboard-total-projects", 
+                                                                           children="0",
+                                                                           className="text-center mb-1 text-secondary-custom"),
+                                                                    html.P("Active Projects", 
+                                                                          className="text-center text-muted mb-0 small"),
+                                                                ])
+                                                            ], className="shadow-custom-md mb-3")
+                                                        ], md=3, sm=6, xs=12),
+                                                        dbc.Col([
+                                                            dbc.Card([
+                                                                dbc.CardBody([
+                                                                    html.Div([
+                                                                        html.I(className="bi bi-file-earmark-text-fill", 
+                                                                              style={"fontSize": "2.5rem", "color": "var(--accent-color)"}),
+                                                                    ], className="text-center mb-2"),
+                                                                    html.H4(id="dashboard-total-dois", 
+                                                                           children="0",
+                                                                           className="text-center mb-1",
+                                                                           style={"color": "var(--accent-color)"}),
+                                                                    html.P("Papers Annotated", 
+                                                                          className="text-center text-muted mb-0 small"),
+                                                                ])
+                                                            ], className="shadow-custom-md mb-3")
+                                                        ], md=3, sm=6, xs=12),
+                                                        dbc.Col([
+                                                            dbc.Card([
+                                                                dbc.CardBody([
+                                                                    html.Div([
+                                                                        html.I(className="bi bi-clock-history", 
+                                                                              style={"fontSize": "2.5rem", "color": "var(--success-color)"}),
+                                                                    ], className="text-center mb-2"),
+                                                                    html.H4(id="dashboard-recent-activity", 
+                                                                           children="0",
+                                                                           className="text-center mb-1",
+                                                                           style={"color": "var(--success-color)"}),
+                                                                    html.P("Recent (7 days)", 
+                                                                          className="text-center text-muted mb-0 small"),
+                                                                ])
+                                                            ], className="shadow-custom-md mb-3")
+                                                        ], md=3, sm=6, xs=12),
+                                                    ], className="mb-4"),
+                                                    
+                                                    # Quick Actions Section
+                                                    html.H5([
+                                                        html.I(className="bi bi-lightning-fill me-2"),
+                                                        "Quick Actions"
+                                                    ], className="mb-3"),
+                                                    dbc.Row([
+                                                        dbc.Col([
+                                                            dbc.Button([
+                                                                html.I(className="bi bi-search me-2"),
+                                                                "Search Literature"
+                                                            ], id="dashboard-goto-literature", 
+                                                               color="primary", 
+                                                               size="lg",
+                                                               className="w-100 mb-2 shadow-custom-sm"),
+                                                        ], md=3, sm=6, xs=12),
+                                                        dbc.Col([
+                                                            dbc.Button([
+                                                                html.I(className="bi bi-pencil-square me-2"),
+                                                                "Annotate Paper"
+                                                            ], id="dashboard-goto-annotate", 
+                                                               color="success", 
+                                                               size="lg",
+                                                               className="w-100 mb-2 shadow-custom-sm"),
+                                                        ], md=3, sm=6, xs=12),
+                                                        dbc.Col([
+                                                            dbc.Button([
+                                                                html.I(className="bi bi-table me-2"),
+                                                                "Browse Data"
+                                                            ], id="dashboard-goto-browse", 
+                                                               color="info", 
+                                                               size="lg",
+                                                               className="w-100 mb-2 shadow-custom-sm"),
+                                                        ], md=3, sm=6, xs=12),
+                                                        dbc.Col([
+                                                            dbc.Button([
+                                                                html.I(className="bi bi-gear-fill me-2"),
+                                                                "Admin Panel"
+                                                            ], id="dashboard-goto-admin", 
+                                                               color="secondary", 
+                                                               size="lg",
+                                                               className="w-100 mb-2 shadow-custom-sm"),
+                                                        ], md=3, sm=6, xs=12),
+                                                    ], className="mb-4"),
+                                                    
+                                                    # Getting Started Guide
+                                                    html.H5([
+                                                        html.I(className="bi bi-signpost-2-fill me-2"),
+                                                        "Getting Started"
+                                                    ], className="mb-3"),
+                                                    dbc.Alert([
+                                                        html.H6([
+                                                            html.I(className="bi bi-info-circle-fill me-2"),
+                                                            "New to HARVEST?"
+                                                        ], className="mb-2"),
+                                                        html.Ol([
+                                                            html.Li([html.Strong("Search"), " for relevant papers in the Literature Search tab"]),
+                                                            html.Li([html.Strong("Annotate"), " biological entities and relationships in the Annotate tab"]),
+                                                            html.Li([html.Strong("Browse"), " and export your annotations in the Browse tab"]),
+                                                            html.Li([html.Strong("Manage"), " projects and users in the Admin tab"]),
+                                                        ], className="mb-2"),
+                                                        html.P([
+                                                            "For detailed guides, check the ",
+                                                            html.I(className="bi bi-book"),
+                                                            " information tabs on the right →"
+                                                        ], className="mb-0 small text-muted"),
+                                                    ], color="info", className="shadow-custom-sm"),
+                                                ]),
+                                            ],
+                                            body=True,
+                                            className="shadow-custom-md"
+                                        )
+                                    ]
+                                ) if True else None,  # Always show dashboard
+                                dcc.Tab(
+                                    label="🔍 Literature Search",
                                     value="tab-literature",
                                     children=[
                                         dbc.Card(
@@ -1357,7 +1538,109 @@ app.layout = dbc.Container(
                                     ],
                                 ) if ENABLE_LITERATURE_SEARCH else None,
                                 dcc.Tab(
-                                    label="Annotate",
+                                    label="📚 Literature Review",
+                                    value="tab-literature-review",
+                                    children=[
+                                        dbc.Card(
+                                            [
+                                                html.H5("AI-Powered Literature Review (ASReview Integration)", className="mb-3"),
+                                                
+                                                # Service availability check
+                                                html.Div(
+                                                    id="lit-review-status",
+                                                    children=[
+                                                        dbc.Spinner(
+                                                            html.Div(id="lit-review-availability-check"),
+                                                            color="primary"
+                                                        )
+                                                    ],
+                                                    className="mb-3"
+                                                ),
+                                                
+                                                # Main content - shown when service is available
+                                                html.Div(
+                                                    id="lit-review-content",
+                                                    style={"display": "none"},
+                                                    children=[
+                                                        html.P(
+                                                            "Use ASReview's AI-powered active learning to efficiently screen and prioritize literature. "
+                                                            "The system learns from your decisions to predict which papers are most relevant.",
+                                                            className="text-muted mb-4"
+                                                        ),
+                                                        dbc.Alert(
+                                                            [
+                                                                html.H6([
+                                                                    html.I(className="bi bi-lightbulb-fill me-2"),
+                                                                    "How It Works"
+                                                                ], className="mb-2"),
+                                                                html.Ol([
+                                                                    html.Li("Create a review project from Literature Search results"),
+                                                                    html.Li("Mark initial papers as relevant/irrelevant"),
+                                                                    html.Li("AI model learns and predicts relevance for remaining papers"),
+                                                                    html.Li("System shows most relevant papers first"),
+                                                                    html.Li("Export results when done"),
+                                                                ]),
+                                                            ],
+                                                            color="info",
+                                                            className="mb-4"
+                                                        ),
+                                                        
+                                                        html.Div([
+                                                            html.H6("Coming Soon:", className="mb-2"),
+                                                            html.P(
+                                                                "The interactive Literature Review interface is under development. "
+                                                                "For now, you can export DOIs from Literature Search and use the ASReview service directly.",
+                                                                className="text-muted"
+                                                            ),
+                                                            dbc.Alert(
+                                                                [
+                                                                    html.Strong("ASReview Service: "),
+                                                                    html.Span(id="asreview-service-url", className="font-monospace"),
+                                                                ],
+                                                                color="light",
+                                                                className="mb-0"
+                                                            ),
+                                                        ]),
+                                                    ]
+                                                ),
+                                                
+                                                # Error/unavailable message
+                                                html.Div(
+                                                    id="lit-review-unavailable",
+                                                    style={"display": "none"},
+                                                    children=[
+                                                        dbc.Alert(
+                                                            [
+                                                                html.H6([
+                                                                    html.I(className="bi bi-exclamation-triangle-fill me-2"),
+                                                                    "ASReview Service Not Available"
+                                                                ], className="mb-2"),
+                                                                html.P(
+                                                                    "The ASReview service is not configured or not reachable. "
+                                                                    "Please configure ASREVIEW_SERVICE_URL in config.py to enable this feature.",
+                                                                    className="mb-2"
+                                                                ),
+                                                                html.P([
+                                                                    "See ",
+                                                                    html.A("Literature Review Documentation", 
+                                                                          href="docs/LITERATURE_REVIEW.md", 
+                                                                          target="_blank",
+                                                                          className="alert-link"),
+                                                                    " for setup instructions."
+                                                                ], className="mb-0"),
+                                                            ],
+                                                            color="warning"
+                                                        ),
+                                                    ]
+                                                ),
+                                            ],
+                                            body=True,
+                                            className="shadow-custom-md"
+                                        )
+                                    ]
+                                ) if ENABLE_LITERATURE_REVIEW else None,
+                                dcc.Tab(
+                                    label="✏️ Annotate",
                                     value="tab-annotate",
                                     children=[
                                         dbc.Row(
@@ -1552,7 +1835,7 @@ app.layout = dbc.Container(
                                     ],
                                 ),
                                 dcc.Tab(
-                                    label="Browse",
+                                    label="📊 Browse",
                                     value="tab-browse",
                                     children=[
                                         dbc.Card(
@@ -1587,7 +1870,7 @@ app.layout = dbc.Container(
                                     ],
                                 ),
                                 dcc.Tab(
-                                    label="Admin",
+                                    label="👤 Admin",
                                     value="tab-admin",
                                     children=[
                                         dbc.Card(
@@ -4781,8 +5064,19 @@ def export_triples_callback(n_clicks, auth_data):
         return dbc.Alert(f"Error: {str(e)}", color="danger")
 
 # -----------------------
-# Markdown Auto-Reload Callback
+# Markdown Auto-Reload Callbacks
 # -----------------------
+# Enable markdown reload interval after initial page load
+@app.callback(
+    Output("markdown-reload-interval", "disabled"),
+    Input("load-trigger", "n_intervals"),
+    prevent_initial_call=False
+)
+def enable_markdown_reload(n):
+    """Enable the markdown reload interval after page loads to prevent 'Callback function not found' errors during app initialization"""
+    return False  # Enable the interval
+
+
 @app.callback(
     [
         Output("annotator-guide-content", "children"),
@@ -4799,21 +5093,26 @@ def reload_markdown_on_change(n_intervals):
     Check for markdown file changes and reload accordion sections if needed.
     This callback runs periodically to check if any .md files have been modified.
     """
-    if markdown_cache.has_updates():
-        logger.info("Markdown files updated, refreshing accordion content...")
-        markdown_cache.clear_update_flag()
+    try:
+        if markdown_cache.has_updates():
+            logger.info("Markdown files updated, refreshing accordion content...")
+            markdown_cache.clear_update_flag()
+            
+            # Return updated content for all sections
+            return (
+                markdown_cache.get('annotator_guide.md', "Annotator guide not found."),
+                markdown_cache.get('schema.md', "Schema content not found."),
+                markdown_cache.get('admin_guide.md', "Admin guide not found."),
+                markdown_cache.get('db_model.md', "Database model content not found."),
+                markdown_cache.get('participate.md', "Participate content not found."),
+            )
         
-        # Return updated content for all sections
-        return (
-            markdown_cache.get('annotator_guide.md', "Annotator guide not found."),
-            markdown_cache.get('schema.md', "Schema content not found."),
-            markdown_cache.get('admin_guide.md', "Admin guide not found."),
-            markdown_cache.get('db_model.md', "Database model content not found."),
-            markdown_cache.get('participate.md', "Participate content not found."),
-        )
-    
-    # No updates, return no_update for all outputs
-    return no_update, no_update, no_update, no_update, no_update
+        # No updates, return no_update for all outputs
+        return no_update, no_update, no_update, no_update, no_update
+    except Exception as e:
+        logger.error(f"Error in markdown reload callback: {e}", exc_info=True)
+        # Return no_update to prevent breaking the UI
+        return no_update, no_update, no_update, no_update, no_update
 
 
 # Callback to save browse field configuration
@@ -4869,6 +5168,138 @@ def toggle_per_source_limits(n_clicks, is_open):
 def toggle_privacy_policy_modal(open_click, close_click, is_open):
     """Toggle the privacy policy modal"""
     return not is_open
+
+
+# -----------------------
+# Dashboard Callbacks
+# -----------------------
+# Dashboard statistics callback
+@app.callback(
+    [
+        Output("dashboard-total-triples", "children"),
+        Output("dashboard-total-projects", "children"),
+        Output("dashboard-total-dois", "children"),
+        Output("dashboard-recent-activity", "children"),
+    ],
+    Input("load-trigger", "n_intervals"),
+)
+def update_dashboard_stats(n):
+    """Update dashboard statistics"""
+    try:
+        # Get total triples count
+        r_triples = requests.get(f"{API_BASE}/api/triples", timeout=5)
+        total_triples = len(r_triples.json().get("data", [])) if r_triples.ok else 0
+        
+        # Get total projects count
+        r_projects = requests.get(f"{API_BASE}/api/projects", timeout=5)
+        total_projects = len(r_projects.json().get("projects", [])) if r_projects.ok else 0
+        
+        # Get unique DOIs count - limit to reasonable number for performance
+        # Note: This is a simplified approach. For large datasets, consider adding 
+        # a dedicated API endpoint that returns statistics directly from the database
+        r_dois = requests.get(f"{API_BASE}/api/recent", params={"limit": 100}, timeout=5)
+        dois_data = r_dois.json().get("data", []) if r_dois.ok else []
+        unique_dois = len(set([item.get("doi", "") for item in dois_data if item.get("doi")]))
+        
+        # Get recent activity (last 7 days)
+        # Note: This uses string comparison. For better performance with large datasets,
+        # consider adding a date filter parameter to the API endpoint
+        seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
+        recent_count = 0
+        if r_triples.ok:
+            triples_data = r_triples.json().get("data", [])
+            # Only check a subset for performance
+            recent_count = sum(1 for item in triples_data[:100] 
+                             if item.get("created_at", "") >= seven_days_ago)
+        
+        return str(total_triples), str(total_projects), str(unique_dois), str(recent_count)
+    except Exception as e:
+        logger.error(f"Error updating dashboard stats: {e}")
+        return "—", "—", "—", "—"
+
+
+# Dashboard quick action callbacks
+@app.callback(
+    Output("main-tabs", "value"),
+    [
+        Input("dashboard-goto-literature", "n_clicks"),
+        Input("dashboard-goto-annotate", "n_clicks"),
+        Input("dashboard-goto-browse", "n_clicks"),
+        Input("dashboard-goto-admin", "n_clicks"),
+    ],
+    prevent_initial_call=True,
+)
+def dashboard_quick_actions(lit_clicks, ann_clicks, browse_clicks, admin_clicks):
+    """Handle dashboard quick action button clicks"""
+    trigger_id = ctx.triggered_id
+    
+    if trigger_id == "dashboard-goto-literature":
+        return "tab-literature"
+    elif trigger_id == "dashboard-goto-annotate":
+        return "tab-annotate"
+    elif trigger_id == "dashboard-goto-browse":
+        return "tab-browse"
+    elif trigger_id == "dashboard-goto-admin":
+        return "tab-admin"
+    
+    return no_update
+
+
+# -----------------------
+# Literature Review (ASReview) Callbacks
+# -----------------------
+@app.callback(
+    [
+        Output("lit-review-availability-check", "children"),
+        Output("lit-review-content", "style"),
+        Output("lit-review-unavailable", "style"),
+        Output("asreview-service-url", "children"),
+    ],
+    Input("load-trigger", "n_intervals"),
+    prevent_initial_call=False
+)
+def check_literature_review_availability(n):
+    """Check if ASReview service is available"""
+    try:
+        # Check service health
+        r = requests.get(f"{API_BASE}/api/literature-review/health", timeout=5)
+        
+        if r.ok:
+            data = r.json()
+            if data.get("configured") and data.get("available"):
+                # Service is available
+                service_url = data.get("service_url", "Configured")
+                return (
+                    "",  # Clear loading spinner
+                    {"display": "block"},  # Show content
+                    {"display": "none"},  # Hide unavailable message
+                    service_url  # Show service URL
+                )
+            else:
+                # Service not configured or not available
+                error_msg = data.get("error", "Service not available")
+                return (
+                    "",  # Clear loading spinner
+                    {"display": "none"},  # Hide content
+                    {"display": "block"},  # Show unavailable message
+                    error_msg
+                )
+        else:
+            return (
+                "",
+                {"display": "none"},
+                {"display": "block"},
+                "Backend error"
+            )
+    
+    except Exception as e:
+        logger.error(f"Error checking literature review availability: {e}")
+        return (
+            "",
+            {"display": "none"},
+            {"display": "block"},
+            f"Error: {str(e)}"
+        )
 
 
 # Callback to load privacy policy content
