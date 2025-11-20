@@ -319,7 +319,7 @@ def store_verification_code(
 def verify_code(
     db_path: str, 
     email: str, 
-    code_hash: str,
+    code: str, # Changed from code_hash to raw code
     max_attempts: int = 5
 ) -> Dict[str, any]:
     """
@@ -330,50 +330,46 @@ def verify_code(
         with sqlite3.connect(db_path) as conn:
             cur = conn.cursor()
             
-            # Get verification record
+            email_lower = email.strip().lower()
             cur.execute("""
                 SELECT code_hash, expires_at, attempts
                 FROM email_verifications
                 WHERE email = ?
-            """, (email.strip().lower(),))
+            """, (email_lower,))
             
             row = cur.fetchone()
             if not row:
-                return {'valid': False, 'expired': False, 'attempts_exceeded': False}
+                return {'valid': False, 'error': 'not_found'}
             
             stored_hash, expires_at, attempts = row
             
-            # Check expiry
-            expires_dt = datetime.fromisoformat(expires_at)
-            if datetime.utcnow() > expires_dt:
-                return {'valid': False, 'expired': True, 'attempts_exceeded': False}
+            if datetime.utcnow() > datetime.fromisoformat(expires_at):
+                return {'valid': False, 'error': 'expired'}
             
-            # Check attempts
             if attempts >= max_attempts:
-                return {'valid': False, 'expired': False, 'attempts_exceeded': True}
+                return {'valid': False, 'error': 'attempts_exceeded'}
             
-            # Increment attempts
-            cur.execute("""
-                UPDATE email_verifications
-                SET attempts = attempts + 1,
-                    last_attempt_at = ?
-                WHERE email = ?
-            """, (datetime.utcnow().isoformat(), email.strip().lower()))
-            
-            # Verify code
-            if stored_hash == code_hash:
-                # Delete verification record (one-time use)
-                cur.execute("DELETE FROM email_verifications WHERE email = ?", 
-                           (email.strip().lower(),))
+            # Use bcrypt to securely compare the raw code with the stored hash
+            import bcrypt
+            if bcrypt.checkpw(code.encode(), stored_hash.encode()):
+                # On success, delete the record
+                cur.execute("DELETE FROM email_verifications WHERE email = ?", (email_lower,))
                 conn.commit()
-                return {'valid': True, 'expired': False, 'attempts_exceeded': False}
+                return {'valid': True}
             else:
+                # On failure, increment attempts
+                cur.execute("""
+                    UPDATE email_verifications
+                    SET attempts = attempts + 1,
+                        last_attempt_at = ?
+                    WHERE email = ?
+                """, (datetime.utcnow().isoformat(), email_lower))
                 conn.commit()
-                return {'valid': False, 'expired': False, 'attempts_exceeded': False}
+                return {'valid': False, 'error': 'invalid_code'}
                 
     except Exception as e:
         print(f"Error verifying code: {e}")
-        return {'valid': False, 'expired': False, 'attempts_exceeded': False}
+        return {'valid': False, 'error': 'server_error'}
 
 def create_verified_session(
     db_path: str,
