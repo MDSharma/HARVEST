@@ -49,8 +49,12 @@ from harvest_store import (
 try:
     from config import (
         DB_PATH, BE_PORT as PORT, HOST, ENABLE_PDF_HIGHLIGHTING,
-        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, ENABLE_ENHANCED_PDF_DOWNLOAD
+        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, ENABLE_ENHANCED_PDF_DOWNLOAD,
+        NCBI_API_KEY
     )
+    # Set NCBI_API_KEY as environment variable for metapub if defined
+    if NCBI_API_KEY:
+        os.environ['NCBI_API_KEY'] = NCBI_API_KEY
 except ImportError:
     # Fallback to environment variables if config.py doesn't exist
     DB_PATH = os.environ.get("HARVEST_DB", "harvest.db")
@@ -60,6 +64,7 @@ except ImportError:
     DEPLOYMENT_MODE = os.environ.get("HARVEST_DEPLOYMENT_MODE", "internal")
     BACKEND_PUBLIC_URL = os.environ.get("HARVEST_BACKEND_PUBLIC_URL", "")
     ENABLE_ENHANCED_PDF_DOWNLOAD = False  # Default to standard PDF download
+    NCBI_API_KEY = ""
 
 # Setup logging first
 logger = logging.getLogger(__name__)
