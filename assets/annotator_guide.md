@@ -1,60 +1,172 @@
-**HARVEST Help Guide for End Users (Annotators)**
+# HARVEST Annotator Guide
 
-HARVEST is a human-in-the-loop tool for extracting actionable insights from scientific literature, focusing on biological text. As an annotator, you can label entities (e.g., genes, proteins, diseases) and their relationships in sentences from papers (identified by DOI), creating (source, relation, sink) triples for a queryable knowledge graph. Annotations include provenance like DOI, your email, and project (if selected). Follow these steps for the annotator workflow.
+HARVEST is a human-in-the-loop tool for extracting actionable insights from scientific literature, focusing on biological knowledge extraction. As an annotator, you label entities (e.g., genes, proteins, diseases) and their relationships in sentences from papers, creating (source, relation, sink) triples for a queryable knowledge graph.
 
-**1. Enter Your Email**
-   - Provide your email address in the required field for attribution and session tracking.
-   - This is mandatory and helps credit your contributions.
+## Quick Start
 
-**2. Select a Project (Optional)**
-   - Choose an existing project from the dropdown menu if your annotation relates to a specific campaign (e.g., biodiversity traits).
-   - Projects organize annotations and may filter suggested DOIs.
-   - Note: Creating new projects is admin-only. Contact an admin if you need a new one.
+### 1. Enter Your Email
+- Provide your email address for attribution and session tracking
+- Required for all annotations to credit your contributions
+- Stored securely for provenance tracking
 
-**3. Enter and Validate a DOI**
-   - In the "DOI" input field, enter the DOI of the paper (e.g., 10.1038/nature12345).
-   - The system will validate it automatically and store a hash for reference.
-   - If the DOI is part of a selected project, it may auto-suggest or confirm from the project's list.
-   - For paywalled papers, admins handle PDF uploads; as an annotator, you can view available PDFs.
-   - Note: Literature search features, such as automatic PDF downloading for DOIs, are admin-only. If a PDF is needed but not available, request it from an admin.
+### 2. Select a Project (Optional)
+- Choose an existing project from the dropdown if working on a specific campaign
+- Projects organize annotations and may provide suggested DOIs
+- DOI selector shows 📄 emoji for papers with available PDFs
+- Contact an admin if you need a new project created
 
-**4. View the PDF (If Available)**
-   - If a PDF is associated with the DOI (fetched or uploaded by admins), it will load in the side panel using the PDF viewer.
-   - Toggle the viewer as needed.
-   - Read the content to identify relevant sentences.
-   - Optional: Enable highlighting mode with the "Highlight" button, select text, choose a color from the picker, and use "Save" or "Clear All" to manage highlights (saved directly to the PDF).
-   - Keyboard shortcuts: H for highlight, Ctrl+S to save, arrow keys for navigation.
-   - Note: PDF downloading and uploading are admin-only features.
+### 3. Enter and Validate a DOI
+- Enter the paper's DOI (e.g., `10.1038/nature12345`)
+- System validates automatically and stores reference
+- If DOI is part of selected project, it auto-confirms from the project's list
+- Request admin assistance if PDF is needed but not available
 
-**5. Input the Sentence**
-   - Manually type or paste the sentence you want to annotate into the "Sentence" text area.
-   - Currently, sentences do not auto-populate from PDF selections; you must enter them yourself.
-   - Focus on sentences describing entities, traits, or relationships for best results.
+### 4. View the PDF (If Available)
+- PDFs load in the side panel viewer when available
+- Toggle viewer visibility as needed
+- Read content to identify relevant sentences for annotation
 
-**6. Annotate with Triples**
-   - Click "Add Triple" to create one or more (source, relation, sink) triples.
-     - **Source**: The starting entity (e.g., a gene or species; select entity type from dropdown).
-     - **Relation**: The connection (e.g., "causes" or "associated with"; select from relation types).
-     - **Sink**: The ending entity (select entity type).
-   - Use dropdowns for predefined entity and relation types.
-     - If a needed label isn't available, choose "Other..." to suggest a new one (admins can add to the database).
-   - Repeat to add multiple triples for the same sentence.
+#### PDF Highlighting (Optional)
+- Enable highlighting mode with the "Highlight" button
+- Select text, choose a color from the picker
+- Use "Save" (Ctrl+S) or "Clear All" to manage highlights
+- Highlights saved directly to the PDF
+- Keyboard shortcuts: H for highlight, arrow keys for navigation
 
-**7. Save Your Annotations**
-   - Review the sentence, DOI, and triples.
-   - Click "Save" — the sentence is stored once, with all triples linked to it, plus your email, DOI, and project (if selected).
-   - Annotations are added to the database and contribute to the community-curated knowledge graph.
+### 5. Input the Sentence
+- Manually type or paste the sentence to annotate
+- Focus on sentences describing entities, traits, or relationships
+- One sentence can have multiple triples for detailed extraction
 
-**8. Browse Annotations**
-   - Switch to the "Browse" tab to review saved sentences and triples.
-   - Filter by project, DOI, or other criteria for quality checks or exports.
+### 6. Annotate with Triples
 
-**Notes**
-   - One sentence can have multiple triples, enabling detailed extractions from complex text.
-   - Annotations are human-validated to refine AI models over time.
-   - Entity and relation types are predefined in the database; suggest new ones via "Other..." for potential admin updates.
-   - Privacy: Emails are used for attribution only; data from public literature is handled securely.
-   - Troubleshooting: If PDF doesn't load, it may not be available—ask an admin. For DOI validation errors, ensure the format is correct.
-   - Feedback: Report issues or suggest features through GitHub or contact the project maintainers.
+Create (source, relation, sink) triples to capture knowledge:
 
-For advanced queries, use the Browse tab to search the knowledge graph. If you need admin features like literature search or project creation, contact an admin.
+#### Source Entity
+- The starting entity (e.g., gene, protein, pathway)
+- Select entity type from dropdown
+- Examples: "FLC gene", "Arabidopsis thaliana", "Cold stress"
+
+#### Relation Type
+- The connection between entities
+- Select from comprehensive relation types:
+  - **Ontological**: is_a, part_of, develops_from
+  - **Regulatory**: regulates, activates, inhibits, represses
+  - **Molecular**: encodes, binds_to, phosphorylates, interacts_with
+  - **Quantitative**: increases, decreases
+  - **Associations**: associated_with, causes, prevents, co_occurs_with
+  - **Spatial/Temporal**: localizes_to, expressed_in, precedes, follows
+
+#### Sink Entity
+- The ending entity
+- Select entity type from dropdown
+- Examples: "flowering time", "vernalization pathway"
+
+#### Multiple Triples
+- Click "Add Triple" to create additional triples for the same sentence
+- Capture complex relationships from detailed text
+- Each triple represents one relationship
+
+#### Custom Types
+- If a needed label isn't available, choose "Other..."
+- Suggest new entity or relation types
+- Admins can add approved types to the database
+
+### 7. Save Your Annotations
+- Review sentence, DOI, and all triples
+- Click "Save" to store in database
+- Sentence stored once with all triples linked
+- Includes your email, DOI, and project for provenance
+
+### 8. Browse Annotations
+- Switch to "Browse" tab to review saved annotations
+- Filter by project, DOI, entity types, or relation types
+- Customize displayed fields
+- Export data for analysis
+- Verify quality and consistency
+
+## Entity & Relation Types
+
+### Available Entity Types
+- **Core Biological**: Gene, Protein, Variant, Enzyme, QTL, Metabolite
+- **Phenotypic**: Trait (observable characteristics)
+- **Regulatory**: Regulator, Coordinates
+- **Systems**: Pathway, Process, Factor (biotic/abiotic)
+
+### Relation Type Categories
+
+See `schema.md` for complete list with descriptions. Key categories:
+- Ontological relationships (is_a, part_of)
+- Regulatory actions (activates, inhibits, represses)
+- Molecular interactions (encodes, binds_to, phosphorylates)
+- Quantitative changes (increases, decreases)
+- Spatial/temporal (localizes_to, expressed_in, precedes)
+- Associations (associated_with, causes, prevents)
+
+## Tips for Quality Annotations
+
+### Best Practices
+1. **Be Specific**: Use precise entity names from the paper
+2. **Stay Contextual**: Capture relationships as described in the sentence
+3. **Multiple Triples**: One sentence often contains several relationships
+4. **Verify DOIs**: Ensure DOI format is correct (10.xxxx/xxxxx)
+5. **Review**: Use Browse tab to check your previous annotations
+
+### Common Patterns
+- **Gene → Protein**: Use "encodes" relation
+- **Protein → Trait**: Use "influences", "increases", or "decreases"
+- **Entity → Process**: Use "part_of" or "participates_in"
+- **Causal**: Use "causes" or "prevents" for clear causality
+- **Temporal**: Use "precedes" or "follows" for sequences
+
+### What to Annotate
+✅ **Good candidates:**
+- Entity-relationship statements
+- Experimental results
+- Causal relationships
+- Functional descriptions
+- Regulatory mechanisms
+
+❌ **Avoid:**
+- Speculative statements without evidence
+- Background information not specific to the study
+- Purely methodological sentences
+- Redundant information already captured
+
+## Privacy & Data
+
+- **Emails**: Used for attribution only
+- **Data Source**: Annotations from public scientific literature
+- **Security**: All data handled securely
+- **Provenance**: Full tracking of contributor, DOI, and project
+
+## Troubleshooting
+
+### Common Issues
+- **PDF doesn't load**: PDF may not be available - contact admin
+- **DOI validation errors**: Check format (e.g., 10.1038/nature12345)
+- **Dropdowns missing**: Clear browser cache (Ctrl+Shift+R)
+- **Save fails**: Verify email and DOI are entered
+
+### Getting Help
+- Check the FAQ section
+- Contact an admin for project-related questions
+- Report issues on GitHub
+- Request new entity/relation types via "Other..." option
+
+## Advanced Features
+
+### Keyboard Shortcuts
+- **H**: Toggle highlight mode
+- **Ctrl+S**: Save highlights
+- **Arrow keys**: Navigate PDF pages
+- **Tab**: Move between form fields
+
+### Browser Compatibility
+- Works best in modern browsers (Chrome, Firefox, Safari, Edge)
+- Enable JavaScript
+- Clear cache if experiencing issues
+
+---
+
+For admin features like project creation, PDF management, and database maintenance, see `admin_guide.md`.
