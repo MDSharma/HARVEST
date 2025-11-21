@@ -2403,6 +2403,121 @@ def proxy_highlights(project_id: int, filename: str):
             mimetype='application/json'
         )
 
+
+@server.route('/proxy/asreview/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+def proxy_asreview(path: str):
+    """
+    Proxy route to forward requests to ASReview service.
+    - Forwards all HTTP methods (GET, POST, PUT, DELETE)
+    - Preserves request headers, body, and query parameters
+    - Returns ASReview response or appropriate error
+    
+    This allows the frontend to access ASReview service without CORS issues,
+    similar to how PDF proxy works.
+    """
+    try:
+        # Get ASReview service URL from config
+        try:
+            from config import ASREVIEW_SERVICE_URL
+            if not ASREVIEW_SERVICE_URL:
+                return Response(
+                    json.dumps({"error": "ASReview service URL not configured"}),
+                    status=503,
+                    mimetype='application/json'
+                )
+        except ImportError:
+            return Response(
+                json.dumps({"error": "ASReview service URL not configured"}),
+                status=503,
+                mimetype='application/json'
+            )
+        
+        # Construct ASReview service URL
+        asreview_url = f"{ASREVIEW_SERVICE_URL.rstrip('/')}/{path}"
+        
+        # Preserve query parameters
+        if flask_request.query_string:
+            asreview_url += f"?{flask_request.query_string.decode('utf-8')}"
+        
+        # Prepare headers (filter out hop-by-hop headers)
+        headers = {
+            key: value for key, value in flask_request.headers.items()
+            if key.lower() not in ['host', 'connection', 'content-length']
+        }
+        
+        # Forward request to ASReview service
+        try:
+            if flask_request.method == 'GET':
+                response = requests.get(
+                    asreview_url,
+                    headers=headers,
+                    timeout=30
+                )
+            elif flask_request.method == 'POST':
+                response = requests.post(
+                    asreview_url,
+                    headers=headers,
+                    data=flask_request.get_data(),
+                    timeout=30
+                )
+            elif flask_request.method == 'PUT':
+                response = requests.put(
+                    asreview_url,
+                    headers=headers,
+                    data=flask_request.get_data(),
+                    timeout=30
+                )
+            elif flask_request.method == 'DELETE':
+                response = requests.delete(
+                    asreview_url,
+                    headers=headers,
+                    timeout=30
+                )
+            else:
+                return Response(
+                    json.dumps({"error": "Method not allowed"}),
+                    status=405,
+                    mimetype='application/json'
+                )
+            
+            # Return ASReview response
+            return Response(
+                response.content,
+                status=response.status_code,
+                headers=dict(response.headers)
+            )
+        
+        except requests.exceptions.Timeout:
+            logger.error(f"ASReview service timeout: {asreview_url}")
+            return Response(
+                json.dumps({"error": "ASReview service timeout"}),
+                status=504,
+                mimetype='application/json'
+            )
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Cannot connect to ASReview service at {asreview_url}: {e}")
+            return Response(
+                json.dumps({"error": f"Cannot connect to ASReview service at {ASREVIEW_SERVICE_URL}"}),
+                status=502,
+                mimetype='application/json'
+            )
+        except Exception as e:
+            logger.error(f"Error forwarding request to ASReview: {e}", exc_info=True)
+            return Response(
+                json.dumps({"error": "ASReview proxy failed"}),
+                status=502,
+                mimetype='application/json'
+            )
+    
+    except Exception as e:
+        logger.error(f"Error in proxy_asreview: {e}", exc_info=True)
+        return Response(
+            json.dumps({"error": "Internal server error"}),
+            status=500,
+            mimetype='application/json'
+        )
+
+
 # -----------------------
 # Callbacks
 # -----------------------
@@ -5353,46 +5468,99 @@ def dashboard_quick_actions(lit_clicks, ann_clicks, browse_clicks, admin_clicks)
     prevent_initial_call=False
 )
 def check_literature_review_availability(n):
-    """Check if ASReview service is available"""
+    """Check if ASReview service is available via proxy"""
     try:
-        # Check service health
-        r = requests.get(f"{API_BASE}/api/literature-review/health", timeout=5)
-        
-        if r.ok:
-            data = r.json()
-            if data.get("configured") and data.get("available"):
-                # Service is available
-                service_url = data.get("service_url", "Configured")
-                return (
-                    "",  # Clear loading spinner
-                    {"display": "block"},  # Show content
-                    {"display": "none"},  # Hide unavailable message
-                    service_url  # Show service URL
-                )
-            else:
-                # Service not configured or not available
-                error_msg = data.get("error", "Service not available")
+        # First check if ASReview is configured
+        try:
+            from config import ASREVIEW_SERVICE_URL
+            if not ASREVIEW_SERVICE_URL:
                 return (
                     "",  # Clear loading spinner
                     {"display": "none"},  # Hide content
                     {"display": "block"},  # Show unavailable message
-                    error_msg
+                    "ASReview service URL not configured in config.py"
                 )
-        else:
+        except ImportError:
             return (
                 "",
                 {"display": "none"},
                 {"display": "block"},
-                "Backend error"
+                "ASReview service URL not configured in config.py"
+            )
+        
+        # Try to check service health via proxy
+        # Use the proxy route to avoid CORS and routing issues
+        proxy_health_url = f"{DASH_REQUESTS_PATHNAME_PREFIX.rstrip('/')}/proxy/asreview/api/health"
+        
+        try:
+            r = requests.get(f"http://127.0.0.1:{PORT}{proxy_health_url}", timeout=5)
+            
+            if r.ok:
+                try:
+                    data = r.json()
+                    # Service is available
+                    return (
+                        "",  # Clear loading spinner
+                        {"display": "block"},  # Show content
+                        {"display": "none"},  # Hide unavailable message
+                        ASREVIEW_SERVICE_URL  # Show service URL
+                    )
+                except:
+                    # Response is OK but not JSON - service might be available but not ASReview
+                    return (
+                        "",
+                        {"display": "none"},
+                        {"display": "block"},
+                        f"Service at {ASREVIEW_SERVICE_URL} returned unexpected response"
+                    )
+            else:
+                # Service returned error
+                error_detail = f"Status {r.status_code}"
+                try:
+                    error_data = r.json()
+                    error_detail = error_data.get("error", error_detail)
+                except:
+                    pass
+                
+                return (
+                    "",  # Clear loading spinner
+                    {"display": "none"},  # Hide content
+                    {"display": "block"},  # Show unavailable message
+                    f"Cannot reach ASReview service: {error_detail}"
+                )
+        
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Cannot connect to ASReview service: {e}")
+            return (
+                "",
+                {"display": "none"},
+                {"display": "block"},
+                f"Cannot connect to ASReview service at {ASREVIEW_SERVICE_URL}"
+            )
+        except requests.exceptions.Timeout:
+            logger.error("ASReview service health check timeout")
+            return (
+                "",
+                {"display": "none"},
+                {"display": "block"},
+                "ASReview service timeout - check if service is running"
+            )
+        except Exception as e:
+            logger.error(f"Error checking ASReview health: {e}", exc_info=True)
+            return (
+                "",
+                {"display": "none"},
+                {"display": "block"},
+                f"Error checking service: {str(e)}"
             )
     
     except Exception as e:
-        logger.error(f"Error checking literature review availability: {e}")
+        logger.error(f"Error in check_literature_review_availability: {e}", exc_info=True)
         return (
             "",
             {"display": "none"},
             {"display": "block"},
-            f"Error: {str(e)}"
+            f"Internal error: {str(e)}"
         )
 
 
