@@ -27,7 +27,8 @@ from frontend import (
     API_ADMIN_TRIPLE, 
     SCHEMA_JSON, OTHER_SENTINEL, EMAIL_HASH_SALT,
     ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING, ENABLE_LITERATURE_REVIEW,
-    DASH_REQUESTS_PATHNAME_PREFIX, PORT, ASREVIEW_SERVICE_URL
+    DASH_REQUESTS_PATHNAME_PREFIX, PORT, ASREVIEW_SERVICE_URL,
+    ENABLE_DEBUG_LOGGING
 )
 
 # Import layout utilities
@@ -42,6 +43,12 @@ from frontend.layout import (
 import literature_search
 
 logger = logging.getLogger(__name__)
+
+# Configure logging level based on debug setting
+if ENABLE_DEBUG_LOGGING:
+    logging.basicConfig(level=logging.DEBUG)
+    logger.setLevel(logging.DEBUG)
+    logger.debug("DEBUG LOGGING ENABLED - This will generate verbose logs!")
 
 # Rate limiting state for data fetches
 _last_fetch_times = {
@@ -3354,9 +3361,9 @@ def export_triples_callback(n_clicks, auth_data):
     Input("load-trigger", "n_intervals"),
     prevent_initial_call=True,
 )
-def handle_legacy_markdown_reload_request(n):
+def handle_legacy_markdown_reload_request_5(n):
     """
-    Compatibility callback to gracefully handle legacy markdown reload requests.
+    Compatibility callback to gracefully handle legacy markdown reload requests (5 outputs).
     Old versions of the frontend had a markdown-reload-interval that would trigger
     updates to these 5 markdown content divs. Even though that component is removed,
     browsers with cached JavaScript may still try to trigger this callback.
@@ -3364,8 +3371,30 @@ def handle_legacy_markdown_reload_request(n):
     This callback catches those requests and returns no_update, preventing KeyError.
     Once all users have cleared their browser cache, this callback can be removed.
     """
+    if ENABLE_DEBUG_LOGGING:
+        logger.debug("Legacy markdown reload request caught (5 outputs) - returning no_update")
     # Always return no_update - markdown is loaded once at startup
     return no_update, no_update, no_update, no_update, no_update
+
+
+# COMPATIBILITY CALLBACK: Handle legacy markdown reload with 4 outputs (variant)
+# Some cached browser versions may request only 4 of the 5 markdown divs
+@app.callback(
+    Output("annotator-guide-content", "children", allow_duplicate=True),
+    Output("schema-tab-content", "children", allow_duplicate=True),
+    Output("admin-guide-content", "children", allow_duplicate=True),
+    Output("dbmodel-tab-content", "children", allow_duplicate=True),
+    Input("load-trigger", "n_intervals"),
+    prevent_initial_call=True,
+)
+def handle_legacy_markdown_reload_request_4(n):
+    """
+    Compatibility callback for legacy markdown reload with only 4 outputs.
+    This handles a different variant of the cached callback that may exist in some browsers.
+    """
+    if ENABLE_DEBUG_LOGGING:
+        logger.debug("Legacy markdown reload request caught (4 outputs) - returning no_update")
+    return no_update, no_update, no_update, no_update
 
 
 # Callback to save browse field configuration

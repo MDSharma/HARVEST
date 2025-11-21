@@ -43,7 +43,8 @@ try:
     from config import (
         PARTNER_LOGOS, ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING,
         ENABLE_LITERATURE_REVIEW, DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, 
-        URL_BASE_PATHNAME, EMAIL_HASH_SALT, PORT, ASREVIEW_SERVICE_URL
+        URL_BASE_PATHNAME, EMAIL_HASH_SALT, PORT, ASREVIEW_SERVICE_URL,
+        ENABLE_DEBUG_LOGGING
     )
 except ImportError:
     # Fallback if config not available
@@ -57,9 +58,11 @@ except ImportError:
     EMAIL_HASH_SALT = os.getenv("EMAIL_HASH_SALT", "default-insecure-salt-change-me")
     PORT = int(os.getenv("PORT", "8050"))
     ASREVIEW_SERVICE_URL = ""
+    ENABLE_DEBUG_LOGGING = False  # Default to disabled
 
 # Override config with environment variables if present
 DEPLOYMENT_MODE = os.getenv("HARVEST_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
+ENABLE_DEBUG_LOGGING = os.getenv("HARVEST_DEBUG_LOGGING", str(ENABLE_DEBUG_LOGGING)).lower() in ('true', '1', 'yes')
 BACKEND_PUBLIC_URL = os.getenv("HARVEST_BACKEND_PUBLIC_URL", BACKEND_PUBLIC_URL)
 URL_BASE_PATHNAME = os.getenv("HARVEST_URL_BASE_PATHNAME", URL_BASE_PATHNAME)
 ASREVIEW_SERVICE_URL = os.getenv("ASREVIEW_SERVICE_URL", ASREVIEW_SERVICE_URL)
