@@ -1,5 +1,6 @@
 # harvest_fe.py
 import os
+import sys
 import json
 import hashlib
 import requests
@@ -7,6 +8,8 @@ import base64
 import time
 import logging
 import threading
+import glob
+import shutil
 from datetime import datetime, timedelta
 from functools import lru_cache
 
@@ -680,29 +683,35 @@ def sidebar():
 # -----------------------
 # App & Layout
 # -----------------------
-# Clear Python bytecode cache to prevent stale callback registrations
+# Clear Python bytecode cache to prevent stale callback registrations (development only)
 # This ensures that any old callback definitions are not cached
-import sys
-import glob
-import shutil
-
-# Clear __pycache__ directories
-pycache_dirs = glob.glob(os.path.join(os.path.dirname(__file__), "**/__pycache__"), recursive=True)
-for cache_dir in pycache_dirs:
+# Only runs if HARVEST_CLEAR_CACHE environment variable is set to prevent security issues in production
+if os.getenv('HARVEST_CLEAR_CACHE', '').lower() in ('true', '1', 'yes'):
+    logger.warning("HARVEST_CLEAR_CACHE is enabled - clearing Python bytecode cache")
+    
+    # Clear __pycache__ directories (only in current module directory, not recursive for security)
+    module_dir = os.path.dirname(__file__)
+    pycache_dir = os.path.join(module_dir, "__pycache__")
+    if os.path.exists(pycache_dir):
+        try:
+            shutil.rmtree(pycache_dir)
+            logger.info(f"Cleared bytecode cache: {pycache_dir}")
+        except (OSError, PermissionError) as e:
+            logger.warning(f"Could not clear cache {pycache_dir}: {e}")
+    
+    # Clear .pyc files in current directory only
     try:
-        shutil.rmtree(cache_dir)
-        logger.info(f"Cleared bytecode cache: {cache_dir}")
-    except Exception as e:
-        logger.warning(f"Could not clear cache {cache_dir}: {e}")
-
-# Clear .pyc files in current directory
-pyc_files = glob.glob(os.path.join(os.path.dirname(__file__), "*.pyc"))
-for pyc_file in pyc_files:
-    try:
-        os.remove(pyc_file)
-        logger.info(f"Removed bytecode file: {pyc_file}")
-    except Exception as e:
-        logger.warning(f"Could not remove {pyc_file}: {e}")
+        for pyc_file in glob.glob(os.path.join(module_dir, "*.pyc")):
+            os.remove(pyc_file)
+            logger.info(f"Removed bytecode file: {pyc_file}")
+    except (OSError, PermissionError, FileNotFoundError) as e:
+        logger.warning(f"Could not remove .pyc files: {e}")
+    
+    logger.info("Bytecode cache clearing completed")
+else:
+    # In production, use Python's built-in cache invalidation by setting PYTHONDONTWRITEBYTECODE
+    # or running with python -B flag to prevent bytecode generation
+    pass
 
 external_stylesheets = [dbc.themes.BOOTSTRAP]
 app: Dash = dash.Dash(
@@ -5306,10 +5315,15 @@ def export_triples_callback(n_clicks, auth_data):
 #
 # If you're still seeing KeyError messages about these component IDs, it's likely due to:
 #  1. Python bytecode cache (.pyc files) - Clear with: find . -name "*.pyc" -delete
+#     Or set environment variable: HARVEST_CLEAR_CACHE=true (development only)
 #  2. Cached imports in running process - Restart the service completely
+#     Recommended: Use python -B flag to prevent bytecode generation
 #  3. Browser cache - Hard refresh (Ctrl+Shift+R) or clear browser cache
 #
-# This file now includes automatic bytecode cache clearing on startup (see app initialization above).
+# For production deployments, consider:
+#  - Running with: python -B harvest_fe.py (disables bytecode generation)
+#  - Setting: export PYTHONDONTWRITEBYTECODE=1 (prevents .pyc creation)
+#  - Using systemd service with proper restart policies
 
 
 # Callback to save browse field configuration
