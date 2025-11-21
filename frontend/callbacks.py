@@ -31,7 +31,12 @@ from frontend import (
 )
 
 # Import layout utilities
-from frontend.layout import create_execution_log_display
+from frontend.layout import (
+    create_execution_log_display,
+    triple_row,
+    build_entity_options,
+    build_relation_options
+)
 
 # Import literature search module
 import literature_search
