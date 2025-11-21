@@ -2514,11 +2514,30 @@ def proxy_asreview(path: str):
                     mimetype='application/json'
                 )
             
-            # Return ASReview response
+            # Return ASReview response with filtered headers
+            # Filter out headers that can cause iframe issues or redirects
+            # Keep only safe headers for proxying
+            safe_headers = {}
+            for key, value in response.headers.items():
+                key_lower = key.lower()
+                # Skip headers that can cause problems in iframes
+                if key_lower not in [
+                    'location',  # Redirects
+                    'content-location',  # Alternative location
+                    'content-security-policy',  # Can block iframe embedding
+                    'x-frame-options',  # Explicitly controls iframe embedding
+                    'strict-transport-security',  # HSTS can cause issues
+                    'set-cookie',  # Cookies should not be proxied
+                    'server',  # Server info not needed
+                    'date',  # Will be set by our response
+                    'transfer-encoding',  # Can cause chunking issues
+                ]:
+                    safe_headers[key] = value
+            
             return Response(
                 response.content,
                 status=response.status_code,
-                headers=dict(response.headers)
+                headers=safe_headers
             )
         
         except requests.exceptions.Timeout:
