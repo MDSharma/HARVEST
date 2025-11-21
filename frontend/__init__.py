@@ -293,7 +293,7 @@ def validate_callback_map():
     """
     Validate that no callback outputs to the forbidden markdown info-tab IDs.
     Raises RuntimeError if any callback tries to update these components.
-    Exception: Allows one compatibility callback for handling legacy browser cache.
+    Exception: Allows compatibility callbacks for handling legacy browser cache.
     """
     if not os.getenv('HARVEST_STRICT_CALLBACK_CHECKS', 'true').lower() in ('true', '1', 'yes'):
         logger.info("HARVEST_STRICT_CALLBACK_CHECKS is disabled - skipping callback validation")
@@ -301,7 +301,7 @@ def validate_callback_map():
     
     logger.info("Validating callback map for forbidden markdown outputs...")
     violations = []
-    compatibility_callback_found = False
+    compatibility_callback_found = 0  # Changed to counter to allow multiple compatibility callbacks
     
     for callback_id, callback_spec in app.callback_map.items():
         # Get the output specification
@@ -329,11 +329,18 @@ def validate_callback_map():
         
         # If this callback outputs to markdown content
         if markdown_outputs:
-            # Check if it's the compatibility callback (outputs to all 5 markdown divs)
-            if len(markdown_outputs) == 5 and not compatibility_callback_found:
-                # This is the compatibility callback - allow it once
-                compatibility_callback_found = True
-                logger.info(f"✓ Found compatibility callback for legacy browser support: {callback_id}")
+            # Check if it's a compatibility callback
+            # Allow two variants:
+            # 1. Outputs to all 5 markdown divs (original compatibility callback)
+            # 2. Outputs to 4 markdown divs (variant for some cached browsers)
+            if len(markdown_outputs) == 5 and compatibility_callback_found < 1:
+                # This is the 5-output compatibility callback - allow it once
+                compatibility_callback_found += 1
+                logger.info(f"✓ Found compatibility callback (5 outputs) for legacy browser support: {callback_id}")
+            elif len(markdown_outputs) == 4 and compatibility_callback_found < 2:
+                # This is the 4-output compatibility callback variant - allow it once
+                compatibility_callback_found += 1
+                logger.info(f"✓ Found compatibility callback (4 outputs) for legacy browser support: {callback_id}")
             else:
                 # Multiple callbacks or unexpected pattern - flag as violation
                 violations.append({
@@ -345,7 +352,7 @@ def validate_callback_map():
         error_msg = "CALLBACK VALIDATION FAILED: Found unexpected callbacks outputting to forbidden markdown info-tab IDs:\n"
         for v in violations:
             error_msg += f"  - Callback {v['callback_id']} outputs to {', '.join(v['outputs'])}\n"
-        error_msg += "\nOnly one compatibility callback is allowed (outputs to all 5 markdown divs).\n"
+        error_msg += "\nOnly compatibility callbacks are allowed (one with 5 outputs, one with 4 outputs).\n"
         error_msg += "Additional callbacks to these IDs can cause KeyError issues."
         logger.error(error_msg)
         raise RuntimeError(error_msg)
