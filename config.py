@@ -183,7 +183,7 @@ PARTNER_LOGOS = [
         "url": "UM.jpg",
         "alt": "Maastricht University Logo"
     },
-     {
+    {
         "name": "Advanced Research and Invention Agency",
         "url": "ARIA.jpg",
         "alt": "Funded By Advanced Research + Invention Agency"
