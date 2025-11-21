@@ -7,8 +7,13 @@ This file is used by production WSGI servers like Gunicorn.
 Usage:
     gunicorn -w 4 -b 0.0.0.0:8050 wsgi_fe:server
     
-Or with systemd service:
+Or with systemd service (recommended - prevents bytecode caching issues):
+    [Service]
+    Environment="PYTHONDONTWRITEBYTECODE=1"
     ExecStart=/path/to/venv/bin/gunicorn -w 4 -b 0.0.0.0:8050 wsgi_fe:server
+    
+This prevents Python bytecode (.pyc) generation which can cause stale callback
+registration issues when code is updated. See harvest_fe.py for details.
 """
 
 import os
