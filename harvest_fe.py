@@ -680,6 +680,30 @@ def sidebar():
 # -----------------------
 # App & Layout
 # -----------------------
+# Clear Python bytecode cache to prevent stale callback registrations
+# This ensures that any old callback definitions are not cached
+import sys
+import glob
+import shutil
+
+# Clear __pycache__ directories
+pycache_dirs = glob.glob(os.path.join(os.path.dirname(__file__), "**/__pycache__"), recursive=True)
+for cache_dir in pycache_dirs:
+    try:
+        shutil.rmtree(cache_dir)
+        logger.info(f"Cleared bytecode cache: {cache_dir}")
+    except Exception as e:
+        logger.warning(f"Could not clear cache {cache_dir}: {e}")
+
+# Clear .pyc files in current directory
+pyc_files = glob.glob(os.path.join(os.path.dirname(__file__), "*.pyc"))
+for pyc_file in pyc_files:
+    try:
+        os.remove(pyc_file)
+        logger.info(f"Removed bytecode file: {pyc_file}")
+    except Exception as e:
+        logger.warning(f"Could not remove {pyc_file}: {e}")
+
 external_stylesheets = [dbc.themes.BOOTSTRAP]
 app: Dash = dash.Dash(
     __name__, 
@@ -5269,10 +5293,23 @@ def export_triples_callback(n_clicks, auth_data):
 # -----------------------
 # Markdown Auto-Reload Callbacks
 # -----------------------
-# Note: Markdown auto-reload feature has been disabled to prevent callback errors.
+# Note: Markdown auto-reload feature has been COMPLETELY DISABLED to prevent callback errors.
 # Markdown files are loaded once on startup. Restart the server to reload changes.
-# The markdown-reload-interval component and associated callbacks have been removed
-# to fix the KeyError: "Callback function not found" errors in production.
+#
+# Previously, there was a markdown-reload-interval component and associated callbacks that
+# would update the markdown content divs (annotator-guide-content, schema-tab-content, etc.)
+# on a timer. This caused KeyError: "Callback function not found" errors in production.
+#
+# The problematic components and callbacks have been REMOVED:
+#  - dcc.Interval(id="markdown-reload-interval") - REMOVED from layout
+#  - @app.callback with Outputs for the 5 markdown content divs - REMOVED
+#
+# If you're still seeing KeyError messages about these component IDs, it's likely due to:
+#  1. Python bytecode cache (.pyc files) - Clear with: find . -name "*.pyc" -delete
+#  2. Cached imports in running process - Restart the service completely
+#  3. Browser cache - Hard refresh (Ctrl+Shift+R) or clear browser cache
+#
+# This file now includes automatic bytecode cache clearing on startup (see app initialization above).
 
 
 # Callback to save browse field configuration
