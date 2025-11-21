@@ -5447,16 +5447,16 @@ def check_literature_review_availability(n):
         
         # Try to check service health via proxy
         # ASReview LAB doesn't have a standard /api/health endpoint, so we check the root
-        # For internal server-to-server requests, use the actual Flask route
-        # without the pathname prefix (Flask routes are registered at /proxy/asreview/...)
+        # We use the Flask proxy route (/proxy/asreview/) for server-to-server communication
+        # This route forwards to the external ASReview service (spark-ec4c.tail16c7f.ts.net:5123)
         proxy_health_url = "/proxy/asreview/"
         
         try:
             r = requests.get(f"http://127.0.0.1:{PORT}{proxy_health_url}", timeout=5)
             
             # ASReview LAB typically returns HTML for the root endpoint
-            # If we get any successful response (2xx or 3xx), consider it available
-            if r.status_code < 400:
+            # Only accept 2xx responses as healthy (redirects might indicate misconfiguration)
+            if 200 <= r.status_code < 300:
                 return (
                     "",  # Clear loading spinner
                     {"display": "block"},  # Show content
