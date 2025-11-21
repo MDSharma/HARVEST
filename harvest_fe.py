@@ -26,7 +26,7 @@ try:
     from config import (
         PARTNER_LOGOS, ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING,
         ENABLE_LITERATURE_REVIEW, DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, 
-        URL_BASE_PATHNAME, EMAIL_HASH_SALT
+        URL_BASE_PATHNAME, EMAIL_HASH_SALT, PORT
     )
 except ImportError:
     # Fallback if config not available
@@ -38,6 +38,7 @@ except ImportError:
     BACKEND_PUBLIC_URL = os.getenv("HARVEST_BACKEND_PUBLIC_URL", "")
     URL_BASE_PATHNAME = os.getenv("HARVEST_URL_BASE_PATHNAME", "/")
     EMAIL_HASH_SALT = os.getenv("EMAIL_HASH_SALT", "default-insecure-salt-change-me")
+    PORT = int(os.getenv("PORT", "8050"))
 
 # Override config with environment variables if present
 DEPLOYMENT_MODE = os.getenv("HARVEST_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
@@ -754,7 +755,6 @@ app.layout = dbc.Container(
         dcc.Store(id="browse-field-config", data=["project_id", "sentence_id", "sentence", "source_entity_name", "source_entity_attr", "relation_type", "sink_entity_name", "sink_entity_attr", "triple_id"], storage_type="local"),  # Store browse field configuration
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
         dcc.Interval(id="pdf-download-progress-interval", interval=2000, disabled=True),  # Poll every 2 seconds
-        dcc.Interval(id="markdown-reload-interval", interval=5000, disabled=True),  # Disabled by default to prevent callback errors during app initialization, enabled after page load
         
         # Modal for Privacy Policy
         dbc.Modal(
@@ -5268,53 +5268,10 @@ def export_triples_callback(n_clicks, auth_data):
 # -----------------------
 # Markdown Auto-Reload Callbacks
 # -----------------------
-# Enable markdown reload interval after initial page load
-@app.callback(
-    Output("markdown-reload-interval", "disabled"),
-    Input("load-trigger", "n_intervals"),
-    prevent_initial_call=False
-)
-def enable_markdown_reload(n):
-    """Enable the markdown reload interval after page loads to prevent 'Callback function not found' errors during app initialization"""
-    return False  # Enable the interval
-
-
-@app.callback(
-    [
-        Output("annotator-guide-content", "children"),
-        Output("schema-tab-content", "children"),
-        Output("admin-guide-content", "children"),
-        Output("dbmodel-tab-content", "children"),
-        Output("participate-tab-content", "children"),
-    ],
-    Input("markdown-reload-interval", "n_intervals"),
-    prevent_initial_call=True
-)
-def reload_markdown_on_change(n_intervals):
-    """
-    Check for markdown file changes and reload accordion sections if needed.
-    This callback runs periodically to check if any .md files have been modified.
-    """
-    try:
-        if markdown_cache.has_updates():
-            logger.info("Markdown files updated, refreshing accordion content...")
-            markdown_cache.clear_update_flag()
-            
-            # Return updated content for all sections
-            return (
-                markdown_cache.get('annotator_guide.md', "Annotator guide not found."),
-                markdown_cache.get('schema.md', "Schema content not found."),
-                markdown_cache.get('admin_guide.md', "Admin guide not found."),
-                markdown_cache.get('db_model.md', "Database model content not found."),
-                markdown_cache.get('participate.md', "Participate content not found."),
-            )
-        
-        # No updates, return no_update for all outputs
-        return no_update, no_update, no_update, no_update, no_update
-    except Exception as e:
-        logger.error(f"Error in markdown reload callback: {e}", exc_info=True)
-        # Return no_update to prevent breaking the UI
-        return no_update, no_update, no_update, no_update, no_update
+# Note: Markdown auto-reload feature has been disabled to prevent callback errors.
+# Markdown files are loaded once on startup. Restart the server to reload changes.
+# The markdown-reload-interval component and associated callbacks have been removed
+# to fix the KeyError: "Callback function not found" errors in production.
 
 
 # Callback to save browse field configuration
@@ -5489,30 +5446,23 @@ def check_literature_review_availability(n):
             )
         
         # Try to check service health via proxy
-        # Use the proxy route to avoid CORS and routing issues
-        proxy_health_url = f"{DASH_REQUESTS_PATHNAME_PREFIX.rstrip('/')}/proxy/asreview/api/health"
+        # ASReview LAB doesn't have a standard /api/health endpoint, so we check the root
+        # We use the Flask proxy route (/proxy/asreview/) for server-to-server communication
+        # This route forwards to the external ASReview service (spark-ec4c.tail16c7f.ts.net:5123)
+        proxy_health_url = "/proxy/asreview/"
         
         try:
             r = requests.get(f"http://127.0.0.1:{PORT}{proxy_health_url}", timeout=5)
             
-            if r.ok:
-                try:
-                    data = r.json()
-                    # Service is available
-                    return (
-                        "",  # Clear loading spinner
-                        {"display": "block"},  # Show content
-                        {"display": "none"},  # Hide unavailable message
-                        ASREVIEW_SERVICE_URL  # Show service URL
-                    )
-                except:
-                    # Response is OK but not JSON - service might be available but not ASReview
-                    return (
-                        "",
-                        {"display": "none"},
-                        {"display": "block"},
-                        f"Service at {ASREVIEW_SERVICE_URL} returned unexpected response"
-                    )
+            # ASReview LAB typically returns HTML for the root endpoint
+            # Only accept 2xx responses as healthy (redirects might indicate misconfiguration)
+            if 200 <= r.status_code < 300:
+                return (
+                    "",  # Clear loading spinner
+                    {"display": "block"},  # Show content
+                    {"display": "none"},  # Hide unavailable message
+                    ASREVIEW_SERVICE_URL  # Show service URL
+                )
             else:
                 # Service returned error
                 error_detail = f"Status {r.status_code}"
