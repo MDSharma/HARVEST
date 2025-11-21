@@ -247,6 +247,7 @@ def proxy_highlights(project_id: int, filename: str):
         )
 
 
+@server.route('/proxy/asreview/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE'])
 @server.route('/proxy/asreview/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
 def proxy_asreview(path: str):
     """
@@ -257,6 +258,8 @@ def proxy_asreview(path: str):
     
     This allows the frontend to access ASReview service without CORS issues,
     similar to how PDF proxy works.
+    
+    The route handles both /proxy/asreview/ (root) and /proxy/asreview/path (subpaths).
     """
     try:
         # Get ASReview service URL from config
@@ -276,7 +279,11 @@ def proxy_asreview(path: str):
             )
         
         # Construct ASReview service URL
-        asreview_url = f"{ASREVIEW_SERVICE_URL.rstrip('/')}/{path}"
+        # If path is empty, just use the service URL root
+        if path:
+            asreview_url = f"{ASREVIEW_SERVICE_URL.rstrip('/')}/{path}"
+        else:
+            asreview_url = ASREVIEW_SERVICE_URL.rstrip('/')
         
         # Preserve query parameters
         if flask_request.query_string:
