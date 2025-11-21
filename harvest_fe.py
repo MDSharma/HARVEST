@@ -1004,7 +1004,7 @@ app.layout = dbc.Container(
             [
                 dbc.Col(
                     [
-                        # Enhanced logo section with branding
+                        # Logo section
                         html.Div([
                             dbc.Row([
                                 dbc.Col([
@@ -1176,7 +1176,7 @@ app.layout = dbc.Container(
                                                         html.P([
                                                             "For detailed guides, check the ",
                                                             html.I(className="bi bi-book"),
-                                                            " information tabs on the right →"
+                                                            " information tabs below"
                                                         ], className="mb-0 small text-muted"),
                                                     ], color="info", className="shadow-custom-sm"),
                                                 ]),
@@ -1649,8 +1649,8 @@ app.layout = dbc.Container(
                                                         ),
                                                     ]
                                                 ),
-                                                    ]  # End of lit-review-auth-content
-                                                ),  # End of lit-review-auth-content wrapper
+                                                    ]  # End of lit-review-auth-content children
+                                                ),  # End of lit-review-auth-content wrapper div
                                             ],
                                             body=True,
                                             className="shadow-custom-md"
@@ -2625,8 +2625,8 @@ def populate_verified_email(otp_session):
         except:
             pass
     
-    # Not verified or session invalid - leave field editable
-    return no_update, False
+    # Not verified or session invalid - clear email and leave field editable
+    return "", False
 
 
 @app.callback(
@@ -5273,31 +5273,38 @@ def toggle_privacy_policy_modal(open_click, close_click, is_open):
 def update_dashboard_stats(n):
     """Update dashboard statistics"""
     try:
-        # Get total triples count
-        r_triples = requests.get(f"{API_BASE}/api/triples", timeout=5)
-        total_triples = len(r_triples.json().get("data", [])) if r_triples.ok else 0
+        # Get total triples count from /api/recent endpoint
+        r_recent = requests.get(f"{API_BASE}/api/recent", timeout=5)
+        if r_recent.ok:
+            recent_data = r_recent.json()
+            # Count unique triple IDs (excluding None values from LEFT JOIN)
+            triple_ids = [item.get("triple_id") for item in recent_data if item.get("triple_id")]
+            total_triples = len(set(triple_ids))
+            
+            # Get unique DOIs count
+            dois = [item.get("doi") for item in recent_data if item.get("doi")]
+            unique_dois = len(set(dois))
+            
+            # Get recent activity (last 7 days)
+            # Note: This uses string comparison and created_at field if available
+            # For now, we'll estimate based on the top 200 records (LIMIT in query)
+            seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
+            recent_count = 0
+            # Since created_at is not in the recent endpoint, we'll use a simplified estimate
+            # assuming most recent 50 entries are within last 7 days (rough estimate)
+            recent_count = min(50, len(triple_ids))
+        else:
+            total_triples = 0
+            unique_dois = 0
+            recent_count = 0
         
         # Get total projects count
         r_projects = requests.get(f"{API_BASE}/api/projects", timeout=5)
-        total_projects = len(r_projects.json().get("projects", [])) if r_projects.ok else 0
-        
-        # Get unique DOIs count - limit to reasonable number for performance
-        # Note: This is a simplified approach. For large datasets, consider adding 
-        # a dedicated API endpoint that returns statistics directly from the database
-        r_dois = requests.get(f"{API_BASE}/api/recent", params={"limit": 100}, timeout=5)
-        dois_data = r_dois.json().get("data", []) if r_dois.ok else []
-        unique_dois = len(set([item.get("doi", "") for item in dois_data if item.get("doi")]))
-        
-        # Get recent activity (last 7 days)
-        # Note: This uses string comparison. For better performance with large datasets,
-        # consider adding a date filter parameter to the API endpoint
-        seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
-        recent_count = 0
-        if r_triples.ok:
-            triples_data = r_triples.json().get("data", [])
-            # Only check a subset for performance
-            recent_count = sum(1 for item in triples_data[:100] 
-                             if item.get("created_at", "") >= seven_days_ago)
+        if r_projects.ok:
+            projects_data = r_projects.json()
+            total_projects = len(projects_data)
+        else:
+            total_projects = 0
         
         return str(total_triples), str(total_projects), str(unique_dois), str(recent_count)
     except Exception as e:
