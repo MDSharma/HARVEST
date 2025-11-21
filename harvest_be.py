@@ -38,6 +38,11 @@ from harvest_store import (
     update_pdf_download_progress,
     get_pdf_download_progress,
     cleanup_old_pdf_download_progress,
+    create_batches,
+    get_project_batches,
+    get_batch_dois,
+    update_doi_status,
+    get_doi_status_summary,
 )
 
 # Import configuration
@@ -1010,6 +1015,133 @@ def get_pdf_download_config():
     except Exception as e:
         logger.error(f"Failed to get PDF configuration: {e}", exc_info=True)
         return jsonify({"error": "Failed to get PDF configuration"}), 500
+
+
+# =============================================================================
+# DOI Batch Management API Endpoints
+# =============================================================================
+
+@app.post("/api/admin/projects/<int:project_id>/batches")
+def create_batches_endpoint(project_id: int):
+    """
+    Create batches for a project's DOIs (admin only).
+    Request body:
+    {
+        "batch_size": 20,  # DOIs per batch (default 20)
+        "strategy": "sequential"  # or "random"
+    }
+    """
+    # Check admin authentication
+    email = request.json.get("admin_email")
+    password = request.json.get("admin_password")
+    
+    if not email or not password:
+        return jsonify({"error": "Admin authentication required"}), 401
+    
+    if not verify_admin(DB_PATH, email, password):
+        return jsonify({"error": "Invalid admin credentials"}), 401
+    
+    try:
+        batch_size = request.json.get("batch_size", 20)
+        strategy = request.json.get("strategy", "sequential")
+        
+        # Validate batch size
+        if not isinstance(batch_size, int) or batch_size < 5 or batch_size > 100:
+            return jsonify({"error": "batch_size must be between 5 and 100"}), 400
+        
+        # Validate strategy
+        if strategy not in ["sequential", "random"]:
+            return jsonify({"error": "strategy must be 'sequential' or 'random'"}), 400
+        
+        # Create batches
+        batches = create_batches(DB_PATH, project_id, batch_size, strategy)
+        
+        if not batches:
+            return jsonify({"error": "Failed to create batches. Project may not exist or have no DOIs."}), 404
+        
+        return jsonify({
+            "ok": True,
+            "batches": batches,
+            "total_batches": len(batches)
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to create batches: {e}", exc_info=True)
+        return jsonify({"error": "Failed to create batches"}), 500
+
+
+@app.get("/api/projects/<int:project_id>/batches")
+def get_project_batches_endpoint(project_id: int):
+    """Get all batches for a project (public)"""
+    try:
+        batches = get_project_batches(DB_PATH, project_id)
+        return jsonify({
+            "ok": True,
+            "batches": batches
+        })
+    except Exception as e:
+        logger.error(f"Failed to get project batches: {e}", exc_info=True)
+        return jsonify({"error": "Failed to get project batches"}), 500
+
+
+@app.get("/api/projects/<int:project_id>/batches/<int:batch_id>/dois")
+def get_batch_dois_endpoint(project_id: int, batch_id: int):
+    """Get all DOIs in a specific batch with their status (public)"""
+    try:
+        dois = get_batch_dois(DB_PATH, project_id, batch_id)
+        return jsonify({
+            "ok": True,
+            "dois": dois
+        })
+    except Exception as e:
+        logger.error(f"Failed to get batch DOIs: {e}", exc_info=True)
+        return jsonify({"error": "Failed to get batch DOIs"}), 500
+
+
+@app.post("/api/projects/<int:project_id>/dois/<path:doi>/status")
+def update_doi_status_endpoint(project_id: int, doi: str):
+    """
+    Update the annotation status of a DOI.
+    Request body:
+    {
+        "status": "in_progress" | "completed",
+        "annotator_email": "user@example.com"
+    }
+    """
+    try:
+        status = request.json.get("status")
+        annotator_email = request.json.get("annotator_email")
+        
+        # Validate status
+        if status not in ["unstarted", "in_progress", "completed"]:
+            return jsonify({"error": "status must be 'unstarted', 'in_progress', or 'completed'"}), 400
+        
+        # Update status
+        success = update_doi_status(DB_PATH, project_id, doi, status, annotator_email)
+        
+        if success:
+            return jsonify({"ok": True})
+        else:
+            return jsonify({"error": "Failed to update DOI status"}), 500
+            
+    except Exception as e:
+        logger.error(f"Failed to update DOI status: {e}", exc_info=True)
+        return jsonify({"error": "Failed to update DOI status"}), 500
+
+
+@app.get("/api/projects/<int:project_id>/doi-status")
+def get_doi_status_summary_endpoint(project_id: int):
+    """Get annotation status summary for all DOIs in project (public)"""
+    try:
+        summary = get_doi_status_summary(DB_PATH, project_id)
+        return jsonify({
+            "ok": True,
+            **summary
+        })
+    except Exception as e:
+        logger.error(f"Failed to get DOI status summary: {e}", exc_info=True)
+        return jsonify({"error": "Failed to get DOI status summary"}), 500
+
 
 @app.get("/api/projects/<int:project_id>/pdfs")
 def list_project_pdfs_endpoint(project_id: int):

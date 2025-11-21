@@ -243,6 +243,63 @@ def init_db(db_path: str) -> None:
         CREATE INDEX IF NOT EXISTS idx_rate_limit_email_time
         ON email_verification_rate_limit(email, timestamp);
     """)
+    
+    # DOI Batch Management tables
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS doi_batches (
+            batch_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            batch_name TEXT NOT NULL,
+            batch_number INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES projects(id),
+            UNIQUE(project_id, batch_number)
+        );
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS doi_batch_assignments (
+            assignment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            doi TEXT NOT NULL,
+            batch_id INTEGER NOT NULL,
+            assigned_at TEXT NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES projects(id),
+            FOREIGN KEY (batch_id) REFERENCES doi_batches(batch_id),
+            UNIQUE(project_id, doi)
+        );
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS doi_annotation_status (
+            status_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            doi TEXT NOT NULL,
+            annotator_email TEXT,
+            status TEXT DEFAULT 'unstarted',
+            last_updated TEXT NOT NULL,
+            started_at TEXT,
+            completed_at TEXT,
+            FOREIGN KEY (project_id) REFERENCES projects(id),
+            UNIQUE(project_id, doi)
+        );
+    """)
+    
+    # Indexes for batch management
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_doi_batches_project
+        ON doi_batches(project_id);
+    """)
+    
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_doi_batch_assignments_batch
+        ON doi_batch_assignments(batch_id);
+    """)
+    
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_doi_annotation_status_project_doi
+        ON doi_annotation_status(project_id, doi);
+    """)
 
     for name, value in SCHEMA_JSON["span-attribute"].items():
         cur.execute("INSERT OR IGNORE INTO entity_types(name, value) VALUES (?, ?);", (name, value))
@@ -667,3 +724,333 @@ def cleanup_old_pdf_download_progress(db_path: str, max_age_seconds: int = 3600)
     except Exception as e:
         print(f"Failed to cleanup PDF download progress: {e}")
         return 0
+
+
+# ============================================================================
+# DOI Batch Management Functions
+# ============================================================================
+
+def create_batches(db_path: str, project_id: int, batch_size: int = 20, strategy: str = "sequential") -> list:
+    """
+    Auto-create batches for a project's DOIs.
+    
+    Args:
+        db_path: Path to database
+        project_id: Project ID
+        batch_size: Number of DOIs per batch
+        strategy: 'sequential', 'random', or 'by_date'
+    
+    Returns:
+        List of created batch dictionaries
+    """
+    import random
+    from datetime import datetime
+    
+    try:
+        conn = get_conn(db_path)
+        cur = conn.cursor()
+        
+        # Get project DOIs
+        project = get_project_by_id(db_path, project_id)
+        if not project:
+            return []
+        
+        doi_list = project['doi_list']
+        if not doi_list:
+            return []
+        
+        # Delete existing batches for this project
+        cur.execute("DELETE FROM doi_batch_assignments WHERE project_id = ?", (project_id,))
+        cur.execute("DELETE FROM doi_batches WHERE project_id = ?", (project_id,))
+        
+        # Apply strategy
+        if strategy == "random":
+            random.shuffle(doi_list)
+        # 'sequential' and 'by_date' use the existing order
+        
+        # Create batches
+        created_batches = []
+        batch_number = 1
+        now = datetime.now().isoformat()
+        
+        for i in range(0, len(doi_list), batch_size):
+            batch_dois = doi_list[i:i + batch_size]
+            batch_name = f"Batch {batch_number} ({len(batch_dois)} papers)"
+            
+            # Insert batch
+            cur.execute("""
+                INSERT INTO doi_batches (project_id, batch_name, batch_number, created_at)
+                VALUES (?, ?, ?, ?)
+            """, (project_id, batch_name, batch_number, now))
+            
+            batch_id = cur.lastrowid
+            
+            # Insert DOI assignments
+            for doi in batch_dois:
+                cur.execute("""
+                    INSERT INTO doi_batch_assignments (project_id, doi, batch_id, assigned_at)
+                    VALUES (?, ?, ?, ?)
+                """, (project_id, doi, batch_id, now))
+            
+            created_batches.append({
+                'batch_id': batch_id,
+                'project_id': project_id,
+                'batch_name': batch_name,
+                'batch_number': batch_number,
+                'doi_count': len(batch_dois),
+                'created_at': now
+            })
+            
+            batch_number += 1
+        
+        conn.close()
+        return created_batches
+        
+    except Exception as e:
+        print(f"Failed to create batches: {e}")
+        return []
+
+
+def get_project_batches(db_path: str, project_id: int) -> list:
+    """
+    Get all batches for a project.
+    
+    Returns:
+        List of batch dictionaries with metadata
+    """
+    try:
+        conn = get_conn(db_path)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT 
+                b.batch_id, 
+                b.project_id, 
+                b.batch_name, 
+                b.batch_number, 
+                b.created_at,
+                COUNT(a.doi) as doi_count
+            FROM doi_batches b
+            LEFT JOIN doi_batch_assignments a ON b.batch_id = a.batch_id
+            WHERE b.project_id = ?
+            GROUP BY b.batch_id
+            ORDER BY b.batch_number
+        """, (project_id,))
+        
+        rows = cur.fetchall()
+        conn.close()
+        
+        batches = []
+        for row in rows:
+            batches.append({
+                'batch_id': row[0],
+                'project_id': row[1],
+                'batch_name': row[2],
+                'batch_number': row[3],
+                'created_at': row[4],
+                'doi_count': row[5]
+            })
+        
+        return batches
+        
+    except Exception as e:
+        print(f"Failed to get project batches: {e}")
+        return []
+
+
+def get_batch_dois(db_path: str, project_id: int, batch_id: int) -> list:
+    """
+    Get all DOIs in a specific batch with their annotation status.
+    
+    Returns:
+        List of DOI dictionaries with status information
+    """
+    try:
+        conn = get_conn(db_path)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT 
+                a.doi,
+                s.status,
+                s.annotator_email,
+                s.last_updated,
+                s.started_at,
+                s.completed_at
+            FROM doi_batch_assignments a
+            LEFT JOIN doi_annotation_status s 
+                ON a.project_id = s.project_id AND a.doi = s.doi
+            WHERE a.batch_id = ? AND a.project_id = ?
+            ORDER BY a.assigned_at
+        """, (batch_id, project_id))
+        
+        rows = cur.fetchall()
+        conn.close()
+        
+        dois = []
+        for row in rows:
+            dois.append({
+                'doi': row[0],
+                'status': row[1] if row[1] else 'unstarted',
+                'annotator_email': row[2],
+                'last_updated': row[3],
+                'started_at': row[4],
+                'completed_at': row[5]
+            })
+        
+        return dois
+        
+    except Exception as e:
+        print(f"Failed to get batch DOIs: {e}")
+        return []
+
+
+def update_doi_status(db_path: str, project_id: int, doi: str, status: str, annotator_email: str = None) -> bool:
+    """
+    Update the annotation status of a DOI.
+    
+    Args:
+        db_path: Path to database
+        project_id: Project ID
+        doi: DOI string
+        status: 'unstarted', 'in_progress', or 'completed'
+        annotator_email: Email of annotator (optional)
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    from datetime import datetime
+    
+    try:
+        conn = get_conn(db_path)
+        cur = conn.cursor()
+        
+        now = datetime.now().isoformat()
+        
+        # Check if status record exists
+        cur.execute("""
+            SELECT status_id, status FROM doi_annotation_status 
+            WHERE project_id = ? AND doi = ?
+        """, (project_id, doi))
+        
+        existing = cur.fetchone()
+        
+        if existing:
+            # Update existing record
+            status_id = existing[0]
+            old_status = existing[1]
+            
+            # Set started_at if transitioning to in_progress
+            started_at_clause = ""
+            if status == 'in_progress' and old_status == 'unstarted':
+                started_at_clause = ", started_at = ?"
+                cur.execute(f"""
+                    UPDATE doi_annotation_status
+                    SET status = ?, annotator_email = ?, last_updated = ?{started_at_clause}
+                    WHERE status_id = ?
+                """, (status, annotator_email, now, now, status_id))
+            # Set completed_at if transitioning to completed
+            elif status == 'completed' and old_status != 'completed':
+                completed_at_clause = ", completed_at = ?"
+                cur.execute(f"""
+                    UPDATE doi_annotation_status
+                    SET status = ?, annotator_email = ?, last_updated = ?{completed_at_clause}
+                    WHERE status_id = ?
+                """, (status, annotator_email, now, now, status_id))
+            else:
+                cur.execute("""
+                    UPDATE doi_annotation_status
+                    SET status = ?, annotator_email = ?, last_updated = ?
+                    WHERE status_id = ?
+                """, (status, annotator_email, now, status_id))
+        else:
+            # Insert new record
+            started_at = now if status == 'in_progress' else None
+            completed_at = now if status == 'completed' else None
+            
+            cur.execute("""
+                INSERT INTO doi_annotation_status 
+                (project_id, doi, annotator_email, status, last_updated, started_at, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (project_id, doi, annotator_email, status, now, started_at, completed_at))
+        
+        conn.close()
+        return True
+        
+    except Exception as e:
+        print(f"Failed to update DOI status: {e}")
+        return False
+
+
+def get_doi_status_summary(db_path: str, project_id: int) -> dict:
+    """
+    Get annotation status summary for all DOIs in a project.
+    
+    Returns:
+        Dictionary with status counts and breakdown by batch
+    """
+    try:
+        conn = get_conn(db_path)
+        cur = conn.cursor()
+        
+        # Get total DOI count from project
+        project = get_project_by_id(db_path, project_id)
+        if not project:
+            return {}
+        
+        total_dois = len(project['doi_list'])
+        
+        # Get status counts
+        cur.execute("""
+            SELECT status, COUNT(*) as count
+            FROM doi_annotation_status
+            WHERE project_id = ?
+            GROUP BY status
+        """, (project_id,))
+        
+        status_counts = {row[0]: row[1] for row in cur.fetchall()}
+        
+        unstarted = total_dois - sum(status_counts.values())
+        in_progress = status_counts.get('in_progress', 0)
+        completed = status_counts.get('completed', 0)
+        
+        # Get batch breakdown
+        cur.execute("""
+            SELECT 
+                b.batch_id,
+                b.batch_name,
+                COUNT(DISTINCT a.doi) as total,
+                COUNT(DISTINCT CASE WHEN s.status = 'completed' THEN s.doi END) as completed,
+                COUNT(DISTINCT CASE WHEN s.status = 'in_progress' THEN s.doi END) as in_progress
+            FROM doi_batches b
+            LEFT JOIN doi_batch_assignments a ON b.batch_id = a.batch_id
+            LEFT JOIN doi_annotation_status s ON a.project_id = s.project_id AND a.doi = s.doi
+            WHERE b.project_id = ?
+            GROUP BY b.batch_id
+            ORDER BY b.batch_number
+        """, (project_id,))
+        
+        batch_breakdown = []
+        for row in cur.fetchall():
+            batch_breakdown.append({
+                'batch_id': row[0],
+                'batch_name': row[1],
+                'total': row[2],
+                'completed': row[3],
+                'in_progress': row[4],
+                'unstarted': row[2] - row[3] - row[4]
+            })
+        
+        conn.close()
+        
+        return {
+            'total': total_dois,
+            'unstarted': unstarted,
+            'in_progress': in_progress,
+            'completed': completed,
+            'by_batch': batch_breakdown
+        }
+        
+    except Exception as e:
+        print(f"Failed to get DOI status summary: {e}")
+        return {}
