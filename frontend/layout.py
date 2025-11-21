@@ -451,6 +451,7 @@ def get_layout():
             dcc.Store(id="projects-store"),
             dcc.Store(id="delete-project-id-store"),  # Store project ID to delete
             dcc.Store(id="upload-project-id-store"),  # Store project ID for upload
+            dcc.Store(id="edit-dois-project-id-store"),  # Store project ID for editing DOIs
             dcc.Store(id="pdf-download-project-id", data=None),  # Store project ID for PDF download tracking
             dcc.Store(id="lit-search-selected-papers", data=[]),  # Store selected papers
             dcc.Store(id="lit-search-session-papers", data=[], storage_type="session"),  # Store all papers from session
@@ -698,6 +699,77 @@ def get_layout():
                     ),
                 ],
                 id="upload-pdf-modal",
+                is_open=False,
+                size="lg",
+            ),
+
+            # Modal for editing project DOIs
+            dbc.Modal(
+                [
+                    dbc.ModalHeader(dbc.ModalTitle("Edit Project DOIs")),
+                    dbc.ModalBody(
+                        [
+                            html.Div(id="edit-dois-project-info", className="mb-3"),
+                            
+                            html.H6("Current DOIs", className="mb-2"),
+                            html.Div(
+                                id="edit-dois-current-list",
+                                style={"maxHeight": "200px", "overflowY": "auto"},
+                                className="mb-3 p-2 border rounded"
+                            ),
+                            
+                            html.Hr(),
+                            
+                            html.H6("Add DOIs", className="mb-2"),
+                            html.P("Enter DOIs to add (one per line):", className="small text-muted"),
+                            dcc.Textarea(
+                                id="edit-dois-add-input",
+                                placeholder="10.1234/example1\n10.1234/example2\n...",
+                                style={"width": "100%", "height": "100px"},
+                                className="mb-3"
+                            ),
+                            dbc.Button(
+                                "Add DOIs",
+                                id="btn-add-dois-to-project",
+                                color="success",
+                                size="sm",
+                                className="mb-3"
+                            ),
+                            
+                            html.Hr(),
+                            
+                            html.H6("Remove DOIs", className="mb-2"),
+                            html.P("Enter DOIs to remove (one per line):", className="small text-muted"),
+                            dcc.Textarea(
+                                id="edit-dois-remove-input",
+                                placeholder="10.1234/example1\n10.1234/example2\n...",
+                                style={"width": "100%", "height": "100px"},
+                                className="mb-2"
+                            ),
+                            dbc.Checkbox(
+                                id="edit-dois-delete-pdfs",
+                                label="Also delete associated PDF files",
+                                value=False,
+                                className="mb-3"
+                            ),
+                            dbc.Button(
+                                "Remove DOIs",
+                                id="btn-remove-dois-from-project",
+                                color="danger",
+                                size="sm",
+                                className="mb-3"
+                            ),
+                            
+                            html.Div(id="edit-dois-message", className="mb-2"),
+                        ]
+                    ),
+                    dbc.ModalFooter(
+                        [
+                            dbc.Button("Close", id="edit-dois-modal-close", color="secondary"),
+                        ]
+                    ),
+                ],
+                id="edit-dois-modal",
                 is_open=False,
                 size="lg",
             ),

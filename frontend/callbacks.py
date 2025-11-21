@@ -2105,6 +2105,8 @@ def display_projects_list(refresh_clicks, project_message, delete_clicks, auth_d
                                     [
                                         dbc.Button("View DOIs", id={"type": "view-project-dois", "index": p["id"]}, 
                                                  color="info", size="sm", outline=True),
+                                        dbc.Button("Edit DOIs", id={"type": "edit-project-dois", "index": p["id"]}, 
+                                                 color="primary", size="sm", outline=True),
                                         dbc.Button("Download PDFs", id={"type": "download-project-pdfs", "index": p["id"]}, 
                                                  color="success", size="sm", outline=True),
                                         dbc.Button("Upload PDFs", id={"type": "upload-project-pdfs", "index": p["id"]}, 
@@ -2161,6 +2163,170 @@ def view_project_dois(n_clicks_list, projects):
         color="info",
         dismissable=True,
     )
+
+# Handle Edit DOIs button click - Open modal and populate with project data
+@app.callback(
+    Output("edit-dois-modal", "is_open"),
+    Output("edit-dois-project-id-store", "data"),
+    Output("edit-dois-project-info", "children"),
+    Output("edit-dois-current-list", "children"),
+    Output("edit-dois-add-input", "value"),
+    Output("edit-dois-remove-input", "value"),
+    Output("edit-dois-delete-pdfs", "value"),
+    Output("edit-dois-message", "children"),
+    Input({"type": "edit-project-dois", "index": ALL}, "n_clicks"),
+    Input("edit-dois-modal-close", "n_clicks"),
+    Input("btn-add-dois-to-project", "n_clicks"),
+    Input("btn-remove-dois-from-project", "n_clicks"),
+    State("projects-store", "data"),
+    State("edit-dois-modal", "is_open"),
+    State("edit-dois-project-id-store", "data"),
+    State("edit-dois-add-input", "value"),
+    State("edit-dois-remove-input", "value"),
+    State("edit-dois-delete-pdfs", "value"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_edit_dois_modal(edit_clicks_list, close_clicks, add_clicks, remove_clicks, 
+                           projects, is_open, current_project_id, add_input, remove_input, 
+                           delete_pdfs, auth_data):
+    """Handle opening/closing the edit DOIs modal and performing add/remove operations"""
+    trigger = ctx.triggered_id
+    
+    # Close modal
+    if trigger == "edit-dois-modal-close":
+        return False, None, "", "", "", "", False, ""
+    
+    # Open modal with project data
+    if trigger and isinstance(trigger, dict) and trigger.get("type") == "edit-project-dois":
+        if not any(edit_clicks_list) or not projects:
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        
+        project_id = trigger["index"]
+        project = next((p for p in projects if p["id"] == project_id), None)
+        
+        if not project:
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        
+        doi_list = project.get("doi_list", [])
+        doi_items = [html.Div(f"• {doi}", className="small") for doi in doi_list]
+        
+        project_info = dbc.Alert([
+            html.Strong(f"Project: {project['name']}"),
+            html.Br(),
+            html.Small(f"ID: {project['id']} | Total DOIs: {len(doi_list)}")
+        ], color="info")
+        
+        return True, project_id, project_info, doi_items, "", "", False, ""
+    
+    # Add DOIs
+    if trigger == "btn-add-dois-to-project":
+        if not auth_data or not current_project_id or not add_input:
+            return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                   dbc.Alert("Missing authentication or DOI input", color="danger")
+        
+        # Parse DOIs from input
+        dois_to_add = [doi.strip() for doi in add_input.strip().split('\n') if doi.strip()]
+        
+        if not dois_to_add:
+            return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                   dbc.Alert("No valid DOIs to add", color="warning")
+        
+        try:
+            payload = {
+                "email": auth_data.get("email"),
+                "password": auth_data.get("password"),
+                "dois": dois_to_add
+            }
+            r = requests.post(f"{API_ADMIN_PROJECTS}/{current_project_id}/add-dois", json=payload, timeout=10)
+            
+            if r.ok:
+                result = r.json()
+                # Refresh project list
+                projects_r = requests.get(API_PROJECTS, timeout=5)
+                if projects_r.ok:
+                    updated_projects = projects_r.json()
+                    updated_project = next((p for p in updated_projects if p["id"] == current_project_id), None)
+                    if updated_project:
+                        doi_list = updated_project.get("doi_list", [])
+                        doi_items = [html.Div(f"• {doi}", className="small") for doi in doi_list]
+                        
+                        project_info = dbc.Alert([
+                            html.Strong(f"Project: {updated_project['name']}"),
+                            html.Br(),
+                            html.Small(f"ID: {updated_project['id']} | Total DOIs: {len(doi_list)}")
+                        ], color="info")
+                        
+                        return True, current_project_id, project_info, doi_items, "", no_update, no_update, \
+                               dbc.Alert(result.get("message", "DOIs added successfully"), color="success", dismissable=True)
+                
+                return True, current_project_id, no_update, no_update, "", no_update, no_update, \
+                       dbc.Alert(result.get("message", "DOIs added successfully"), color="success", dismissable=True)
+            else:
+                error_msg = r.json().get("error", f"Failed: {r.status_code}")
+                return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                       dbc.Alert(f"Error: {error_msg}", color="danger", dismissable=True)
+        except Exception as e:
+            return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                   dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True)
+    
+    # Remove DOIs
+    if trigger == "btn-remove-dois-from-project":
+        if not auth_data or not current_project_id or not remove_input:
+            return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                   dbc.Alert("Missing authentication or DOI input", color="danger")
+        
+        # Parse DOIs from input
+        dois_to_remove = [doi.strip() for doi in remove_input.strip().split('\n') if doi.strip()]
+        
+        if not dois_to_remove:
+            return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                   dbc.Alert("No valid DOIs to remove", color="warning")
+        
+        try:
+            payload = {
+                "email": auth_data.get("email"),
+                "password": auth_data.get("password"),
+                "dois": dois_to_remove,
+                "delete_pdfs": delete_pdfs
+            }
+            r = requests.post(f"{API_ADMIN_PROJECTS}/{current_project_id}/remove-dois", json=payload, timeout=10)
+            
+            if r.ok:
+                result = r.json()
+                # Refresh project list
+                projects_r = requests.get(API_PROJECTS, timeout=5)
+                if projects_r.ok:
+                    updated_projects = projects_r.json()
+                    updated_project = next((p for p in updated_projects if p["id"] == current_project_id), None)
+                    if updated_project:
+                        doi_list = updated_project.get("doi_list", [])
+                        doi_items = [html.Div(f"• {doi}", className="small") for doi in doi_list]
+                        
+                        project_info = dbc.Alert([
+                            html.Strong(f"Project: {updated_project['name']}"),
+                            html.Br(),
+                            html.Small(f"ID: {updated_project['id']} | Total DOIs: {len(doi_list)}")
+                        ], color="info")
+                        
+                        message = result.get("message", "DOIs removed successfully")
+                        if result.get("deleted_pdfs", 0) > 0:
+                            message += f" | {result['deleted_pdfs']} PDF(s) deleted"
+                        
+                        return True, current_project_id, project_info, doi_items, no_update, "", False, \
+                               dbc.Alert(message, color="success", dismissable=True)
+                
+                return True, current_project_id, no_update, no_update, no_update, "", False, \
+                       dbc.Alert(result.get("message", "DOIs removed successfully"), color="success", dismissable=True)
+            else:
+                error_msg = r.json().get("error", f"Failed: {r.status_code}")
+                return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                       dbc.Alert(f"Error: {error_msg}", color="danger", dismissable=True)
+        except Exception as e:
+            return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                   dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True)
+    
+    return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
 # Handle Download PDFs button click - Start download and enable progress polling
 @app.callback(

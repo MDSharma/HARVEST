@@ -622,6 +622,131 @@ def update_existing_project(project_id: int):
     else:
         return jsonify({"error": "Failed to update project or project not found"}), 404
 
+@app.post("/api/admin/projects/<int:project_id>/add-dois")
+def add_dois_to_project(project_id: int):
+    """
+    Add DOIs to an existing project (admin only).
+    Expected JSON: { 
+        "email": "admin@example.com", 
+        "password": "secret",
+        "dois": ["10.1234/example1", "10.1234/example2", ...]
+    }
+    """
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    email = (payload.get("email") or "").strip()
+    password = payload.get("password") or ""
+    new_dois = payload.get("dois", [])
+
+    if not email or not password:
+        return jsonify({"error": "Admin authentication required"}), 401
+
+    # Verify admin credentials
+    if not (verify_admin_password(DB_PATH, email, password) or is_admin_user(email)):
+        return jsonify({"error": "Invalid admin credentials"}), 403
+
+    if not isinstance(new_dois, list) or not new_dois:
+        return jsonify({"error": "dois must be a non-empty list"}), 400
+
+    # Get current project
+    project = get_project_by_id(DB_PATH, project_id)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+
+    # Get current DOI list
+    current_dois = project.get("doi_list", [])
+    
+    # Add new DOIs (avoid duplicates)
+    updated_dois = list(set(current_dois + new_dois))
+    added_count = len(updated_dois) - len(current_dois)
+
+    # Update project with new DOI list
+    success = update_project(DB_PATH, project_id, doi_list=updated_dois)
+    
+    if success:
+        return jsonify({
+            "ok": True, 
+            "message": f"Added {added_count} new DOIs to project",
+            "total_dois": len(updated_dois)
+        })
+    else:
+        return jsonify({"error": "Failed to update project"}), 500
+
+@app.post("/api/admin/projects/<int:project_id>/remove-dois")
+def remove_dois_from_project(project_id: int):
+    """
+    Remove DOIs from an existing project (admin only).
+    Expected JSON: { 
+        "email": "admin@example.com", 
+        "password": "secret",
+        "dois": ["10.1234/example1", "10.1234/example2", ...],
+        "delete_pdfs": true/false  (optional, default: false)
+    }
+    """
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    email = (payload.get("email") or "").strip()
+    password = payload.get("password") or ""
+    dois_to_remove = payload.get("dois", [])
+    delete_pdfs = payload.get("delete_pdfs", False)
+
+    if not email or not password:
+        return jsonify({"error": "Admin authentication required"}), 401
+
+    # Verify admin credentials
+    if not (verify_admin_password(DB_PATH, email, password) or is_admin_user(email)):
+        return jsonify({"error": "Invalid admin credentials"}), 403
+
+    if not isinstance(dois_to_remove, list) or not dois_to_remove:
+        return jsonify({"error": "dois must be a non-empty list"}), 400
+
+    # Get current project
+    project = get_project_by_id(DB_PATH, project_id)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+
+    # Get current DOI list
+    current_dois = project.get("doi_list", [])
+    
+    # Remove specified DOIs
+    updated_dois = [doi for doi in current_dois if doi not in dois_to_remove]
+    removed_count = len(current_dois) - len(updated_dois)
+
+    # Update project with new DOI list
+    success = update_project(DB_PATH, project_id, doi_list=updated_dois)
+    
+    if not success:
+        return jsonify({"error": "Failed to update project"}), 500
+
+    # Delete PDFs if requested
+    deleted_pdfs = []
+    if delete_pdfs and removed_count > 0:
+        try:
+            from pdf_manager import get_project_pdf_dir
+            project_dir = get_project_pdf_dir(project_id)
+            
+            for doi in dois_to_remove:
+                doi_hash = generate_doi_hash(doi)
+                pdf_path = os.path.join(project_dir, f"{doi_hash}.pdf")
+                if os.path.exists(pdf_path):
+                    os.remove(pdf_path)
+                    deleted_pdfs.append(doi)
+        except Exception as e:
+            logger.warning(f"Error deleting PDFs: {e}")
+    
+    return jsonify({
+        "ok": True, 
+        "message": f"Removed {removed_count} DOIs from project",
+        "total_dois": len(updated_dois),
+        "deleted_pdfs": len(deleted_pdfs)
+    })
+
 @app.delete("/api/admin/projects/<int:project_id>")
 def delete_existing_project(project_id: int):
     """
