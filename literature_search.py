@@ -740,10 +740,7 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
                     abstract_text = abs_item.get('abstract_text', {})
                     if isinstance(abstract_text, dict):
                         abstract_text = abstract_text.get('p', '')
-                    elif isinstance(abstract_text, str):
-                        # abstract_text is already a string
-                        pass
-                    else:
+                    elif not isinstance(abstract_text, str):
                         abstract_text = ''
                 elif isinstance(abs_item, str):
                     # abs_item is directly the abstract string

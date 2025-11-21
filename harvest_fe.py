@@ -16,15 +16,12 @@ _should_clear = (
 )
 
 if _should_clear and os.path.exists(_pycache_dir):
-    try:
-        # Clear this module's cache directory
-        for cache_file in glob.glob(os.path.join(_pycache_dir, "harvest_fe*.pyc")):
-            try:
-                os.remove(cache_file)
-            except (OSError, PermissionError):
-                pass
-    except Exception:
-        pass  # Silently continue if clearing fails
+    # Clear this module's cache directory
+    for cache_file in glob.glob(os.path.join(_pycache_dir, "harvest_fe*.pyc")):
+        try:
+            os.remove(cache_file)
+        except (OSError, PermissionError):
+            pass  # Silently continue if clearing individual file fails
 
 # Prevent bytecode generation for this session
 sys.dont_write_bytecode = True
@@ -97,6 +94,20 @@ else:
 # -----------------------
 # Config
 # -----------------------
+# Headers to filter out in ASReview proxy to prevent iframe issues
+# These headers can cause redirects, block iframe embedding, or cause other problems
+ASREVIEW_PROXY_FILTERED_HEADERS = frozenset([
+    'location',  # Redirects
+    'content-location',  # Alternative location
+    'content-security-policy',  # Can block iframe embedding
+    'x-frame-options',  # Explicitly controls iframe embedding
+    'strict-transport-security',  # HSTS can cause issues
+    'set-cookie',  # Cookies should not be proxied
+    'server',  # Server info not needed
+    'date',  # Will be set by our response
+    'transfer-encoding',  # Can cause chunking issues
+])
+
 # Determine API base URL for server-side requests
 # In both modes, the frontend server connects to backend via localhost
 # BACKEND_PUBLIC_URL is only used for documentation/reference, not actual requests
@@ -2545,19 +2556,7 @@ def proxy_asreview(path: str):
             # Keep only safe headers for proxying
             safe_headers = {}
             for key, value in response.headers.items():
-                key_lower = key.lower()
-                # Skip headers that can cause problems in iframes
-                if key_lower not in [
-                    'location',  # Redirects
-                    'content-location',  # Alternative location
-                    'content-security-policy',  # Can block iframe embedding
-                    'x-frame-options',  # Explicitly controls iframe embedding
-                    'strict-transport-security',  # HSTS can cause issues
-                    'set-cookie',  # Cookies should not be proxied
-                    'server',  # Server info not needed
-                    'date',  # Will be set by our response
-                    'transfer-encoding',  # Can cause chunking issues
-                ]:
+                if key.lower() not in ASREVIEW_PROXY_FILTERED_HEADERS:
                     safe_headers[key] = value
             
             return Response(
