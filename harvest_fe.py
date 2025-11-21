@@ -1537,17 +1537,41 @@ app.layout = dbc.Container(
                                             [
                                                 html.H5("AI-Powered Literature Review (ASReview Integration)", className="mb-3"),
                                                 
-                                                # Service availability check
+                                                # Authentication message - shown when not authenticated
                                                 html.Div(
-                                                    id="lit-review-status",
+                                                    id="lit-review-auth-required",
                                                     children=[
-                                                        dbc.Spinner(
-                                                            html.Div(id="lit-review-availability-check"),
-                                                            color="primary"
-                                                        )
+                                                        dbc.Alert(
+                                                            [
+                                                                html.I(className="bi bi-lock me-2"),
+                                                                html.Strong("Authentication Required"),
+                                                                html.Br(),
+                                                                "Please login via the ",
+                                                                html.Strong("Admin"),
+                                                                " tab to access the Literature Review feature."
+                                                            ],
+                                                            color="info",
+                                                            className="text-center"
+                                                        ),
                                                     ],
-                                                    className="mb-3"
+                                                    style={"display": "block"}
                                                 ),
+                                                
+                                                # Service availability check - shown after authentication
+                                                html.Div(
+                                                    id="lit-review-auth-content",
+                                                    style={"display": "none"},
+                                                    children=[
+                                                        html.Div(
+                                                            id="lit-review-status",
+                                                            children=[
+                                                                dbc.Spinner(
+                                                                    html.Div(id="lit-review-availability-check"),
+                                                                    color="primary"
+                                                                )
+                                                            ],
+                                                            className="mb-3"
+                                                        ),
                                                 
                                                 # Main content - shown when service is available
                                                 html.Div(
@@ -1625,6 +1649,8 @@ app.layout = dbc.Container(
                                                         ),
                                                     ]
                                                 ),
+                                                    ]  # End of lit-review-auth-content
+                                                ),  # End of lit-review-auth-content wrapper
                                             ],
                                             body=True,
                                             className="shadow-custom-md"
@@ -2657,6 +2683,28 @@ def check_lit_search_auth(auth_data, active_tab):
         return {"display": "none"}, {"display": "block"}
     else:
         # User not authenticated, show auth required message and hide search content
+        return {"display": "block"}, {"display": "none"}
+
+
+# Literature Review Authentication check - use Admin panel auth
+@app.callback(
+    Output("lit-review-auth-required", "style"),
+    Output("lit-review-auth-content", "style"),
+    Input("admin-auth-store", "data"),
+    Input("main-tabs", "value"),
+    prevent_initial_call=False,
+)
+def check_lit_review_auth(auth_data, active_tab):
+    """Check if user is authenticated via Admin panel and show/hide Literature Review content"""
+    # Only apply when Literature Review tab is active
+    if active_tab != "tab-literature-review":
+        return no_update, no_update
+    
+    if auth_data and ("email" in auth_data or "token" in auth_data):
+        # User is authenticated, show review content and hide auth required message
+        return {"display": "none"}, {"display": "block"}
+    else:
+        # User not authenticated, show auth required message and hide review content
         return {"display": "block"}, {"display": "none"}
 
 
