@@ -1444,8 +1444,43 @@ def get_layout():
                                                                                         className="text-muted",
                                                                                     ),
                                                                                 ],
+                                                                                md=12,
+                                                                            ),
+                                                                        ],
+                                                                        className="g-3 mt-2",
+                                                                    ),
+                                                                    # Batch selector row (hidden if no batches)
+                                                                    dbc.Row(
+                                                                        [
+                                                                            dbc.Col(
+                                                                                [
+                                                                                    dbc.Label("Select Batch"),
+                                                                                    dcc.Dropdown(
+                                                                                        id="batch-selector",
+                                                                                        placeholder="Select a batch to work on...",
+                                                                                        disabled=True,
+                                                                                        clearable=True,
+                                                                                    ),
+                                                                                ],
                                                                                 md=6,
                                                                             ),
+                                                                            dbc.Col(
+                                                                                [
+                                                                                    dbc.Label("Batch Progress"),
+                                                                                    html.Div(
+                                                                                        id="batch-progress-indicator",
+                                                                                        className="mt-2"
+                                                                                    ),
+                                                                                ],
+                                                                                md=6,
+                                                                            ),
+                                                                        ],
+                                                                        id="batch-selector-row",
+                                                                        className="g-3 mt-2",
+                                                                        style={"display": "none"}
+                                                                    ),
+                                                                    dbc.Row(
+                                                                        [
                                                                             dbc.Col(
                                                                                 [
                                                                                     dbc.Label("Select DOI from Project"),
@@ -1455,8 +1490,12 @@ def get_layout():
                                                                                         clearable=True,
                                                                                         disabled=True,
                                                                                     ),
+                                                                                    html.Small(
+                                                                                        id="doi-status-indicator",
+                                                                                        className="text-muted mt-1"
+                                                                                    ),
                                                                                 ],
-                                                                                md=6,
+                                                                                md=12,
                                                                             ),
                                                                         ],
                                                                         className="g-3 mt-2",

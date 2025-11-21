@@ -1569,7 +1569,7 @@ def load_projects(load_trigger, create_click, tab_value):
         print(f"Failed to load projects: {e}")
         return [], []
 
-# Show project info when selected and populate DOI list
+# Show project info when selected and populate DOI list (only if no batches)
 @app.callback(
     Output("project-info", "children"),
     Output("project-doi-selector", "options"),
@@ -1590,11 +1590,181 @@ def show_project_info(project_id, projects):
     doi_count = len(project.get("doi_list", []))
     info_text = f"Project: {project['name']} ({doi_count} DOIs available)"
     
-    # Populate DOI dropdown
+    # Check if project has batches
+    try:
+        response = requests.get(f"{API_BASE}/api/projects/{project_id}/batches", timeout=5)
+        if response.ok:
+            data = response.json()
+            batches = data.get("batches", [])
+            if batches:
+                # Project has batches - batch selector will populate DOI dropdown
+                return info_text, [], True
+    except Exception as e:
+        logger.error(f"Failed to check for batches: {e}")
+    
+    # No batches - populate DOI dropdown directly
     doi_list = project.get("doi_list", [])
     doi_options = [{"label": doi, "value": doi} for doi in doi_list]
     
     return info_text, doi_options, False
+
+
+# ============================================================================
+# DOI Batch Management Callbacks
+# ============================================================================
+
+@app.callback(
+    Output("batch-selector", "options"),
+    Output("batch-selector", "disabled"),
+    Output("batch-selector-row", "style"),
+    Input("project-selector", "value"),
+    prevent_initial_call=True,
+)
+def load_project_batches(project_id):
+    """Load batches for selected project"""
+    if not project_id:
+        return [], True, {"display": "none"}
+    
+    try:
+        # Call backend API to get batches
+        response = requests.get(f"{API_BASE}/api/projects/{project_id}/batches", timeout=5)
+        if response.ok:
+            data = response.json()
+            batches = data.get("batches", [])
+            
+            if not batches:
+                # No batches - hide batch selector
+                return [], True, {"display": "none"}
+            
+            # Build batch options
+            options = [
+                {
+                    "label": f"{b['batch_name']} ({b['doi_count']} papers)",
+                    "value": b['batch_id']
+                }
+                for b in batches
+            ]
+            
+            return options, False, {"display": "block"}
+        else:
+            return [], True, {"display": "none"}
+    except Exception as e:
+        logger.error(f"Failed to load batches: {e}")
+        return [], True, {"display": "none"}
+
+
+@app.callback(
+    Output("project-doi-selector", "options", allow_duplicate=True),
+    Output("project-doi-selector", "disabled", allow_duplicate=True),
+    Output("batch-progress-indicator", "children"),
+    Input("batch-selector", "value"),
+    State("project-selector", "value"),
+    State("email-store", "data"),
+    prevent_initial_call=True,
+)
+def load_batch_dois(batch_id, project_id, user_email):
+    """Load DOIs for selected batch with status indicators"""
+    if not batch_id or not project_id:
+        return [], True, ""
+    
+    try:
+        # Call backend API to get DOIs with status
+        response = requests.get(
+            f"{API_BASE}/api/projects/{project_id}/batches/{batch_id}/dois",
+            timeout=5
+        )
+        
+        if response.ok:
+            data = response.json()
+            dois_data = data.get("dois", [])
+            
+            # Build options with status indicators
+            options = []
+            for doi_info in dois_data:
+                status = doi_info.get('status', 'unstarted')
+                annotator = doi_info.get('annotator_email', '')
+                doi = doi_info['doi']
+                
+                # Choose indicator based on status
+                if status == 'completed':
+                    indicator = '🟢'
+                elif status == 'in_progress':
+                    if annotator == user_email:
+                        indicator = '🔵'  # Your work
+                    else:
+                        indicator = '🟡'  # Someone else's work
+                else:
+                    indicator = '🔴'
+                
+                options.append({
+                    "label": f"{indicator} {doi}",
+                    "value": doi
+                })
+            
+            # Build progress indicator
+            total = len(dois_data)
+            if total > 0:
+                completed = sum(1 for d in dois_data if d.get('status') == 'completed')
+                in_progress = sum(1 for d in dois_data if d.get('status') == 'in_progress')
+                unstarted = total - completed - in_progress
+                
+                progress = dbc.Stack([
+                    dbc.Progress(
+                        [
+                            dbc.Progress(value=(completed/total)*100, color="success", bar=True),
+                            dbc.Progress(value=(in_progress/total)*100, color="warning", bar=True),
+                        ],
+                        className="mb-1"
+                    ),
+                    html.Small([
+                        f"✓ {completed} completed • ",
+                        f"⏳ {in_progress} in progress • ",
+                        f"○ {unstarted} unstarted"
+                    ], className="text-muted")
+                ])
+            else:
+                progress = ""
+            
+            return options, False, progress
+        else:
+            return [], True, ""
+            
+    except Exception as e:
+        logger.error(f"Failed to load batch DOIs: {e}")
+        return [], True, ""
+
+
+@app.callback(
+    Output("doi-status-indicator", "children"),
+    Input("project-doi-selector", "value"),
+    State("project-selector", "value"),
+    State("email-store", "data"),
+    prevent_initial_call=True,
+)
+def mark_doi_in_progress(doi, project_id, user_email):
+    """Automatically mark DOI as in-progress when selected"""
+    if not doi or not project_id or not user_email:
+        return ""
+    
+    try:
+        # Update status in backend
+        response = requests.post(
+            f"{API_BASE}/api/projects/{project_id}/dois/{doi}/status",
+            json={
+                "status": "in_progress",
+                "annotator_email": user_email
+            },
+            timeout=5
+        )
+        
+        if response.ok:
+            return html.Small("📝 Status: In Progress", className="text-info")
+        else:
+            return ""
+            
+    except Exception as e:
+        logger.error(f"Failed to update DOI status: {e}")
+        return ""
 
 
 def create_empty_form_values(num_rows):
