@@ -6,6 +6,7 @@ import sqlite3
 from datetime import datetime
 import json
 import hashlib
+import traceback
 
 # -----------------------------
 # Seed schema from your JSON
@@ -803,13 +804,11 @@ def create_batches(db_path: str, project_id: int, batch_size: int = 20, strategy
             
             batch_number += 1
         
-        conn.commit()
         conn.close()
         return created_batches
         
     except Exception as e:
         print(f"Failed to create batches: {e}")
-        import traceback
         traceback.print_exc()
         return []
 
