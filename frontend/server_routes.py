@@ -15,8 +15,12 @@ from frontend import server, API_BASE, ASREVIEW_PROXY_FILTERED_HEADERS
 
 logger = logging.getLogger(__name__)
 
-# Get ASREVIEW_SERVICE_URL from environment
-ASREVIEW_SERVICE_URL = os.getenv("ASREVIEW_SERVICE_URL", "")
+# Get ASREVIEW_SERVICE_URL from config.py with environment variable override
+try:
+    from config import ASREVIEW_SERVICE_URL as CONFIG_ASREVIEW_SERVICE_URL
+    ASREVIEW_SERVICE_URL = os.getenv("ASREVIEW_SERVICE_URL", CONFIG_ASREVIEW_SERVICE_URL)
+except ImportError:
+    ASREVIEW_SERVICE_URL = os.getenv("ASREVIEW_SERVICE_URL", "")
 
 
 
