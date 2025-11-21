@@ -724,6 +724,9 @@ User=harvest
 Group=harvest
 WorkingDirectory=/opt/harvest/harvest
 
+# Prevent Python bytecode generation to avoid stale callback issues
+Environment="PYTHONDONTWRITEBYTECODE=1"
+
 # Use Gunicorn with 4 worker processes
 ExecStart=/opt/harvest/venv/bin/gunicorn \
     --workers 4 \

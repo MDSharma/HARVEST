@@ -1,5 +1,6 @@
 # harvest_fe.py
 import os
+import sys
 import json
 import hashlib
 import requests
@@ -7,6 +8,8 @@ import base64
 import time
 import logging
 import threading
+import glob
+import shutil
 from datetime import datetime, timedelta
 from functools import lru_cache
 
@@ -680,6 +683,36 @@ def sidebar():
 # -----------------------
 # App & Layout
 # -----------------------
+# Clear Python bytecode cache to prevent stale callback registrations (development only)
+# This ensures that any old callback definitions are not cached
+# Only runs if HARVEST_CLEAR_CACHE environment variable is set to prevent security issues in production
+if os.getenv('HARVEST_CLEAR_CACHE', '').lower() in ('true', '1', 'yes'):
+    logger.warning("HARVEST_CLEAR_CACHE is enabled - clearing Python bytecode cache")
+    
+    # Clear __pycache__ directories (only in current module directory, not recursive for security)
+    module_dir = os.path.dirname(__file__)
+    pycache_dir = os.path.join(module_dir, "__pycache__")
+    if os.path.exists(pycache_dir):
+        try:
+            shutil.rmtree(pycache_dir)
+            logger.info(f"Cleared bytecode cache: {pycache_dir}")
+        except (OSError, PermissionError) as e:
+            logger.warning(f"Could not clear cache {pycache_dir}: {e}")
+    
+    # Clear .pyc files in current directory only
+    try:
+        for pyc_file in glob.glob(os.path.join(module_dir, "*.pyc")):
+            os.remove(pyc_file)
+            logger.info(f"Removed bytecode file: {pyc_file}")
+    except (OSError, PermissionError, FileNotFoundError) as e:
+        logger.warning(f"Could not remove .pyc files: {e}")
+    
+    logger.info("Bytecode cache clearing completed")
+else:
+    # In production, use Python's built-in cache invalidation by setting PYTHONDONTWRITEBYTECODE
+    # or running with python -B flag to prevent bytecode generation
+    pass
+
 external_stylesheets = [dbc.themes.BOOTSTRAP]
 app: Dash = dash.Dash(
     __name__, 
@@ -1601,22 +1634,23 @@ app.layout = dbc.Container(
                                                             className="mb-4"
                                                         ),
                                                         
-                                                        html.Div([
-                                                            html.H6("Coming Soon:", className="mb-2"),
-                                                            html.P(
-                                                                "The interactive Literature Review interface is under development. "
-                                                                "For now, you can export DOIs from Literature Search and use the ASReview service directly.",
-                                                                className="text-muted"
-                                                            ),
-                                                            dbc.Alert(
-                                                                [
-                                                                    html.Strong("ASReview Service: "),
-                                                                    html.Span(id="asreview-service-url", className="font-monospace"),
-                                                                ],
-                                                                color="light",
-                                                                className="mb-0"
-                                                            ),
-                                                        ]),
+                                                        # ASReview iframe - proxied through Flask to avoid CORS
+                                                        html.Iframe(
+                                                            id="asreview-iframe",
+                                                            src=f"{DASH_REQUESTS_PATHNAME_PREFIX}proxy/asreview/",
+                                                            style={
+                                                                "width": "100%",
+                                                                "height": "800px",
+                                                                "border": "1px solid #dee2e6",
+                                                                "borderRadius": "4px"
+                                                            }
+                                                        ),
+                                                        
+                                                        html.Small([
+                                                            html.I(className="bi bi-info-circle me-1"),
+                                                            "ASReview service: ",
+                                                            html.Span(id="asreview-service-url", className="font-monospace text-muted"),
+                                                        ], className="d-block mt-2 text-muted"),
                                                     ]
                                                 ),
                                                 
@@ -5268,10 +5302,28 @@ def export_triples_callback(n_clicks, auth_data):
 # -----------------------
 # Markdown Auto-Reload Callbacks
 # -----------------------
-# Note: Markdown auto-reload feature has been disabled to prevent callback errors.
+# Note: Markdown auto-reload feature has been COMPLETELY DISABLED to prevent callback errors.
 # Markdown files are loaded once on startup. Restart the server to reload changes.
-# The markdown-reload-interval component and associated callbacks have been removed
-# to fix the KeyError: "Callback function not found" errors in production.
+#
+# Previously, there was a markdown-reload-interval component and associated callbacks that
+# would update the markdown content divs (annotator-guide-content, schema-tab-content, etc.)
+# on a timer. This caused KeyError: "Callback function not found" errors in production.
+#
+# The problematic components and callbacks have been REMOVED:
+#  - dcc.Interval(id="markdown-reload-interval") - REMOVED from layout
+#  - @app.callback with Outputs for the 5 markdown content divs - REMOVED
+#
+# If you're still seeing KeyError messages about these component IDs, it's likely due to:
+#  1. Python bytecode cache (.pyc files) - Clear with: find . -name "*.pyc" -delete
+#     Or set environment variable: HARVEST_CLEAR_CACHE=true (development only)
+#  2. Cached imports in running process - Restart the service completely
+#     Recommended: Use python -B flag to prevent bytecode generation
+#  3. Browser cache - Hard refresh (Ctrl+Shift+R) or clear browser cache
+#
+# For production deployments, consider:
+#  - Running with: python -B harvest_fe.py (disables bytecode generation)
+#  - Setting: export PYTHONDONTWRITEBYTECODE=1 (prevents .pyc creation)
+#  - Using systemd service with proper restart policies
 
 
 # Callback to save browse field configuration
