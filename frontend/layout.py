@@ -13,7 +13,8 @@ import dash_bootstrap_components as dbc
 from frontend import (
     APP_TITLE, PARTNER_LOGOS, ENABLE_LITERATURE_SEARCH, 
     ENABLE_PDF_HIGHLIGHTING, ENABLE_LITERATURE_REVIEW,
-    DASH_REQUESTS_PATHNAME_PREFIX, app, markdown_cache
+    DASH_REQUESTS_PATHNAME_PREFIX, app, markdown_cache,
+    OTHER_SENTINEL
 )
 
 logger = logging.getLogger(__name__)

@@ -329,15 +329,10 @@ def resend_otp_code(n_clicks, otp_data):
     Output("lit-search-auth-required", "style"),
     Output("lit-search-content", "style"),
     Input("admin-auth-store", "data"),
-    Input("main-tabs", "value"),
     prevent_initial_call=False,
 )
-def check_lit_search_auth(auth_data, active_tab):
+def check_lit_search_auth(auth_data):
     """Check if user is authenticated via Admin panel and show/hide Literature Search content"""
-    # Only apply when Literature Search tab is active
-    if active_tab != "tab-literature":
-        return no_update, no_update
-    
     if auth_data and ("email" in auth_data or "token" in auth_data):
         # User is authenticated, show search content and hide auth required message
         return {"display": "none"}, {"display": "block"}
@@ -351,15 +346,10 @@ def check_lit_search_auth(auth_data, active_tab):
     Output("lit-review-auth-required", "style"),
     Output("lit-review-auth-content", "style"),
     Input("admin-auth-store", "data"),
-    Input("main-tabs", "value"),
     prevent_initial_call=False,
 )
-def check_lit_review_auth(auth_data, active_tab):
+def check_lit_review_auth(auth_data):
     """Check if user is authenticated via Admin panel and show/hide Literature Review content"""
-    # Only apply when Literature Review tab is active
-    if active_tab != "tab-literature-review":
-        return no_update, no_update
-    
     if auth_data and ("email" in auth_data or "token" in auth_data):
         # User is authenticated, show review content and hide auth required message
         return {"display": "none"}, {"display": "block"}
