@@ -1601,22 +1601,23 @@ app.layout = dbc.Container(
                                                             className="mb-4"
                                                         ),
                                                         
-                                                        html.Div([
-                                                            html.H6("Coming Soon:", className="mb-2"),
-                                                            html.P(
-                                                                "The interactive Literature Review interface is under development. "
-                                                                "For now, you can export DOIs from Literature Search and use the ASReview service directly.",
-                                                                className="text-muted"
-                                                            ),
-                                                            dbc.Alert(
-                                                                [
-                                                                    html.Strong("ASReview Service: "),
-                                                                    html.Span(id="asreview-service-url", className="font-monospace"),
-                                                                ],
-                                                                color="light",
-                                                                className="mb-0"
-                                                            ),
-                                                        ]),
+                                                        # ASReview iframe - proxied through Flask to avoid CORS
+                                                        html.Iframe(
+                                                            id="asreview-iframe",
+                                                            src=f"{DASH_REQUESTS_PATHNAME_PREFIX}proxy/asreview/",
+                                                            style={
+                                                                "width": "100%",
+                                                                "height": "800px",
+                                                                "border": "1px solid #dee2e6",
+                                                                "borderRadius": "4px"
+                                                            }
+                                                        ),
+                                                        
+                                                        html.Small([
+                                                            html.I(className="bi bi-info-circle me-1"),
+                                                            "ASReview service: ",
+                                                            html.Span(id="asreview-service-url", className="font-monospace text-muted"),
+                                                        ], className="d-block mt-2 text-muted"),
                                                     ]
                                                 ),
                                                 
