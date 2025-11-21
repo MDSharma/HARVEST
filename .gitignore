@@ -6,3 +6,5 @@ __pycache__/
 *.db
 *.db-journal
 project_pdfs/
+*_original.py
+*_old_backup.py

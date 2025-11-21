@@ -234,8 +234,15 @@ app.index_string = '''
 from frontend.markdown import create_markdown_cache
 markdown_cache = create_markdown_cache(SCHEMA_JSON)
 
-# Note: Modules will be imported after app is created to avoid circular imports
-# They will be imported at the end of this file
+# Import layout and set app.layout
+from frontend.layout import get_layout
+app.layout = get_layout()
+
+# Import server routes to register Flask routes
+from frontend import server_routes
+
+# Import callbacks to register all Dash callbacks
+from frontend import callbacks
 
 # -----------------------
 # Callback Guard - Validate No Multi-Output to Markdown Info Tabs
@@ -262,15 +269,24 @@ def validate_callback_map():
     violations = []
     
     for callback_id, callback_spec in app.callback_map.items():
-        # Check if any output matches forbidden IDs
-        output = callback_spec.get('output', '')
-        if isinstance(output, str):
-            outputs_to_check = [output]
-        else:
-            # Handle multi-output case
-            outputs_to_check = [str(o) for o in output] if output else []
+        # Get the output specification
+        # callback_spec is a dict with 'output', 'inputs', 'state', 'callback'
+        output_spec = callback_spec.get('output')
         
-        for output_str in outputs_to_check:
+        if output_spec is None:
+            continue
+        
+        # output_spec can be a single Output or a list/tuple of Outputs
+        if isinstance(output_spec, (list, tuple)):
+            outputs = output_spec
+        else:
+            outputs = [output_spec]
+        
+        # Check each output
+        for output in outputs:
+            # Output objects have component_id and component_property attributes
+            output_str = f"{output.component_id}.{output.component_property}"
+            
             for forbidden_id in FORBIDDEN_MARKDOWN_OUTPUT_IDS:
                 if forbidden_id in output_str:
                     violations.append({
@@ -293,4 +309,7 @@ def validate_callback_map():
 # The validation will be called after all modules are imported
 # (see end of this file)
 
-logger.info("HARVEST frontend app created")
+# Run callback validation after all callbacks are registered
+validate_callback_map()
+
+logger.info("HARVEST frontend initialized successfully")
