@@ -755,7 +755,6 @@ app.layout = dbc.Container(
         dcc.Store(id="browse-field-config", data=["project_id", "sentence_id", "sentence", "source_entity_name", "source_entity_attr", "relation_type", "sink_entity_name", "sink_entity_attr", "triple_id"], storage_type="local"),  # Store browse field configuration
         dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
         dcc.Interval(id="pdf-download-progress-interval", interval=2000, disabled=True),  # Poll every 2 seconds
-        dcc.Interval(id="markdown-reload-interval", interval=5000, disabled=True),  # Disabled by default to prevent callback errors during app initialization, enabled after page load
         
         # Modal for Privacy Policy
         dbc.Modal(
@@ -5269,53 +5268,10 @@ def export_triples_callback(n_clicks, auth_data):
 # -----------------------
 # Markdown Auto-Reload Callbacks
 # -----------------------
-# Enable markdown reload interval after initial page load
-@app.callback(
-    Output("markdown-reload-interval", "disabled"),
-    Input("load-trigger", "n_intervals"),
-    prevent_initial_call=False
-)
-def enable_markdown_reload(n):
-    """Enable the markdown reload interval after page loads to prevent 'Callback function not found' errors during app initialization"""
-    return False  # Enable the interval
-
-
-@app.callback(
-    [
-        Output("annotator-guide-content", "children"),
-        Output("schema-tab-content", "children"),
-        Output("admin-guide-content", "children"),
-        Output("dbmodel-tab-content", "children"),
-        Output("participate-tab-content", "children"),
-    ],
-    Input("markdown-reload-interval", "n_intervals"),
-    prevent_initial_call=True
-)
-def reload_markdown_on_change(n_intervals):
-    """
-    Check for markdown file changes and reload accordion sections if needed.
-    This callback runs periodically to check if any .md files have been modified.
-    """
-    try:
-        if markdown_cache.has_updates():
-            logger.info("Markdown files updated, refreshing accordion content...")
-            markdown_cache.clear_update_flag()
-            
-            # Return updated content for all sections
-            return (
-                markdown_cache.get('annotator_guide.md', "Annotator guide not found."),
-                markdown_cache.get('schema.md', "Schema content not found."),
-                markdown_cache.get('admin_guide.md', "Admin guide not found."),
-                markdown_cache.get('db_model.md', "Database model content not found."),
-                markdown_cache.get('participate.md', "Participate content not found."),
-            )
-        
-        # No updates, return no_update for all outputs
-        return no_update, no_update, no_update, no_update, no_update
-    except Exception as e:
-        logger.error(f"Error in markdown reload callback: {e}", exc_info=True)
-        # Return no_update to prevent breaking the UI
-        return no_update, no_update, no_update, no_update, no_update
+# Note: Markdown auto-reload feature has been disabled to prevent callback errors.
+# Markdown files are loaded once on startup. Restart the server to reload changes.
+# The markdown-reload-interval component and associated callbacks have been removed
+# to fix the KeyError: "Callback function not found" errors in production.
 
 
 # Callback to save browse field configuration
