@@ -3307,13 +3307,26 @@ def dashboard_quick_actions(lit_clicks, ann_clicks, browse_clicks, admin_clicks)
         Output("lit-review-unavailable", "style"),
         Output("asreview-service-url", "children"),
     ],
-    Input("load-trigger", "n_intervals"),
+    [
+        Input("load-trigger", "n_intervals"),
+        Input("admin-auth-store", "data"),
+    ],
     prevent_initial_call=False
 )
-def check_literature_review_availability(n):
-    """Check if ASReview service is available via proxy"""
+def check_literature_review_availability(n, auth_data):
+    """Check if ASReview service is available via proxy (only when authenticated)"""
     try:
-        # First check if ASReview is configured
+        # First check if user is authenticated
+        if not auth_data or not ("email" in auth_data or "token" in auth_data):
+            # User not authenticated - don't check service, just return initial state
+            return (
+                "",  # Clear loading spinner
+                {"display": "none"},  # Hide content
+                {"display": "none"},  # Hide unavailable message (auth message is shown instead)
+                ""  # No service URL
+            )
+        
+        # User is authenticated, now check if ASReview is configured
         if not ASREVIEW_SERVICE_URL:
             return (
                 "",  # Clear loading spinner
