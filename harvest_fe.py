@@ -2425,10 +2425,10 @@ def request_otp_code(email, session_data):
         config_response = requests.get(f"{API_BASE}/api/email-verification/config")
         if not config_response.ok or not config_response.json().get("enabled"):
             # OTP not enabled, keep section hidden
-            return {"display": "none"}, None, "", {}, no_update, False
+            return {"display": "none"}, None, "", {}, no_update, no_update
     except:
         # API error, keep section hidden
-        return {"display": "none"}, None, "", {}, no_update, False
+        return {"display": "none"}, None, "", {}, no_update, no_update
     
     # Check if already verified
     if session_data and session_data.get("session_id"):
@@ -2446,7 +2446,7 @@ def request_otp_code(email, session_data):
             pass
     
     if not email:
-        return {"display": "none"}, None, "", {}, no_update, False
+        return {"display": "none"}, None, "", {}, no_update, no_update
     
     # Request OTP code
     try:
@@ -2462,7 +2462,7 @@ def request_otp_code(email, session_data):
                 "Verification code sent to your email",
                 {"color": "blue"},
                 no_update,
-                False
+                no_update
             )
         else:
             error = response.json().get("error", "Failed to send code")
@@ -2472,7 +2472,7 @@ def request_otp_code(email, session_data):
                 f"Error: {error}",
                 {"color": "red"},
                 no_update,
-                False
+                no_update
             )
     except Exception as e:
         return (
@@ -2481,7 +2481,7 @@ def request_otp_code(email, session_data):
             f"Error requesting code: {str(e)}",
             {"color": "red"},
             no_update,
-            False
+            no_update
         )
 
 
@@ -2579,7 +2579,7 @@ def verify_otp_code(n_clicks, code, otp_data):
     Output("contributor-email", "value"),
     Output("contributor-email", "disabled"),
     Input("otp-session-store", "data"),
-    prevent_initial_call=False
+    prevent_initial_call=True
 )
 def populate_verified_email(otp_session):
     """
