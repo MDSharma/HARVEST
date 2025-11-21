@@ -118,8 +118,7 @@ The application supports two deployment modes:
 - Ideal for scaled deployments
 
 **Deployment Guides:**
-- [DEPLOYMENT.md](docs/DEPLOYMENT.md) - General deployment guide for both modes
-- [DEPLOYMENT_SUBPATH.md](docs/DEPLOYMENT_SUBPATH.md) - Guide for deploying at a subpath (e.g., `/harvest/`) behind nginx
+- [DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) - Complete deployment guide for all modes (internal, nginx, subpath)
 
 ## Admin Features
 

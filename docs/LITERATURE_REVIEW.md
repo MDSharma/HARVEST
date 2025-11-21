@@ -1,5 +1,716 @@
 # Literature Review Feature - ASReview Integration
 
+
+## Quick Start
+
+# Literature Review - Quick Deployment Guide
+
+This guide provides quick setup instructions for deploying the Literature Review feature with ASReview integration.
+
+## Quick Setup (5 Minutes)
+
+### Step 1: Deploy ASReview Service
+
+**Option A: Docker (Easiest)**
+
+```bash
+# On GPU-enabled server
+docker run -d \
+  --name asreview \
+  --gpus all \
+  -p 5275:5275 \
+  -v asreview-data:/data \
+  --restart unless-stopped \
+  asreview/asreview:latest \
+  asreview lab --host 0.0.0.0 --port 5275
+```
+
+**Option B: Python (Alternative)**
+
+```bash
+# On GPU-enabled server
+pip install asreview[all]
+asreview lab --host 0.0.0.0 --port 5275 &
+```
+
+### Step 2: Configure HARVEST
+
+Edit `config.py`:
+
+```python
+# Enable Literature Review feature
+ENABLE_LITERATURE_REVIEW = True
+
+# Configure ASReview service URL
+ASREVIEW_SERVICE_URL = "http://your-gpu-server:5275"
+```
+
+Replace `your-gpu-server` with:
+- IP address: `http://192.168.1.100:5275`
+- Hostname: `http://gpu-server.local:5275`
+- Same host: `http://localhost:5275`
+
+### Step 3: Restart HARVEST
+
+```bash
+# Kill existing processes
+pkill -f harvest_be.py
+pkill -f harvest_fe.py
+
+# Start HARVEST
+python3 launch_harvest.py
+```
+
+### Step 4: Verify
+
+```bash
+# Check ASReview connectivity
+curl http://localhost:5001/api/literature-review/health
+```
+
+Expected output:
+```json
+{
+  "ok": true,
+  "available": true,
+  "configured": true,
+  "version": "1.x.x"
+}
+```
+
+## Usage (2 Minutes)
+
+### 1. Search for Papers
+
+1. Login to HARVEST admin panel
+2. Go to **Literature Search** tab
+3. Search for papers: e.g., "CRISPR gene editing"
+4. Review results
+
+### 2. Start Literature Review
+
+1. Click **"Start Literature Review"** button
+2. Enter project name: "CRISPR Review 2024"
+3. Select ML model: "Naive Bayes" (default)
+4. Click **"Create Project"**
+
+### 3. Screen Papers
+
+1. Review paper presented (title, abstract, authors)
+2. Mark as:
+   - ✅ **Relevant**: Meets your criteria
+   - ❌ **Irrelevant**: Doesn't meet criteria
+3. Repeat for next paper (shown in order of predicted relevance)
+4. Stop when satisfied or all papers screened
+
+### 4. Export Results
+
+1. Click **"Export Results"**
+2. Select export format:
+   - Create new HARVEST project
+   - Download CSV
+   - Copy DOIs to clipboard
+3. Use relevant papers for annotation
+
+## Troubleshooting
+
+### "Service not configured" Error
+
+**Problem**: `ASREVIEW_SERVICE_URL` not set
+
+**Solution**:
+```bash
+# Edit config.py
+nano config.py
+
+# Add/update line:
+ASREVIEW_SERVICE_URL = "http://gpu-server:5275"
+
+# Restart HARVEST
+python3 launch_harvest.py
+```
+
+### "Connection refused" Error
+
+**Problem**: Cannot reach ASReview service
+
+**Solutions**:
+1. Check ASReview is running:
+   ```bash
+   curl http://gpu-server:5275/api/health
+   ```
+
+2. Check firewall allows port 5275:
+   ```bash
+   sudo ufw allow 5275/tcp
+   ```
+
+3. Verify network connectivity:
+   ```bash
+   ping gpu-server
+   telnet gpu-server 5275
+   ```
+
+### "Service unavailable" Error
+
+**Problem**: ASReview service not responding
+
+**Solutions**:
+1. Restart ASReview:
+   ```bash
+   docker restart asreview
+   # or
+   pkill -f asreview
+   asreview lab --host 0.0.0.0 --port 5275 &
+   ```
+
+2. Check ASReview logs:
+   ```bash
+   docker logs asreview
+   ```
+
+3. Increase timeout in config.py:
+   ```python
+   ASREVIEW_REQUEST_TIMEOUT = 600  # 10 minutes
+   ```
+
+## Nginx Configuration (Optional)
+
+If using nginx proxy:
+
+```nginx
+# Add to nginx.conf
+location /asreview/ {
+    proxy_pass http://gpu-server:5275/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection 'upgrade';
+    proxy_set_header Host $host;
+    proxy_cache_bypass $http_upgrade;
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 300s;
+    proxy_read_timeout 300s;
+}
+```
+
+Then configure HARVEST:
+```python
+ASREVIEW_SERVICE_URL = "https://yourdomain.com/asreview"
+```
+
+## Performance Tips
+
+### GPU Acceleration
+
+Ensure ASReview uses GPU:
+
+```bash
+# Check GPU available
+nvidia-smi
+
+# Run ASReview with GPU
+docker run --gpus all ...
+```
+
+### Model Selection
+
+- **Naive Bayes**: Fastest, good for <1000 papers
+- **Logistic Regression**: Balanced, good for most cases
+- **Random Forest**: Most accurate, slower
+- **SVM**: Best for complex criteria, needs more training
+
+### Batch Size
+
+For large reviews:
+- Upload papers in batches of 500
+- Screen in sessions of 50-100
+- Export results regularly
+
+## Next Steps
+
+- Read full documentation: [LITERATURE_REVIEW.md](LITERATURE_REVIEW.md)
+- Learn ASReview: https://asreview.ai/tutorials
+- Configure advanced features: GPU optimization, custom models
+- Integrate with HARVEST projects and annotation workflow
+
+## Support
+
+- HARVEST issues: Open GitHub issue
+- ASReview documentation: https://asreview.readthedocs.io
+- ASReview community: https://github.com/asreview/asreview/discussions
+
+
+---
+
+## Deployment Checklist
+
+# Literature Review Feature - Deployment Checklist
+
+This checklist helps deploy the Literature Review feature to production.
+
+## Pre-Deployment Checklist
+
+### ☐ 1. ASReview Service Setup
+
+**Choose deployment method:**
+- [ ] Docker (recommended for production)
+- [ ] Python virtual environment
+- [ ] Systemd service
+
+**GPU Host Requirements:**
+- [ ] NVIDIA GPU available (check with `nvidia-smi`)
+- [ ] Docker installed (if using Docker)
+- [ ] Python 3.8+ (if using Python install)
+- [ ] Network connectivity to HARVEST
+
+**Deploy ASReview:**
+
+```bash
+# Option A: Docker
+docker run -d \
+  --name asreview \
+  --gpus all \
+  -p 5275:5275 \
+  -v asreview-data:/data \
+  --restart unless-stopped \
+  asreview/asreview:latest \
+  asreview lab --host 0.0.0.0 --port 5275
+
+# Option B: Python
+pip install asreview[all]
+asreview lab --host 0.0.0.0 --port 5275 &
+```
+
+**Verify service:**
+```bash
+curl http://gpu-server:5275/api/health
+# Should return: {"version": "...", "status": "ok"}
+```
+
+### ☐ 2. Network Configuration
+
+**Firewall rules:**
+- [ ] Allow port 5275 on GPU server
+- [ ] Allow HARVEST → ASReview connectivity
+
+```bash
+# On GPU server
+sudo ufw allow 5275/tcp
+sudo ufw status
+```
+
+**Test connectivity:**
+```bash
+# From HARVEST server
+telnet gpu-server 5275
+curl http://gpu-server:5275/api/health
+```
+
+### ☐ 3. HARVEST Configuration
+
+**Edit config.py:**
+```python
+# Enable feature
+ENABLE_LITERATURE_REVIEW = True
+
+# Configure service URL
+ASREVIEW_SERVICE_URL = "http://gpu-server:5275"
+
+# Optional: API key
+ASREVIEW_API_KEY = ""
+
+# Timeouts
+ASREVIEW_REQUEST_TIMEOUT = 300
+ASREVIEW_CONNECTION_TIMEOUT = 10
+```
+
+**Or use environment variables:**
+```bash
+export ASREVIEW_SERVICE_URL="http://gpu-server:5275"
+export ASREVIEW_API_KEY=""
+```
+
+### ☐ 4. Nginx Configuration (if using nginx mode)
+
+**Add to nginx.conf:**
+```nginx
+# ASReview service proxy
+location /asreview/ {
+    proxy_pass http://gpu-server:5275/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection 'upgrade';
+    proxy_set_header Host $host;
+    proxy_cache_bypass $http_upgrade;
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 300s;
+    proxy_read_timeout 300s;
+}
+```
+
+**Test nginx config:**
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+**Update HARVEST config:**
+```python
+ASREVIEW_SERVICE_URL = "https://yourdomain.com/asreview"
+```
+
+### ☐ 5. Testing
+
+**Test ASReview health:**
+```bash
+curl http://localhost:5001/api/literature-review/health
+```
+
+Expected response:
+```json
+{
+  "ok": true,
+  "available": true,
+  "configured": true,
+  "service_url": "http://gpu-server:5275",
+  "version": "1.x.x",
+  "status": "ok"
+}
+```
+
+**Run integration tests (optional):**
+```bash
+# Start mock service
+python3 asreview_mock_service.py &
+
+# Run tests
+python3 test_literature_review_integration.py
+```
+
+### ☐ 6. Restart HARVEST
+
+```bash
+# Kill existing processes
+pkill -f harvest_be.py
+pkill -f harvest_fe.py
+
+# Start HARVEST
+python3 launch_harvest.py
+
+# Or if using systemd
+sudo systemctl restart harvest
+```
+
+### ☐ 7. Verify Deployment
+
+**Check logs:**
+```bash
+# HARVEST logs
+tail -f harvest.log
+
+# ASReview logs (Docker)
+docker logs -f asreview
+
+# ASReview logs (systemd)
+sudo journalctl -u asreview -f
+```
+
+**Test workflow:**
+1. Login to HARVEST as admin
+2. Go to Literature Search tab
+3. Search for papers
+4. Click "Start Literature Review" (if frontend implemented)
+5. Or use API directly:
+
+```bash
+# Test API endpoint
+curl -X GET \
+  http://localhost:5001/api/literature-review/health \
+  -H 'Cookie: session=...'
+```
+
+## Post-Deployment Checklist
+
+### ☐ 8. Monitoring
+
+**Setup monitoring:**
+- [ ] ASReview service uptime
+- [ ] GPU utilization
+- [ ] API response times
+- [ ] Error rates
+
+**Monitor ASReview:**
+```bash
+# Check service status
+curl http://gpu-server:5275/api/health
+
+# Check GPU usage
+nvidia-smi
+
+# Check Docker stats
+docker stats asreview
+```
+
+### ☐ 9. Documentation
+
+**Update internal docs:**
+- [ ] Document ASReview service URL
+- [ ] Document admin procedures
+- [ ] Create runbook for common issues
+- [ ] Train users on new feature
+
+### ☐ 10. Backup and Recovery
+
+**Backup procedures:**
+- [ ] ASReview data directory (`/data` in Docker)
+- [ ] HARVEST database (includes project metadata)
+- [ ] Configuration files
+
+```bash
+# Backup ASReview data
+docker cp asreview:/data /backup/asreview-data-$(date +%Y%m%d)
+
+# Backup HARVEST config
+cp config.py /backup/config.py.$(date +%Y%m%d)
+```
+
+## Troubleshooting Guide
+
+### Issue: "Service not configured"
+
+**Symptoms:**
+- Error in UI: "ASReview service not configured"
+- Health check returns: `"configured": false`
+
+**Solutions:**
+1. Check `ASREVIEW_SERVICE_URL` in config.py
+2. Restart HARVEST to load new config
+3. Verify environment variables not overriding config
+
+### Issue: "Connection refused"
+
+**Symptoms:**
+- Error: "Cannot connect to ASReview service"
+- Timeout on health check
+
+**Solutions:**
+1. Verify ASReview service is running:
+   ```bash
+   curl http://gpu-server:5275/api/health
+   ```
+
+2. Check firewall rules:
+   ```bash
+   sudo ufw status
+   telnet gpu-server 5275
+   ```
+
+3. Check service logs:
+   ```bash
+   docker logs asreview
+   ```
+
+### Issue: "Service unavailable"
+
+**Symptoms:**
+- Service responds but returns errors
+- Slow response times
+
+**Solutions:**
+1. Check GPU availability:
+   ```bash
+   nvidia-smi
+   ```
+
+2. Check resource usage:
+   ```bash
+   docker stats asreview
+   ```
+
+3. Restart ASReview:
+   ```bash
+   docker restart asreview
+   ```
+
+4. Check disk space:
+   ```bash
+   df -h
+   ```
+
+### Issue: "Authentication failed"
+
+**Symptoms:**
+- "Unauthorized" errors
+- Admin check fails
+
+**Solutions:**
+1. Verify admin user in HARVEST:
+   ```bash
+   python3 create_admin.py
+   ```
+
+2. Check session cookies are set
+3. Verify admin email in config
+
+## Rollback Procedure
+
+If deployment fails:
+
+### 1. Disable Feature
+
+```python
+# In config.py
+ENABLE_LITERATURE_REVIEW = False
+```
+
+### 2. Restart HARVEST
+
+```bash
+pkill -f harvest_be.py
+pkill -f harvest_fe.py
+python3 launch_harvest.py
+```
+
+### 3. Stop ASReview Service
+
+```bash
+docker stop asreview
+# or
+pkill -f asreview
+```
+
+### 4. Restore Config
+
+```bash
+cp /backup/config.py.YYYYMMDD config.py
+```
+
+## Upgrade Procedure
+
+When upgrading ASReview version:
+
+### 1. Backup Data
+
+```bash
+docker cp asreview:/data /backup/asreview-data-upgrade
+```
+
+### 2. Stop Service
+
+```bash
+docker stop asreview
+docker rm asreview
+```
+
+### 3. Pull New Image
+
+```bash
+docker pull asreview/asreview:latest
+```
+
+### 4. Start New Version
+
+```bash
+docker run -d \
+  --name asreview \
+  --gpus all \
+  -p 5275:5275 \
+  -v asreview-data:/data \
+  --restart unless-stopped \
+  asreview/asreview:latest \
+  asreview lab --host 0.0.0.0 --port 5275
+```
+
+### 5. Verify
+
+```bash
+curl http://gpu-server:5275/api/health
+```
+
+## Security Checklist
+
+### ☐ Network Security
+
+- [ ] ASReview service not exposed to public internet
+- [ ] Firewall rules restrict access to HARVEST only
+- [ ] Use VPN for remote ASReview service
+- [ ] HTTPS enabled for production (nginx)
+
+### ☐ Authentication
+
+- [ ] Admin authentication required
+- [ ] Session management working correctly
+- [ ] API key configured (if needed)
+
+### ☐ Data Privacy
+
+- [ ] ASReview service organization-controlled
+- [ ] Data retention policy configured
+- [ ] Backup encryption enabled
+- [ ] Access logs enabled
+
+## Performance Optimization
+
+### ☐ GPU Configuration
+
+```bash
+# Check GPU memory
+nvidia-smi --query-gpu=memory.used,memory.free --format=csv
+
+# Limit GPU memory (if needed)
+docker run ... -e TF_FORCE_GPU_ALLOW_GROWTH=true ...
+```
+
+### ☐ Resource Limits
+
+```bash
+# Docker resource limits
+docker run ... \
+  --memory=8g \
+  --cpus=4 \
+  ...
+```
+
+### ☐ Monitoring
+
+- [ ] Setup Prometheus/Grafana for metrics
+- [ ] Monitor GPU utilization
+- [ ] Track API response times
+- [ ] Alert on errors
+
+## Completion
+
+- [ ] All pre-deployment steps completed
+- [ ] Service deployed and verified
+- [ ] Monitoring configured
+- [ ] Documentation updated
+- [ ] Team trained
+- [ ] Backup procedures in place
+- [ ] Rollback procedure tested
+
+**Deployment Date:** _______________
+
+**Deployed By:** _______________
+
+**Service URL:** _______________
+
+**Notes:**
+```
+______________________________________________________________
+______________________________________________________________
+______________________________________________________________
+```
+
+## Support Contacts
+
+- **HARVEST Support:** _______________
+- **ASReview Documentation:** https://asreview.readthedocs.io
+- **IT Support:** _______________
+- **GPU Server Admin:** _______________
+
+
+---
+
 ## Overview
 
 The Literature Review feature integrates ASReview, an AI-powered systematic review tool, into HARVEST. This feature helps researchers efficiently screen and shortlist literature by using active learning to predict paper relevance and prioritize review efforts.

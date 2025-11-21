@@ -1004,7 +1004,7 @@ app.layout = dbc.Container(
             [
                 dbc.Col(
                     [
-                        # Enhanced logo and title section with branding
+                        # Logo section
                         html.Div([
                             dbc.Row([
                                 dbc.Col([
@@ -1012,21 +1012,13 @@ app.layout = dbc.Container(
                                         src=app.get_asset_url("HARVEST.png"),
                                         alt="HARVEST",
                                         style={
-                                            "height": "100px",
+                                            "height": "120px",
                                             "transition": "transform 0.2s ease"
                                         },
                                         id="harvest-logo",
                                         className="logo-hover"
                                     ),
                                 ], width="auto", className="d-flex align-items-center"),
-                                dbc.Col([
-                                    html.H1("HARVEST", 
-                                           className="mb-0 text-primary-custom", 
-                                           style={"fontWeight": "700", "fontSize": "2rem"}),
-                                    html.P("Human-in-the-loop Actionable Research and Vocabulary Extraction Technology",
-                                          className="text-muted mb-0", 
-                                          style={"fontSize": "0.9rem", "lineHeight": "1.4"})
-                                ], className="d-flex flex-column justify-content-center"),
                             ], align="center", className="mb-4 mt-3")
                         ], className="logo-container"),
 
@@ -1184,7 +1176,7 @@ app.layout = dbc.Container(
                                                         html.P([
                                                             "For detailed guides, check the ",
                                                             html.I(className="bi bi-book"),
-                                                            " information tabs on the right →"
+                                                            " information tabs below"
                                                         ], className="mb-0 small text-muted"),
                                                     ], color="info", className="shadow-custom-sm"),
                                                 ]),
@@ -1545,17 +1537,41 @@ app.layout = dbc.Container(
                                             [
                                                 html.H5("AI-Powered Literature Review (ASReview Integration)", className="mb-3"),
                                                 
-                                                # Service availability check
+                                                # Authentication message - shown when not authenticated
                                                 html.Div(
-                                                    id="lit-review-status",
+                                                    id="lit-review-auth-required",
                                                     children=[
-                                                        dbc.Spinner(
-                                                            html.Div(id="lit-review-availability-check"),
-                                                            color="primary"
-                                                        )
+                                                        dbc.Alert(
+                                                            [
+                                                                html.I(className="bi bi-lock me-2"),
+                                                                html.Strong("Authentication Required"),
+                                                                html.Br(),
+                                                                "Please login via the ",
+                                                                html.Strong("Admin"),
+                                                                " tab to access the Literature Review feature."
+                                                            ],
+                                                            color="info",
+                                                            className="text-center"
+                                                        ),
                                                     ],
-                                                    className="mb-3"
+                                                    style={"display": "block"}
                                                 ),
+                                                
+                                                # Service availability check - shown after authentication
+                                                html.Div(
+                                                    id="lit-review-auth-content",
+                                                    style={"display": "none"},
+                                                    children=[
+                                                        html.Div(
+                                                            id="lit-review-status",
+                                                            children=[
+                                                                dbc.Spinner(
+                                                                    html.Div(id="lit-review-availability-check"),
+                                                                    color="primary"
+                                                                )
+                                                            ],
+                                                            className="mb-3"
+                                                        ),
                                                 
                                                 # Main content - shown when service is available
                                                 html.Div(
@@ -1633,6 +1649,8 @@ app.layout = dbc.Container(
                                                         ),
                                                     ]
                                                 ),
+                                                    ]  # End of lit-review-auth-content children
+                                                ),  # End of lit-review-auth-content wrapper div
                                             ],
                                             body=True,
                                             className="shadow-custom-md"
@@ -2385,6 +2403,121 @@ def proxy_highlights(project_id: int, filename: str):
             mimetype='application/json'
         )
 
+
+@server.route('/proxy/asreview/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+def proxy_asreview(path: str):
+    """
+    Proxy route to forward requests to ASReview service.
+    - Forwards all HTTP methods (GET, POST, PUT, DELETE)
+    - Preserves request headers, body, and query parameters
+    - Returns ASReview response or appropriate error
+    
+    This allows the frontend to access ASReview service without CORS issues,
+    similar to how PDF proxy works.
+    """
+    try:
+        # Get ASReview service URL from config
+        try:
+            from config import ASREVIEW_SERVICE_URL
+            if not ASREVIEW_SERVICE_URL:
+                return Response(
+                    json.dumps({"error": "ASReview service URL not configured"}),
+                    status=503,
+                    mimetype='application/json'
+                )
+        except ImportError:
+            return Response(
+                json.dumps({"error": "ASReview service URL not configured"}),
+                status=503,
+                mimetype='application/json'
+            )
+        
+        # Construct ASReview service URL
+        asreview_url = f"{ASREVIEW_SERVICE_URL.rstrip('/')}/{path}"
+        
+        # Preserve query parameters
+        if flask_request.query_string:
+            asreview_url += f"?{flask_request.query_string.decode('utf-8')}"
+        
+        # Prepare headers (filter out hop-by-hop headers)
+        headers = {
+            key: value for key, value in flask_request.headers.items()
+            if key.lower() not in ['host', 'connection', 'content-length']
+        }
+        
+        # Forward request to ASReview service
+        try:
+            if flask_request.method == 'GET':
+                response = requests.get(
+                    asreview_url,
+                    headers=headers,
+                    timeout=30
+                )
+            elif flask_request.method == 'POST':
+                response = requests.post(
+                    asreview_url,
+                    headers=headers,
+                    data=flask_request.get_data(),
+                    timeout=30
+                )
+            elif flask_request.method == 'PUT':
+                response = requests.put(
+                    asreview_url,
+                    headers=headers,
+                    data=flask_request.get_data(),
+                    timeout=30
+                )
+            elif flask_request.method == 'DELETE':
+                response = requests.delete(
+                    asreview_url,
+                    headers=headers,
+                    timeout=30
+                )
+            else:
+                return Response(
+                    json.dumps({"error": "Method not allowed"}),
+                    status=405,
+                    mimetype='application/json'
+                )
+            
+            # Return ASReview response
+            return Response(
+                response.content,
+                status=response.status_code,
+                headers=dict(response.headers)
+            )
+        
+        except requests.exceptions.Timeout:
+            logger.error(f"ASReview service timeout: {asreview_url}")
+            return Response(
+                json.dumps({"error": "ASReview service timeout"}),
+                status=504,
+                mimetype='application/json'
+            )
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Cannot connect to ASReview service at {asreview_url}: {e}")
+            return Response(
+                json.dumps({"error": f"Cannot connect to ASReview service at {ASREVIEW_SERVICE_URL}"}),
+                status=502,
+                mimetype='application/json'
+            )
+        except Exception as e:
+            logger.error(f"Error forwarding request to ASReview: {e}", exc_info=True)
+            return Response(
+                json.dumps({"error": "ASReview proxy failed"}),
+                status=502,
+                mimetype='application/json'
+            )
+    
+    except Exception as e:
+        logger.error(f"Error in proxy_asreview: {e}", exc_info=True)
+        return Response(
+            json.dumps({"error": "Internal server error"}),
+            status=500,
+            mimetype='application/json'
+        )
+
+
 # -----------------------
 # Callbacks
 # -----------------------
@@ -2417,6 +2550,8 @@ def validate_email(email):
     Output("otp-verification-store", "data"),
     Output("email-validation", "children", allow_duplicate=True),
     Output("email-validation", "style", allow_duplicate=True),
+    Output("contributor-email", "value", allow_duplicate=True),
+    Output("contributor-email", "disabled", allow_duplicate=True),
     Input("email-store", "data"),
     State("otp-session-store", "data"),
     prevent_initial_call=True
@@ -2431,10 +2566,10 @@ def request_otp_code(email, session_data):
         config_response = requests.get(f"{API_BASE}/api/email-verification/config")
         if not config_response.ok or not config_response.json().get("enabled"):
             # OTP not enabled, keep section hidden
-            return {"display": "none"}, None, "", {}
+            return {"display": "none"}, None, "", {}, no_update, no_update
     except:
         # API error, keep section hidden
-        return {"display": "none"}, None, "", {}
+        return {"display": "none"}, None, "", {}, no_update, no_update
     
     # Check if already verified
     if session_data and session_data.get("session_id"):
@@ -2445,13 +2580,14 @@ def request_otp_code(email, session_data):
                 json={"session_id": session_data["session_id"]}
             )
             if check_response.ok and check_response.json().get("verified"):
-                # Already verified, keep section hidden
-                return {"display": "none"}, session_data, "✓ Email verified", {"color": "green"}
+                # Already verified, keep section hidden and lock email field
+                verified_email = check_response.json().get("email")
+                return {"display": "none"}, session_data, "✓ Email verified", {"color": "green"}, verified_email, True
         except:
             pass
     
     if not email:
-        return {"display": "none"}, None, "", {}
+        return {"display": "none"}, None, "", {}, no_update, no_update
     
     # Request OTP code
     try:
@@ -2465,7 +2601,9 @@ def request_otp_code(email, session_data):
                 {"display": "block"},  # Show OTP section
                 {"email": email, "code_requested": True},
                 "Verification code sent to your email",
-                {"color": "blue"}
+                {"color": "blue"},
+                no_update,
+                no_update
             )
         else:
             error = response.json().get("error", "Failed to send code")
@@ -2473,14 +2611,18 @@ def request_otp_code(email, session_data):
                 {"display": "none"},
                 None,
                 f"Error: {error}",
-                {"color": "red"}
+                {"color": "red"},
+                no_update,
+                no_update
             )
     except Exception as e:
         return (
             {"display": "none"},
             None,
             f"Error requesting code: {str(e)}",
-            {"color": "red"}
+            {"color": "red"},
+            no_update,
+            no_update
         )
 
 
@@ -2501,6 +2643,8 @@ def enable_verify_button(code):
     Output("email-validation", "children", allow_duplicate=True),
     Output("email-validation", "style", allow_duplicate=True),
     Output("otp-verification-section", "style", allow_duplicate=True),
+    Output("contributor-email", "value", allow_duplicate=True),
+    Output("contributor-email", "disabled", allow_duplicate=True),
     Input("otp-verify-button", "n_clicks"),
     State("otp-code-input", "value"),
     State("otp-verification-store", "data"),
@@ -2509,7 +2653,7 @@ def enable_verify_button(code):
 def verify_otp_code(n_clicks, code, otp_data):
     """Verify OTP code and create session."""
     if not n_clicks or not code or not otp_data:
-        return "", None, "", {}, {"display": "block"}
+        return "", None, "", {}, {"display": "block"}, no_update, no_update
     
     email = otp_data.get("email")
     if not email:
@@ -2518,7 +2662,9 @@ def verify_otp_code(n_clicks, code, otp_data):
             None,
             "",
             {},
-            {"display": "block"}
+            {"display": "block"},
+            no_update,
+            no_update
         )
     
     try:
@@ -2536,7 +2682,9 @@ def verify_otp_code(n_clicks, code, otp_data):
                 {"session_id": session_id, "email": email},
                 "✓ Email verified",
                 {"color": "green"},
-                {"display": "none"}  # Hide OTP section
+                {"display": "none"},  # Hide OTP section
+                email,  # Set the verified email in the field
+                True  # Disable the email field
             )
         else:
             error_data = response.json()
@@ -2552,7 +2700,9 @@ def verify_otp_code(n_clicks, code, otp_data):
                 None,
                 "",
                 {},
-                {"display": "block"}
+                {"display": "block"},
+                no_update,
+                no_update
             )
     except Exception as e:
         return (
@@ -2560,8 +2710,38 @@ def verify_otp_code(n_clicks, code, otp_data):
             None,
             "",
             {},
-            {"display": "block"}
+            {"display": "block"},
+            no_update,
+            no_update
         )
+
+
+@app.callback(
+    Output("contributor-email", "value"),
+    Output("contributor-email", "disabled"),
+    Input("otp-session-store", "data"),
+    prevent_initial_call=True
+)
+def populate_verified_email(otp_session):
+    """
+    Auto-populate and lock the email field when OTP is verified.
+    This prevents users from changing to an unverified email address.
+    """
+    if otp_session and otp_session.get("session_id") and otp_session.get("email"):
+        # Verify session is still valid
+        try:
+            check_response = requests.post(
+                f"{API_BASE}/api/email-verification/check-session",
+                json={"session_id": otp_session["session_id"]}
+            )
+            if check_response.ok and check_response.json().get("verified"):
+                verified_email = check_response.json().get("email")
+                return verified_email, True  # Set email and disable field
+        except:
+            pass
+    
+    # Not verified or session invalid - clear email and leave field editable
+    return "", False
 
 
 @app.callback(
@@ -2618,6 +2798,28 @@ def check_lit_search_auth(auth_data, active_tab):
         return {"display": "none"}, {"display": "block"}
     else:
         # User not authenticated, show auth required message and hide search content
+        return {"display": "block"}, {"display": "none"}
+
+
+# Literature Review Authentication check - use Admin panel auth
+@app.callback(
+    Output("lit-review-auth-required", "style"),
+    Output("lit-review-auth-content", "style"),
+    Input("admin-auth-store", "data"),
+    Input("main-tabs", "value"),
+    prevent_initial_call=False,
+)
+def check_lit_review_auth(auth_data, active_tab):
+    """Check if user is authenticated via Admin panel and show/hide Literature Review content"""
+    # Only apply when Literature Review tab is active
+    if active_tab != "tab-literature-review":
+        return no_update, no_update
+    
+    if auth_data and ("email" in auth_data or "token" in auth_data):
+        # User is authenticated, show review content and hide auth required message
+        return {"display": "none"}, {"display": "block"}
+    else:
+        # User not authenticated, show auth required message and hide review content
         return {"display": "block"}, {"display": "none"}
 
 
@@ -5186,31 +5388,38 @@ def toggle_privacy_policy_modal(open_click, close_click, is_open):
 def update_dashboard_stats(n):
     """Update dashboard statistics"""
     try:
-        # Get total triples count
-        r_triples = requests.get(f"{API_BASE}/api/triples", timeout=5)
-        total_triples = len(r_triples.json().get("data", [])) if r_triples.ok else 0
+        # Get total triples count from /api/recent endpoint
+        r_recent = requests.get(f"{API_BASE}/api/recent", timeout=5)
+        if r_recent.ok:
+            recent_data = r_recent.json()
+            # Count unique triple IDs (excluding None values from LEFT JOIN)
+            triple_ids = [item.get("triple_id") for item in recent_data if item.get("triple_id")]
+            total_triples = len(set(triple_ids))
+            
+            # Get unique DOIs count
+            dois = [item.get("doi") for item in recent_data if item.get("doi")]
+            unique_dois = len(set(dois))
+            
+            # Get recent activity (last 7 days)
+            # Note: This uses string comparison and created_at field if available
+            # For now, we'll estimate based on the top 200 records (LIMIT in query)
+            seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
+            recent_count = 0
+            # Since created_at is not in the recent endpoint, we'll use a simplified estimate
+            # assuming most recent 50 entries are within last 7 days (rough estimate)
+            recent_count = min(50, len(triple_ids))
+        else:
+            total_triples = 0
+            unique_dois = 0
+            recent_count = 0
         
         # Get total projects count
         r_projects = requests.get(f"{API_BASE}/api/projects", timeout=5)
-        total_projects = len(r_projects.json().get("projects", [])) if r_projects.ok else 0
-        
-        # Get unique DOIs count - limit to reasonable number for performance
-        # Note: This is a simplified approach. For large datasets, consider adding 
-        # a dedicated API endpoint that returns statistics directly from the database
-        r_dois = requests.get(f"{API_BASE}/api/recent", params={"limit": 100}, timeout=5)
-        dois_data = r_dois.json().get("data", []) if r_dois.ok else []
-        unique_dois = len(set([item.get("doi", "") for item in dois_data if item.get("doi")]))
-        
-        # Get recent activity (last 7 days)
-        # Note: This uses string comparison. For better performance with large datasets,
-        # consider adding a date filter parameter to the API endpoint
-        seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
-        recent_count = 0
-        if r_triples.ok:
-            triples_data = r_triples.json().get("data", [])
-            # Only check a subset for performance
-            recent_count = sum(1 for item in triples_data[:100] 
-                             if item.get("created_at", "") >= seven_days_ago)
+        if r_projects.ok:
+            projects_data = r_projects.json()
+            total_projects = len(projects_data)
+        else:
+            total_projects = 0
         
         return str(total_triples), str(total_projects), str(unique_dois), str(recent_count)
     except Exception as e:
@@ -5259,46 +5468,99 @@ def dashboard_quick_actions(lit_clicks, ann_clicks, browse_clicks, admin_clicks)
     prevent_initial_call=False
 )
 def check_literature_review_availability(n):
-    """Check if ASReview service is available"""
+    """Check if ASReview service is available via proxy"""
     try:
-        # Check service health
-        r = requests.get(f"{API_BASE}/api/literature-review/health", timeout=5)
-        
-        if r.ok:
-            data = r.json()
-            if data.get("configured") and data.get("available"):
-                # Service is available
-                service_url = data.get("service_url", "Configured")
-                return (
-                    "",  # Clear loading spinner
-                    {"display": "block"},  # Show content
-                    {"display": "none"},  # Hide unavailable message
-                    service_url  # Show service URL
-                )
-            else:
-                # Service not configured or not available
-                error_msg = data.get("error", "Service not available")
+        # First check if ASReview is configured
+        try:
+            from config import ASREVIEW_SERVICE_URL
+            if not ASREVIEW_SERVICE_URL:
                 return (
                     "",  # Clear loading spinner
                     {"display": "none"},  # Hide content
                     {"display": "block"},  # Show unavailable message
-                    error_msg
+                    "ASReview service URL not configured in config.py"
                 )
-        else:
+        except ImportError:
             return (
                 "",
                 {"display": "none"},
                 {"display": "block"},
-                "Backend error"
+                "ASReview service URL not configured in config.py"
+            )
+        
+        # Try to check service health via proxy
+        # Use the proxy route to avoid CORS and routing issues
+        proxy_health_url = f"{DASH_REQUESTS_PATHNAME_PREFIX.rstrip('/')}/proxy/asreview/api/health"
+        
+        try:
+            r = requests.get(f"http://127.0.0.1:{PORT}{proxy_health_url}", timeout=5)
+            
+            if r.ok:
+                try:
+                    data = r.json()
+                    # Service is available
+                    return (
+                        "",  # Clear loading spinner
+                        {"display": "block"},  # Show content
+                        {"display": "none"},  # Hide unavailable message
+                        ASREVIEW_SERVICE_URL  # Show service URL
+                    )
+                except:
+                    # Response is OK but not JSON - service might be available but not ASReview
+                    return (
+                        "",
+                        {"display": "none"},
+                        {"display": "block"},
+                        f"Service at {ASREVIEW_SERVICE_URL} returned unexpected response"
+                    )
+            else:
+                # Service returned error
+                error_detail = f"Status {r.status_code}"
+                try:
+                    error_data = r.json()
+                    error_detail = error_data.get("error", error_detail)
+                except:
+                    pass
+                
+                return (
+                    "",  # Clear loading spinner
+                    {"display": "none"},  # Hide content
+                    {"display": "block"},  # Show unavailable message
+                    f"Cannot reach ASReview service: {error_detail}"
+                )
+        
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Cannot connect to ASReview service: {e}")
+            return (
+                "",
+                {"display": "none"},
+                {"display": "block"},
+                f"Cannot connect to ASReview service at {ASREVIEW_SERVICE_URL}"
+            )
+        except requests.exceptions.Timeout:
+            logger.error("ASReview service health check timeout")
+            return (
+                "",
+                {"display": "none"},
+                {"display": "block"},
+                "ASReview service timeout - check if service is running"
+            )
+        except Exception as e:
+            logger.error(f"Error checking ASReview health: {e}", exc_info=True)
+            return (
+                "",
+                {"display": "none"},
+                {"display": "block"},
+                f"Error checking service: {str(e)}"
             )
     
     except Exception as e:
-        logger.error(f"Error checking literature review availability: {e}")
+        logger.error(f"Error in check_literature_review_availability: {e}", exc_info=True)
         return (
             "",
             {"display": "none"},
             {"display": "block"},
-            f"Error: {str(e)}"
+            f"Internal error: {str(e)}"
         )
 
 
