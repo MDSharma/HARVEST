@@ -5490,31 +5490,23 @@ def check_literature_review_availability(n):
             )
         
         # Try to check service health via proxy
+        # ASReview LAB doesn't have a standard /api/health endpoint, so we check the root
         # For internal server-to-server requests, use the actual Flask route
         # without the pathname prefix (Flask routes are registered at /proxy/asreview/...)
-        proxy_health_url = "/proxy/asreview/api/health"
+        proxy_health_url = "/proxy/asreview/"
         
         try:
             r = requests.get(f"http://127.0.0.1:{PORT}{proxy_health_url}", timeout=5)
             
-            if r.ok:
-                try:
-                    data = r.json()
-                    # Service is available
-                    return (
-                        "",  # Clear loading spinner
-                        {"display": "block"},  # Show content
-                        {"display": "none"},  # Hide unavailable message
-                        ASREVIEW_SERVICE_URL  # Show service URL
-                    )
-                except:
-                    # Response is OK but not JSON - service might be available but not ASReview
-                    return (
-                        "",
-                        {"display": "none"},
-                        {"display": "block"},
-                        f"Service at {ASREVIEW_SERVICE_URL} returned unexpected response"
-                    )
+            # ASReview LAB typically returns HTML for the root endpoint
+            # If we get any successful response (2xx or 3xx), consider it available
+            if r.status_code < 400:
+                return (
+                    "",  # Clear loading spinner
+                    {"display": "block"},  # Show content
+                    {"display": "none"},  # Hide unavailable message
+                    ASREVIEW_SERVICE_URL  # Show service URL
+                )
             else:
                 # Service returned error
                 error_detail = f"Status {r.status_code}"
