@@ -26,7 +26,7 @@ try:
     from config import (
         PARTNER_LOGOS, ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING,
         ENABLE_LITERATURE_REVIEW, DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, 
-        URL_BASE_PATHNAME, EMAIL_HASH_SALT
+        URL_BASE_PATHNAME, EMAIL_HASH_SALT, PORT
     )
 except ImportError:
     # Fallback if config not available
@@ -38,6 +38,7 @@ except ImportError:
     BACKEND_PUBLIC_URL = os.getenv("HARVEST_BACKEND_PUBLIC_URL", "")
     URL_BASE_PATHNAME = os.getenv("HARVEST_URL_BASE_PATHNAME", "/")
     EMAIL_HASH_SALT = os.getenv("EMAIL_HASH_SALT", "default-insecure-salt-change-me")
+    PORT = int(os.getenv("PORT", "8050"))
 
 # Override config with environment variables if present
 DEPLOYMENT_MODE = os.getenv("HARVEST_DEPLOYMENT_MODE", DEPLOYMENT_MODE)
@@ -5489,8 +5490,9 @@ def check_literature_review_availability(n):
             )
         
         # Try to check service health via proxy
-        # Use the proxy route to avoid CORS and routing issues
-        proxy_health_url = f"{DASH_REQUESTS_PATHNAME_PREFIX.rstrip('/')}/proxy/asreview/api/health"
+        # For internal server-to-server requests, use the actual Flask route
+        # without the pathname prefix (Flask routes are registered at /proxy/asreview/...)
+        proxy_health_url = "/proxy/asreview/api/health"
         
         try:
             r = requests.get(f"http://127.0.0.1:{PORT}{proxy_health_url}", timeout=5)
