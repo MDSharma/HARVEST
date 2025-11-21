@@ -1032,6 +1032,9 @@ def create_batches_endpoint(project_id: int):
     }
     """
     # Check admin authentication
+    if not request.json:
+        return jsonify({"error": "Request body must be JSON"}), 400
+    
     email = request.json.get("admin_email")
     password = request.json.get("admin_password")
     
@@ -1109,6 +1112,9 @@ def update_doi_status_endpoint(project_id: int, doi: str):
     }
     """
     try:
+        if not request.json:
+            return jsonify({"error": "Request body must be JSON"}), 400
+        
         status = request.json.get("status")
         annotator_email = request.json.get("annotator_email")
         
