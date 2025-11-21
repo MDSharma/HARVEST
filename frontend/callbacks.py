@@ -2888,6 +2888,159 @@ def edit_triple_callback(update_clicks, delete_clicks, triple_id, src_name, src_
     
     return no_update
 
+
+# ============================================================================
+# Admin Batch Management Callbacks
+# ============================================================================
+
+@app.callback(
+    Output("batch-mgmt-project-selector", "options"),
+    Input("admin-auth-store", "data"),
+    Input("btn-refresh-projects", "n_clicks"),
+    prevent_initial_call=False,
+)
+def populate_batch_mgmt_projects(auth_data, _):
+    """Populate project selector for batch management"""
+    if not auth_data:
+        return []
+    
+    try:
+        r = requests.get(API_PROJECTS, timeout=5)
+        if r.ok:
+            projects = r.json()
+            return [{"label": f"{p['name']} ({len(p.get('doi_list', []))} DOIs)", "value": p["id"]} for p in projects]
+        else:
+            return []
+    except Exception as e:
+        logger.error(f"Failed to load projects for batch management: {e}")
+        return []
+
+
+@app.callback(
+    Output("batch-creation-message", "children"),
+    Output("batch-list-display", "children"),
+    Input("btn-create-batches", "n_clicks"),
+    State("batch-mgmt-project-selector", "value"),
+    State("batch-size-input", "value"),
+    State("batch-strategy-selector", "value"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def create_batches_callback(n_clicks, project_id, batch_size, strategy, auth_data):
+    """Handle batch creation for a project"""
+    if not auth_data:
+        return dbc.Alert("Please login first", color="danger"), ""
+    
+    if not project_id:
+        return dbc.Alert("Please select a project", color="warning"), ""
+    
+    try:
+        # Call backend API to create batches
+        response = requests.post(
+            f"{API_BASE}/api/admin/projects/{project_id}/batches",
+            json={
+                "admin_email": auth_data["email"],
+                "admin_password": auth_data["password"],
+                "batch_size": batch_size or 20,
+                "strategy": strategy or "sequential"
+            },
+            timeout=10
+        )
+        
+        if response.ok:
+            data = response.json()
+            batches = data.get("batches", [])
+            total = data.get("total_batches", 0)
+            
+            # Build batch list display
+            batch_items = []
+            for batch in batches:
+                card = dbc.Card([
+                    dbc.CardBody([
+                        html.H6(f"Batch {batch['batch_number']}: {batch['batch_name']}", className="mb-2"),
+                        html.P([
+                            html.Strong("DOIs: "), str(batch['doi_count']), html.Br(),
+                            html.Strong("Created: "), batch['created_at']
+                        ], className="small text-muted mb-0")
+                    ])
+                ], className="mb-2")
+                batch_items.append(card)
+            
+            message = dbc.Alert(f"✓ Created {total} batches successfully!", color="success")
+            display = html.Div(batch_items)
+            
+            return message, display
+        else:
+            error_data = response.json()
+            return dbc.Alert(f"Failed to create batches: {error_data.get('error', 'Unknown error')}", color="danger"), ""
+            
+    except Exception as e:
+        logger.error(f"Failed to create batches: {e}")
+        return dbc.Alert(f"Error: {str(e)}", color="danger"), ""
+
+
+@app.callback(
+    Output("batch-list-display", "children", allow_duplicate=True),
+    Input("batch-mgmt-project-selector", "value"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def display_existing_batches(project_id, auth_data):
+    """Display existing batches when project is selected"""
+    if not project_id or not auth_data:
+        return ""
+    
+    try:
+        # Get existing batches
+        response = requests.get(f"{API_BASE}/api/projects/{project_id}/batches", timeout=5)
+        
+        if response.ok:
+            data = response.json()
+            batches = data.get("batches", [])
+            
+            if not batches:
+                return dbc.Alert("No batches found for this project. Create batches above.", color="info", className="small")
+            
+            # Get status summary
+            status_response = requests.get(f"{API_BASE}/api/projects/{project_id}/doi-status", timeout=5)
+            status_data = status_response.json() if status_response.ok else {}
+            batch_breakdown = status_data.get("by_batch", [])
+            
+            # Build batch list with status
+            batch_items = []
+            for batch in batches:
+                # Find matching status data
+                batch_status = next((b for b in batch_breakdown if b['batch_id'] == batch['batch_id']), {})
+                
+                completed = batch_status.get('completed', 0)
+                in_progress = batch_status.get('in_progress', 0)
+                total = batch_status.get('total', batch['doi_count'])
+                
+                card = dbc.Card([
+                    dbc.CardBody([
+                        html.H6(f"Batch {batch['batch_number']}: {batch['batch_name']}", className="mb-2"),
+                        html.P([
+                            html.Strong("DOIs: "), str(batch['doi_count']), html.Br(),
+                            html.Strong("Status: "), 
+                            f"✓ {completed} completed, ⏳ {in_progress} in progress, ○ {total - completed - in_progress} unstarted"
+                        ], className="small text-muted mb-2"),
+                        dbc.Progress([
+                            dbc.Progress(value=(completed/total)*100 if total > 0 else 0, color="success", bar=True),
+                            dbc.Progress(value=(in_progress/total)*100 if total > 0 else 0, color="warning", bar=True),
+                        ]) if total > 0 else None
+                    ])
+                ], className="mb-2")
+                batch_items.append(card)
+            
+            return html.Div(batch_items)
+        else:
+            return ""
+            
+    except Exception as e:
+        logger.error(f"Failed to display batches: {e}")
+        return ""
+
+
 # Export triples database
 @app.callback(
     Output("export-triples-message", "children"),

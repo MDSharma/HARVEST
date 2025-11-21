@@ -1724,6 +1724,56 @@ def get_layout():
                                                         
                                                             html.Div(id="pdf-download-progress-container", className="mb-3"),
                                                             html.Hr(),
+                                                            
+                                                            # Batch Management Section
+                                                            html.H6("DOI Batch Management", className="mb-3"),
+                                                            dbc.Card([
+                                                                dbc.CardBody([
+                                                                    html.P("Create batches to organize DOIs in projects with 100+ papers for easier annotation management.", className="text-muted small"),
+                                                                    dbc.Row([
+                                                                        dbc.Col([
+                                                                            dbc.Label("Select Project"),
+                                                                            dcc.Dropdown(
+                                                                                id="batch-mgmt-project-selector",
+                                                                                placeholder="Select project...",
+                                                                                options=[]
+                                                                            ),
+                                                                        ], md=6),
+                                                                        dbc.Col([
+                                                                            dbc.Label("Batch Size (DOIs per batch)"),
+                                                                            dbc.Input(
+                                                                                id="batch-size-input",
+                                                                                type="number",
+                                                                                value=20,
+                                                                                min=5,
+                                                                                max=100
+                                                                            ),
+                                                                        ], md=3),
+                                                                        dbc.Col([
+                                                                            dbc.Label("Strategy"),
+                                                                            dcc.Dropdown(
+                                                                                id="batch-strategy-selector",
+                                                                                options=[
+                                                                                    {"label": "Sequential", "value": "sequential"},
+                                                                                    {"label": "Random", "value": "random"}
+                                                                                ],
+                                                                                value="sequential",
+                                                                                clearable=False
+                                                                            ),
+                                                                        ], md=3),
+                                                                    ], className="mb-3"),
+                                                                    dbc.Button(
+                                                                        "Create Batches",
+                                                                        id="btn-create-batches",
+                                                                        color="primary",
+                                                                        className="mb-2"
+                                                                    ),
+                                                                    html.Div(id="batch-creation-message", className="mb-2"),
+                                                                    html.Hr(),
+                                                                    html.Div(id="batch-list-display"),
+                                                                ])
+                                                            ], className="mb-3"),
+                                                            html.Hr(),
                                                         
                                                             html.H6("Edit/Delete Triples", className="mb-3"),
                                                             dbc.Row(
