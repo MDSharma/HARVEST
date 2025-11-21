@@ -25,7 +25,7 @@ from frontend import (
     API_VALIDATE_DOI, API_ADMIN_AUTH, API_PROJECTS, API_ADMIN_PROJECTS,
     API_ADMIN_TRIPLE, SCHEMA_JSON, OTHER_SENTINEL, EMAIL_HASH_SALT,
     ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING, ENABLE_LITERATURE_REVIEW,
-    DASH_REQUESTS_PATHNAME_PREFIX, markdown_cache
+    DASH_REQUESTS_PATHNAME_PREFIX, markdown_cache, PORT, ASREVIEW_SERVICE_URL
 )
 
 # Import layout utilities
@@ -3312,20 +3312,11 @@ def check_literature_review_availability(n):
     """Check if ASReview service is available via proxy"""
     try:
         # First check if ASReview is configured
-        try:
-            from config import ASREVIEW_SERVICE_URL
-            if not ASREVIEW_SERVICE_URL:
-                return (
-                    "",  # Clear loading spinner
-                    {"display": "none"},  # Hide content
-                    {"display": "block"},  # Show unavailable message
-                    "ASReview service URL not configured in config.py"
-                )
-        except ImportError:
+        if not ASREVIEW_SERVICE_URL:
             return (
-                "",
-                {"display": "none"},
-                {"display": "block"},
+                "",  # Clear loading spinner
+                {"display": "none"},  # Hide content
+                {"display": "block"},  # Show unavailable message
                 "ASReview service URL not configured in config.py"
             )
         
