@@ -726,26 +726,48 @@ def remove_dois_from_project(project_id: int):
 
     # Delete PDFs if requested
     deleted_pdfs = []
+    failed_deletions = []
     if delete_pdfs and removed_count > 0:
         try:
             from pdf_manager import get_project_pdf_dir
-            project_dir = get_project_pdf_dir(project_id)
+            project_dir = os.path.abspath(get_project_pdf_dir(project_id))
             
             for doi in dois_to_remove:
                 doi_hash = generate_doi_hash(doi)
-                pdf_path = os.path.join(project_dir, f"{doi_hash}.pdf")
+                if not doi_hash:
+                    failed_deletions.append(f"{doi}: invalid DOI hash")
+                    continue
+                
+                pdf_filename = f"{doi_hash}.pdf"
+                pdf_path = os.path.abspath(os.path.join(project_dir, pdf_filename))
+                
+                # Security: Ensure the resolved path is within the project directory
+                if not pdf_path.startswith(project_dir):
+                    logger.error(f"Path traversal attempt detected: {doi} -> {pdf_path}")
+                    failed_deletions.append(f"{doi}: invalid path")
+                    continue
+                
                 if os.path.exists(pdf_path):
-                    os.remove(pdf_path)
-                    deleted_pdfs.append(doi)
+                    try:
+                        os.remove(pdf_path)
+                        deleted_pdfs.append(doi)
+                    except OSError as e:
+                        failed_deletions.append(f"{doi}: {str(e)}")
         except Exception as e:
-            logger.warning(f"Error deleting PDFs: {e}")
+            logger.error(f"Error during PDF deletion for project {project_id}: {e}")
+            failed_deletions.append(f"General error: {str(e)}")
     
-    return jsonify({
+    response_data = {
         "ok": True, 
         "message": f"Removed {removed_count} DOIs from project",
         "total_dois": len(updated_dois),
         "deleted_pdfs": len(deleted_pdfs)
-    })
+    }
+    
+    if failed_deletions:
+        response_data["deletion_warnings"] = failed_deletions
+    
+    return jsonify(response_data)
 
 @app.delete("/api/admin/projects/<int:project_id>")
 def delete_existing_project(project_id: int):
