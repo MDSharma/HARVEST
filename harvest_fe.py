@@ -1,6 +1,31 @@
 # harvest_fe.py
+# IMPORTANT: Clear bytecode cache BEFORE any other imports to prevent stale callback issues
+# This must run before Dash imports to ensure clean callback registration
 import os
 import sys
+import glob
+import shutil
+
+# Clear bytecode cache if requested or if .pyc files exist that might be stale
+# This prevents Dash from loading old callback definitions
+_module_dir = os.path.dirname(os.path.abspath(__file__))
+_pycache_dir = os.path.join(_module_dir, "__pycache__")
+_should_clear = (
+    os.getenv('HARVEST_CLEAR_CACHE', '').lower() in ('true', '1', 'yes') or
+    os.getenv('PYTHONDONTWRITEBYTECODE', '').lower() in ('true', '1', 'yes')
+)
+
+if _should_clear and os.path.exists(_pycache_dir):
+    # Clear this module's cache directory
+    for cache_file in glob.glob(os.path.join(_pycache_dir, "harvest_fe*.pyc")):
+        try:
+            os.remove(cache_file)
+        except (OSError, PermissionError):
+            pass  # Silently continue if clearing individual file fails
+
+# Prevent bytecode generation for this session
+sys.dont_write_bytecode = True
+
 import json
 import hashlib
 import requests
@@ -8,8 +33,6 @@ import base64
 import time
 import logging
 import threading
-import glob
-import shutil
 from datetime import datetime, timedelta
 from functools import lru_cache
 
@@ -71,6 +94,20 @@ else:
 # -----------------------
 # Config
 # -----------------------
+# Headers to filter out in ASReview proxy to prevent iframe issues
+# These headers can cause redirects, block iframe embedding, or cause other problems
+ASREVIEW_PROXY_FILTERED_HEADERS = frozenset([
+    'location',  # Redirects
+    'content-location',  # Alternative location
+    'content-security-policy',  # Can block iframe embedding
+    'x-frame-options',  # Explicitly controls iframe embedding
+    'strict-transport-security',  # HSTS can cause issues
+    'set-cookie',  # Cookies should not be proxied
+    'server',  # Server info not needed
+    'date',  # Will be set by our response
+    'transfer-encoding',  # Can cause chunking issues
+])
+
 # Determine API base URL for server-side requests
 # In both modes, the frontend server connects to backend via localhost
 # BACKEND_PUBLIC_URL is only used for documentation/reference, not actual requests
@@ -2514,11 +2551,18 @@ def proxy_asreview(path: str):
                     mimetype='application/json'
                 )
             
-            # Return ASReview response
+            # Return ASReview response with filtered headers
+            # Filter out headers that can cause iframe issues or redirects
+            # Keep only safe headers for proxying
+            safe_headers = {}
+            for key, value in response.headers.items():
+                if key.lower() not in ASREVIEW_PROXY_FILTERED_HEADERS:
+                    safe_headers[key] = value
+            
             return Response(
                 response.content,
                 status=response.status_code,
-                headers=dict(response.headers)
+                headers=safe_headers
             )
         
         except requests.exceptions.Timeout:
