@@ -1,6 +1,34 @@
 # harvest_fe.py
+# IMPORTANT: Clear bytecode cache BEFORE any other imports to prevent stale callback issues
+# This must run before Dash imports to ensure clean callback registration
 import os
 import sys
+import glob
+import shutil
+
+# Clear bytecode cache if requested or if .pyc files exist that might be stale
+# This prevents Dash from loading old callback definitions
+_module_dir = os.path.dirname(os.path.abspath(__file__))
+_pycache_dir = os.path.join(_module_dir, "__pycache__")
+_should_clear = (
+    os.getenv('HARVEST_CLEAR_CACHE', '').lower() in ('true', '1', 'yes') or
+    os.getenv('PYTHONDONTWRITEBYTECODE', '').lower() in ('true', '1', 'yes')
+)
+
+if _should_clear and os.path.exists(_pycache_dir):
+    try:
+        # Clear this module's cache directory
+        for cache_file in glob.glob(os.path.join(_pycache_dir, "harvest_fe*.pyc")):
+            try:
+                os.remove(cache_file)
+            except (OSError, PermissionError):
+                pass
+    except Exception:
+        pass  # Silently continue if clearing fails
+
+# Prevent bytecode generation for this session
+sys.dont_write_bytecode = True
+
 import json
 import hashlib
 import requests
@@ -8,8 +36,6 @@ import base64
 import time
 import logging
 import threading
-import glob
-import shutil
 from datetime import datetime, timedelta
 from functools import lru_cache
 

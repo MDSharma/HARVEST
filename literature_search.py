@@ -735,7 +735,22 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
             abstract = ''
             abstracts = fullrecord_metadata.get('abstracts', {}).get('abstract', [])
             for abs_item in abstracts:
-                abstract_text = abs_item.get('abstract_text', {}).get('p', '')
+                # Handle both dict and string formats for abstract_text
+                if isinstance(abs_item, dict):
+                    abstract_text = abs_item.get('abstract_text', {})
+                    if isinstance(abstract_text, dict):
+                        abstract_text = abstract_text.get('p', '')
+                    elif isinstance(abstract_text, str):
+                        # abstract_text is already a string
+                        pass
+                    else:
+                        abstract_text = ''
+                elif isinstance(abs_item, str):
+                    # abs_item is directly the abstract string
+                    abstract_text = abs_item
+                else:
+                    abstract_text = ''
+                
                 if abstract_text:
                     abstract = abstract_text
                     break
