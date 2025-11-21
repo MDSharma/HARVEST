@@ -1611,9 +1611,30 @@ def show_project_info(project_id, projects):
     except Exception as e:
         logger.error(f"Failed to check for batches: {e}")
     
-    # No batches - populate DOI dropdown directly
-    doi_list = project.get("doi_list", [])
-    doi_options = [{"label": doi, "value": doi} for doi in doi_list]
+    # No batches - populate DOI dropdown directly with PDF indicators
+    try:
+        # Fetch DOI list with PDF indicators
+        response = requests.get(f"{API_BASE}/api/projects/{project_id}/dois-with-pdfs", timeout=5)
+        if response.ok:
+            data = response.json()
+            dois_with_pdfs = data.get("dois", [])
+            # Add 📄 emoji for DOIs that have PDFs
+            doi_options = [
+                {
+                    "label": f"{item['doi']} 📄" if item.get("has_pdf") else item['doi'],
+                    "value": item['doi']
+                }
+                for item in dois_with_pdfs
+            ]
+        else:
+            # Fallback to simple list if API fails
+            doi_list = project.get("doi_list", [])
+            doi_options = [{"label": doi, "value": doi} for doi in doi_list]
+    except Exception as e:
+        logger.error(f"Failed to fetch DOI PDF indicators: {e}")
+        # Fallback to simple list
+        doi_list = project.get("doi_list", [])
+        doi_options = [{"label": doi, "value": doi} for doi in doi_list]
     
     return info_text, doi_options, False
 

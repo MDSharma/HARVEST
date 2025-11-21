@@ -552,6 +552,15 @@ def create_new_project():
     if not doi_list or not isinstance(doi_list, list):
         return jsonify({"error": "DOI list is required and must be an array"}), 400
 
+    # Normalize DOIs to lowercase and remove duplicates
+    normalized_dois = {}
+    for doi in doi_list:
+        doi_normalized = doi.strip().lower()
+        if doi_normalized:  # Skip empty strings
+            normalized_dois[doi_normalized] = doi_normalized
+    
+    doi_list = list(normalized_dois.values())
+
     project_id = create_project(DB_PATH, name, description, doi_list, email)
     
     if project_id > 0:
@@ -614,6 +623,15 @@ def update_existing_project(project_id: int):
     name = payload.get("name")
     description = payload.get("description")
     doi_list = payload.get("doi_list")
+    
+    # Normalize DOI list to lowercase if provided
+    if doi_list is not None and isinstance(doi_list, list):
+        normalized_dois = {}
+        for doi in doi_list:
+            doi_normalized = doi.strip().lower()
+            if doi_normalized:  # Skip empty strings
+                normalized_dois[doi_normalized] = doi_normalized
+        doi_list = list(normalized_dois.values())
 
     success = update_project(DB_PATH, project_id, name, description, doi_list)
     
@@ -656,11 +674,21 @@ def add_dois_to_project(project_id: int):
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
-    # Get current DOI list
+    # Get current DOI list (already normalized to lowercase in storage)
     current_dois = project.get("doi_list", [])
     
-    # Add new DOIs (avoid duplicates)
-    updated_dois = list(set(current_dois + new_dois))
+    # Normalize new DOIs to lowercase
+    normalized_new_dois = set()
+    for doi in new_dois:
+        doi_normalized = doi.strip().lower()
+        if doi_normalized:  # Skip empty strings
+            normalized_new_dois.add(doi_normalized)
+    
+    # Create set of existing DOIs for deduplication
+    existing_dois_set = set(current_dois)
+    
+    # Add only new DOIs (avoid duplicates)
+    updated_dois = list(existing_dois_set | normalized_new_dois)
     added_count = len(updated_dois) - len(current_dois)
 
     # Update project with new DOI list
@@ -711,11 +739,14 @@ def remove_dois_from_project(project_id: int):
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
-    # Get current DOI list
+    # Get current DOI list (already normalized to lowercase in storage)
     current_dois = project.get("doi_list", [])
     
+    # Normalize DOIs to remove to lowercase
+    dois_to_remove_lower = {doi.strip().lower() for doi in dois_to_remove if doi.strip()}
+    
     # Remove specified DOIs
-    updated_dois = [doi for doi in current_dois if doi not in dois_to_remove]
+    updated_dois = [doi for doi in current_dois if doi not in dois_to_remove_lower]
     removed_count = len(current_dois) - len(updated_dois)
 
     # Update project with new DOI list
@@ -1314,6 +1345,44 @@ def list_project_pdfs_endpoint(project_id: int):
     except Exception as e:
         logger.error(f"Failed to list PDFs: {e}", exc_info=True)
         return jsonify({"error": "Failed to list PDFs"}), 500
+
+@app.get("/api/projects/<int:project_id>/dois-with-pdfs")
+def get_dois_with_pdf_indicators(project_id: int):
+    """
+    Get DOI list with indicators showing which have associated PDFs.
+    Returns: {"ok": True, "dois": [{"doi": "10.1234/example", "has_pdf": true}, ...]}
+    """
+    try:
+        # Get project DOI list
+        project = get_project_by_id(DB_PATH, project_id)
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+        
+        doi_list = project.get("doi_list", [])
+        
+        # Get list of available PDFs
+        from pdf_manager import get_project_pdf_dir
+        project_dir = get_project_pdf_dir(project_id)
+        
+        # Check which DOIs have PDFs
+        dois_with_indicators = []
+        for doi in doi_list:
+            doi_hash = generate_doi_hash(doi)
+            pdf_path = os.path.join(project_dir, f"{doi_hash}.pdf")
+            has_pdf = os.path.exists(pdf_path)
+            dois_with_indicators.append({
+                "doi": doi,
+                "has_pdf": has_pdf
+            })
+        
+        return jsonify({
+            "ok": True,
+            "project_id": project_id,
+            "dois": dois_with_indicators
+        })
+    except Exception as e:
+        logger.error(f"Failed to get DOIs with PDF indicators: {e}", exc_info=True)
+        return jsonify({"error": "Failed to get DOI list"}), 500
 
 @app.post("/api/admin/projects/<int:project_id>/upload-pdf")
 def upload_project_pdf(project_id: int):
