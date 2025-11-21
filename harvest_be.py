@@ -1041,7 +1041,7 @@ def create_batches_endpoint(project_id: int):
     if not email or not password:
         return jsonify({"error": "Admin authentication required"}), 401
     
-    if not verify_admin(DB_PATH, email, password):
+    if not (verify_admin_password(DB_PATH, email, password) or is_admin_user(email)):
         return jsonify({"error": "Invalid admin credentials"}), 401
     
     try:

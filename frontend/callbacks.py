@@ -2070,7 +2070,7 @@ def create_project_callback(n_clicks, name, description, doi_list_text, auth_dat
     Input("btn-refresh-projects", "n_clicks"),
     Input("project-message", "children"),  # Trigger refresh when project message changes
     Input("delete-project-confirm", "n_clicks"),
-    State("admin-auth-store", "data"),
+    Input("admin-auth-store", "data"),  # Trigger refresh when auth changes
     prevent_initial_call=False,
 )
 def display_projects_list(refresh_clicks, project_message, delete_clicks, auth_data):
