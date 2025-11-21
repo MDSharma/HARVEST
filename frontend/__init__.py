@@ -269,6 +269,7 @@ def validate_callback_map():
     """
     Validate that no callback outputs to the forbidden markdown info-tab IDs.
     Raises RuntimeError if any callback tries to update these components.
+    Exception: Allows one compatibility callback for handling legacy browser cache.
     """
     if not os.getenv('HARVEST_STRICT_CALLBACK_CHECKS', 'true').lower() in ('true', '1', 'yes'):
         logger.info("HARVEST_STRICT_CALLBACK_CHECKS is disabled - skipping callback validation")
@@ -276,6 +277,7 @@ def validate_callback_map():
     
     logger.info("Validating callback map for forbidden markdown outputs...")
     violations = []
+    compatibility_callback_found = False
     
     for callback_id, callback_spec in app.callback_map.items():
         # Get the output specification
@@ -292,24 +294,35 @@ def validate_callback_map():
             outputs = [output_spec]
         
         # Check each output
+        markdown_outputs = []
         for output in outputs:
             # Output objects have component_id and component_property attributes
             output_str = f"{output.component_id}.{output.component_property}"
             
             for forbidden_id in FORBIDDEN_MARKDOWN_OUTPUT_IDS:
                 if forbidden_id in output_str:
-                    violations.append({
-                        'callback_id': callback_id,
-                        'output': output_str,
-                        'forbidden_id': forbidden_id
-                    })
+                    markdown_outputs.append(forbidden_id)
+        
+        # If this callback outputs to markdown content
+        if markdown_outputs:
+            # Check if it's the compatibility callback (outputs to all 5 markdown divs)
+            if len(markdown_outputs) == 5 and not compatibility_callback_found:
+                # This is the compatibility callback - allow it once
+                compatibility_callback_found = True
+                logger.info(f"✓ Found compatibility callback for legacy browser support: {callback_id}")
+            else:
+                # Multiple callbacks or unexpected pattern - flag as violation
+                violations.append({
+                    'callback_id': callback_id,
+                    'outputs': markdown_outputs
+                })
     
     if violations:
-        error_msg = "CALLBACK VALIDATION FAILED: Found callbacks outputting to forbidden markdown info-tab IDs:\n"
+        error_msg = "CALLBACK VALIDATION FAILED: Found unexpected callbacks outputting to forbidden markdown info-tab IDs:\n"
         for v in violations:
-            error_msg += f"  - Callback {v['callback_id']} outputs to {v['forbidden_id']}\n"
-        error_msg += "\nThese IDs should only be populated at app startup, never updated by callbacks.\n"
-        error_msg += "This prevents KeyError issues seen in production with stale multi-output callbacks."
+            error_msg += f"  - Callback {v['callback_id']} outputs to {', '.join(v['outputs'])}\n"
+        error_msg += "\nOnly one compatibility callback is allowed (outputs to all 5 markdown divs).\n"
+        error_msg += "Additional callbacks to these IDs can cause KeyError issues."
         logger.error(error_msg)
         raise RuntimeError(error_msg)
     

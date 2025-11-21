@@ -3325,6 +3325,32 @@ def export_triples_callback(n_clicks, auth_data):
 #  - Setting: export PYTHONDONTWRITEBYTECODE=1 (prevents .pyc creation)
 #  - Using systemd service with proper restart policies
 
+# COMPATIBILITY CALLBACK: Handle legacy markdown reload requests from cached browsers
+# This prevents KeyError when browsers with old cached JavaScript try to trigger
+# the removed markdown reload callback. This callback does nothing and can be
+# safely removed after all users have refreshed their browser cache (e.g., after a few weeks).
+@app.callback(
+    Output("annotator-guide-content", "children"),
+    Output("schema-tab-content", "children"),
+    Output("admin-guide-content", "children"),
+    Output("dbmodel-tab-content", "children"),
+    Output("participate-tab-content", "children"),
+    Input("load-trigger", "n_intervals"),
+    prevent_initial_call=True,
+)
+def handle_legacy_markdown_reload_request(n):
+    """
+    Compatibility callback to gracefully handle legacy markdown reload requests.
+    Old versions of the frontend had a markdown-reload-interval that would trigger
+    updates to these 5 markdown content divs. Even though that component is removed,
+    browsers with cached JavaScript may still try to trigger this callback.
+    
+    This callback catches those requests and returns no_update, preventing KeyError.
+    Once all users have cleared their browser cache, this callback can be removed.
+    """
+    # Always return no_update - markdown is loaded once at startup
+    return no_update, no_update, no_update, no_update, no_update
+
 
 # Callback to save browse field configuration
 @app.callback(
