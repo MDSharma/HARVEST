@@ -126,6 +126,9 @@ SCHEMA_JSON = {
         "QTL": "qtl",
         "Coordinates": "coordinates",
         "Metabolite": "metabolite",
+        "Pathway": "pathway",
+        "Process": "process",
+        "Factor": "factor",  # Biotic or abiotic factors
     },
     "relation-type": {
         "is_a": "is_a",
@@ -143,6 +146,24 @@ SCHEMA_JSON = {
         "regulates": "regulates",
         "contributes_to": "contributes_to",
         "inhers_in": "inhers_in",
+        # New biological relation types
+        "encodes": "encodes",
+        "binds_to": "binds_to",
+        "phosphorylates": "phosphorylates",
+        "methylates": "methylates",
+        "acetylates": "acetylates",
+        "activates": "activates",
+        "inhibits": "inhibits",
+        "represses": "represses",
+        "interacts_with": "interacts_with",
+        "localizes_to": "localizes_to",
+        "expressed_in": "expressed_in",
+        "associated_with": "associated_with",
+        "causes": "causes",
+        "prevents": "prevents",
+        "co_occurs_with": "co_occurs_with",
+        "precedes": "precedes",
+        "follows": "follows",
     },
 }
 
