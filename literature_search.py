@@ -715,6 +715,9 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
             # Extract authors
             authors = []
             names = summary.get('names', {}).get('name', [])
+            # Handle case where names could be a dict or a list
+            if not isinstance(names, list):
+                names = [names] if isinstance(names, dict) else []
             for name in names[:3]:  # Limit to first 3 authors
                 if name.get('role') == 'author':
                     display_name = name.get('display_name') or name.get('full_name')

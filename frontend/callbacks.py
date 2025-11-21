@@ -28,6 +28,9 @@ from frontend import (
     DASH_REQUESTS_PATHNAME_PREFIX, markdown_cache
 )
 
+# Import layout utilities
+from frontend.layout import create_execution_log_display
+
 # Import literature search module
 import literature_search
 
@@ -132,7 +135,10 @@ def request_otp_code(email, session_data):
                 no_update
             )
         else:
-            error = response.json().get("error", "Failed to send code")
+            try:
+                error = response.json().get("error", "Failed to send code")
+            except json.JSONDecodeError:
+                error = f"HTTP {response.status_code}: Failed to send code"
             return (
                 {"display": "none"},
                 None,
@@ -213,13 +219,16 @@ def verify_otp_code(n_clicks, code, otp_data):
                 True  # Disable the email field
             )
         else:
-            error_data = response.json()
-            error_msg = error_data.get("error", "Invalid code")
-            
-            if error_data.get("expired"):
-                error_msg = "Code expired. Please request a new code."
-            elif error_data.get("attempts_exceeded"):
-                error_msg = "Too many attempts. Please request a new code."
+            try:
+                error_data = response.json()
+                error_msg = error_data.get("error", "Invalid code")
+                
+                if error_data.get("expired"):
+                    error_msg = "Code expired. Please request a new code."
+                elif error_data.get("attempts_exceeded"):
+                    error_msg = "Too many attempts. Please request a new code."
+            except json.JSONDecodeError:
+                error_msg = f"HTTP {response.status_code}: Invalid code"
             
             return (
                 dbc.Alert(error_msg, color="danger", dismissable=True, duration=4000),
@@ -299,7 +308,10 @@ def resend_otp_code(n_clicks, otp_data):
                 duration=3000
             )
         else:
-            error = response.json().get("error", "Failed to send code")
+            try:
+                error = response.json().get("error", "Failed to send code")
+            except json.JSONDecodeError:
+                error = f"HTTP {response.status_code}: Failed to send code"
             return dbc.Alert(error, color="danger", dismissable=True, duration=4000)
     except Exception as e:
         return dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True, duration=4000)
@@ -2971,8 +2983,13 @@ def create_batches_callback(n_clicks, project_id, batch_size, strategy, auth_dat
             
             return message, display
         else:
-            error_data = response.json()
-            return dbc.Alert(f"Failed to create batches: {error_data.get('error', 'Unknown error')}", color="danger"), ""
+            # Try to parse JSON error, but handle case where response is not JSON
+            try:
+                error_data = response.json()
+                error_msg = error_data.get('error', 'Unknown error')
+            except json.JSONDecodeError:
+                error_msg = f"HTTP {response.status_code}: {response.text[:200]}"
+            return dbc.Alert(f"Failed to create batches: {error_msg}", color="danger"), ""
             
     except Exception as e:
         logger.error(f"Failed to create batches: {e}")

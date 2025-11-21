@@ -173,13 +173,20 @@ if os.getenv('HARVEST_CLEAR_CACHE', '').lower() in ('true', '1', 'yes'):
     
     logger.info("Bytecode cache clearing completed")
 
+# Configure assets folder path (relative to the package, not the module)
+# Since frontend is a package, Dash would look for frontend/assets by default
+# But our assets are in the parent directory (repository root)
+_module_dir = os.path.dirname(os.path.abspath(__file__))
+_assets_folder = os.path.join(os.path.dirname(_module_dir), 'assets')
+
 external_stylesheets = [dbc.themes.BOOTSTRAP]
 app: Dash = dash.Dash(
     __name__, 
     external_stylesheets=external_stylesheets, 
     suppress_callback_exceptions=True,
     routes_pathname_prefix=DASH_ROUTES_PATHNAME_PREFIX,
-    requests_pathname_prefix=DASH_REQUESTS_PATHNAME_PREFIX
+    requests_pathname_prefix=DASH_REQUESTS_PATHNAME_PREFIX,
+    assets_folder=_assets_folder
 )
 app.title = APP_TITLE
 server = app.server  # Flask server for WSGI deployment
