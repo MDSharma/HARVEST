@@ -137,7 +137,7 @@ def request_otp_code(email, session_data):
         else:
             try:
                 error = response.json().get("error", "Failed to send code")
-            except (ValueError, json.JSONDecodeError):
+            except json.JSONDecodeError:
                 error = f"HTTP {response.status_code}: Failed to send code"
             return (
                 {"display": "none"},
@@ -227,7 +227,7 @@ def verify_otp_code(n_clicks, code, otp_data):
                     error_msg = "Code expired. Please request a new code."
                 elif error_data.get("attempts_exceeded"):
                     error_msg = "Too many attempts. Please request a new code."
-            except (ValueError, json.JSONDecodeError):
+            except json.JSONDecodeError:
                 error_msg = f"HTTP {response.status_code}: Invalid code"
             
             return (
@@ -310,7 +310,7 @@ def resend_otp_code(n_clicks, otp_data):
         else:
             try:
                 error = response.json().get("error", "Failed to send code")
-            except (ValueError, json.JSONDecodeError):
+            except json.JSONDecodeError:
                 error = f"HTTP {response.status_code}: Failed to send code"
             return dbc.Alert(error, color="danger", dismissable=True, duration=4000)
     except Exception as e:
@@ -2987,7 +2987,7 @@ def create_batches_callback(n_clicks, project_id, batch_size, strategy, auth_dat
             try:
                 error_data = response.json()
                 error_msg = error_data.get('error', 'Unknown error')
-            except (ValueError, json.JSONDecodeError):
+            except json.JSONDecodeError:
                 error_msg = f"HTTP {response.status_code}: {response.text[:200]}"
             return dbc.Alert(f"Failed to create batches: {error_msg}", color="danger"), ""
             
