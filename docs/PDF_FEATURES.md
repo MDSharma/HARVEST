@@ -15,24 +15,35 @@ Complete guide for HARVEST's PDF management capabilities including download, hig
 
 ## PDF Download System
 
-# Enhanced PDF Download System
+# Smart Multi-Source PDF Download System
 
 ## Overview
 
-The enhanced PDF download system provides intelligent, multi-source PDF downloading with performance tracking, smart source selection, and comprehensive analytics. It uses a separate SQLite database (`pdf_downloads.db`) to track all download attempts and learn which sources work best for different publishers over time.
+The unified smart PDF download system provides intelligent, multi-source PDF downloading with performance tracking, smart source selection, and comprehensive analytics. It uses a separate SQLite database (`pdf_downloads.db`) with Write-Ahead Logging (WAL) mode to track all download attempts and learn which sources work best for different publishers over time.
 
 ## Key Features
 
-### 1. Multiple PDF Sources
-- **Unpaywall REST API** - Free open access database (no extra dependencies)
-- **Europe PMC** - Biomedical literature (no extra dependencies)
-- **CORE.ac.uk** - Open access research papers (no extra dependencies)
-- **Semantic Scholar** - Academic paper metadata and PDFs (no extra dependencies)
-- **Publisher Direct** - Predictable URLs for open access publishers (no extra dependencies)
+### 1. Multiple PDF Sources (11 Active Sources)
+
+**Primary Open Access Sources (No Dependencies):**
+- **Unpaywall REST API** - Free open access database, first source tried
+- **bioRxiv/medRxiv** - Life sciences preprint repositories
+- **Europe PMC** - Biomedical literature via EBI API
+- **Enhanced PMC** - PubMed Central via NCBI E-utilities with better PDF detection
+- **Enhanced arXiv** - Better arXiv integration with improved DOI/ID handling
+- **CORE.ac.uk** - Open access research papers worldwide
+- **Zenodo** - CERN's multidisciplinary open repository
+- **Semantic Scholar** - Academic paper metadata and open access PDFs
+- **DOAJ** - Directory of Open Access Journals (quality-checked sources)
+- **Publisher Direct** - Predictable URLs for open access publishers (PLOS, Frontiers, BMC)
+
+**Optional Enhanced Sources (Require Libraries):**
 - **Unpywall Library** - Enhanced Unpaywall access (requires `unpywall` package)
-- **Metapub** - PubMed Central and arXiv (requires `metapub` package and NCBI API key)
+- **Metapub** - Legacy PubMed Central and arXiv (requires `metapub` package and NCBI API key)
 - **Habanero** - Crossref institutional access (requires `habanero` package)
-- **SciHub** - Optional last resort (disabled by default, legal concerns)
+
+**Disabled by Default:**
+- **SciHub** - Optional last resort (disabled by default, legal concerns in some jurisdictions)
 
 ### 2. Smart Source Selection
 - Sources are ranked by historical success rate and response time
@@ -40,8 +51,15 @@ The enhanced PDF download system provides intelligent, multi-source PDF download
 - Best source for each publisher is tried first
 - Fallback to other sources in optimized order
 - All attempts are logged for continuous improvement
+- Active mechanisms displayed in download status updates
 
-### 3. Failure Classification and Retry Logic
+### 3. Database Locking Prevention
+- **WAL Mode**: Write-Ahead Logging enabled for better concurrent access
+- **Connection Optimization**: 30-second timeout, 10,000 cache size
+- **Efficient Queries**: Proper indexing on frequently accessed columns
+- No more "database is locked" errors during batch downloads
+
+### 4. Failure Classification and Retry Logic
 Failures are classified into categories:
 - **Temporary failures** (network errors, timeouts, rate limits) - automatically retried
 - **Permanent failures** (paywall, not found, invalid content) - marked for manual upload
@@ -145,24 +163,34 @@ Adds:
 
 ## Configuration
 
-Edit `config.py` to configure the enhanced PDF download system:
+Edit `config.py` to configure the smart PDF download system:
 
-### Enable/Disable the Enhanced System
-
-```python
-ENABLE_ENHANCED_PDF_DOWNLOAD = True  # Use enhanced multi-source system
-PDF_DOWNLOAD_DB_PATH = "pdf_downloads.db"  # Path to tracking database
-```
-
-### Enable/Disable Individual Sources
+### Database Configuration
 
 ```python
-ENABLE_EUROPE_PMC = True          # No extra dependencies
-ENABLE_CORE = True                # No extra dependencies
-ENABLE_SEMANTIC_SCHOLAR = True    # No extra dependencies
-ENABLE_PUBLISHER_DIRECT = True    # No extra dependencies
-ENABLE_SCIHUB = False             # Disabled by default (legal concerns)
+PDF_DOWNLOAD_DB_PATH = "pdf_downloads.db"  # Path to tracking database (uses WAL mode)
 ```
+
+Note: The smart multi-source system is now always enabled. The `ENABLE_ENHANCED_PDF_DOWNLOAD` flag has been removed as the smart system is the default.
+
+### Manage Sources via Admin Interface
+
+Sources can be enabled/disabled dynamically through:
+- Admin Analytics API: `/api/admin/pdf-analytics/sources`
+- Database configuration table
+
+Default source priority (can be adjusted in database):
+1. unpaywall (priority 10)
+2. unpywall (priority 20)
+3. biorxiv_medrxiv (priority 25)
+4. europe_pmc (priority 30)
+5. pmc_enhanced (priority 35)
+6. arxiv_enhanced (priority 38)
+7. core (priority 40)
+8. zenodo (priority 45)
+9. semantic_scholar (priority 50)
+10. doaj (priority 55)
+11. publisher_direct (priority 65)
 
 ### Optional API Keys
 
