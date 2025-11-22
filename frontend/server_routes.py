@@ -15,6 +15,13 @@ from frontend import server, API_BASE, ASREVIEW_PROXY_FILTERED_HEADERS
 
 logger = logging.getLogger(__name__)
 
+# Import DASH_REQUESTS_PATHNAME_PREFIX for base path handling
+# This is used to construct the correct base URL for ASReview proxy
+try:
+    from frontend import DASH_REQUESTS_PATHNAME_PREFIX
+except ImportError:
+    DASH_REQUESTS_PATHNAME_PREFIX = "/"  # Fallback to root if not available
+
 # Get ASREVIEW_SERVICE_URL from config.py with environment variable override
 try:
     from config import ASREVIEW_SERVICE_URL as CONFIG_ASREVIEW_SERVICE_URL
@@ -251,6 +258,102 @@ def proxy_highlights(project_id: int, filename: str):
         )
 
 
+def _get_content_type_from_path(path: str) -> str:
+    """
+    Determine Content-Type based on file extension.
+    
+    Args:
+        path: File path or URL path
+        
+    Returns:
+        MIME type string
+    """
+    path_lower = path.lower()
+    
+    # JavaScript files
+    if path_lower.endswith('.js'):
+        return 'application/javascript'
+    
+    # CSS files
+    if path_lower.endswith('.css'):
+        return 'text/css'
+    
+    # JSON files
+    if path_lower.endswith('.json'):
+        return 'application/json'
+    
+    # Image files - check specific extensions
+    if path_lower.endswith('.png'):
+        return 'image/png'
+    if path_lower.endswith(('.jpg', '.jpeg')):
+        return 'image/jpeg'
+    if path_lower.endswith('.gif'):
+        return 'image/gif'
+    if path_lower.endswith('.svg'):
+        return 'image/svg+xml'
+    if path_lower.endswith('.ico'):
+        return 'image/x-icon'
+    
+    # Font files
+    if path_lower.endswith('.woff'):
+        return 'font/woff'
+    if path_lower.endswith('.woff2'):
+        return 'font/woff2'
+    if path_lower.endswith('.ttf'):
+        return 'font/ttf'
+    if path_lower.endswith('.eot'):
+        return 'application/vnd.ms-fontobject'
+    
+    # HTML files
+    if path_lower.endswith('.html'):
+        return 'text/html'
+    
+    # Default to octet-stream for unknown types
+    return 'application/octet-stream'
+
+
+def _inject_base_tag_in_html(html_content: bytes, base_url: str) -> bytes:
+    """
+    Inject a <base> tag into HTML content to fix relative URL resolution.
+    
+    This is needed for React SPAs that use relative paths for assets.
+    The <base> tag tells the browser where to resolve relative URLs from.
+    
+    Args:
+        html_content: HTML content as bytes
+        base_url: Base URL to inject (e.g., '/proxy/asreview/')
+        
+    Returns:
+        Modified HTML content as bytes
+    """
+    try:
+        # Decode HTML content - use 'replace' to handle invalid characters
+        html_str = html_content.decode('utf-8', errors='replace')
+        
+        # Check if base tag already exists
+        if '<base' in html_str.lower():
+            return html_content
+        
+        # Find the <head> tag and inject <base> right after it
+        # This ensures all relative URLs in the document are resolved from the proxy path
+        head_tag = '<head>'
+        head_index = html_str.lower().find(head_tag)
+        
+        if head_index != -1:
+            # Insert base tag after <head>
+            insert_pos = head_index + len(head_tag)
+            base_tag = f'\n    <base href="{base_url}">\n'
+            html_str = html_str[:insert_pos] + base_tag + html_str[insert_pos:]
+            return html_str.encode('utf-8')
+        
+        # If no <head> tag found, return original content
+        return html_content
+    
+    except Exception as e:
+        logger.warning(f"Failed to inject base tag in HTML: {e}")
+        return html_content
+
+
 @server.route('/proxy/asreview/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE'])
 @server.route('/proxy/asreview/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
 def proxy_asreview(path: str):
@@ -259,6 +362,8 @@ def proxy_asreview(path: str):
     - Forwards all HTTP methods (GET, POST, PUT, DELETE)
     - Preserves request headers, body, and query parameters
     - Returns ASReview response or appropriate error
+    - Handles HTML base tag injection for React SPA routing
+    - Sets proper Content-Type headers for static assets
     
     This allows the frontend to access ASReview service without CORS issues,
     similar to how PDF proxy works.
@@ -334,16 +439,44 @@ def proxy_asreview(path: str):
                     mimetype='application/json'
                 )
             
-            # Return ASReview response with filtered headers
-            # Filter out headers that can cause iframe issues or redirects
-            # Keep only safe headers for proxying
+            # Get content from response
+            content = response.content
+            
+            # Determine Content-Type
+            # First, try to get it from the response headers
+            content_type = response.headers.get('Content-Type', '').split(';')[0].strip()
+            
+            # If Content-Type is missing or incorrect (text/html for static files),
+            # determine it from the file extension
+            # Check if path looks like a static file (has extension in last path segment)
+            is_static_file = path and ('.' in path.split('/')[-1] if '/' in path else '.' in path)
+            if not content_type or (content_type == 'text/html' and is_static_file):
+                inferred_type = _get_content_type_from_path(path)
+                # Only override if we have a static file extension
+                if inferred_type != 'application/octet-stream':
+                    content_type = inferred_type
+                    logger.debug(f"Overriding Content-Type for {path}: {content_type}")
+            
+            # For HTML responses, inject base tag to fix relative URLs
+            if content_type.startswith('text/html') and flask_request.method == 'GET':
+                # Use the base path from the module-level import
+                base_path = f"{DASH_REQUESTS_PATHNAME_PREFIX}proxy/asreview/"
+                
+                # Inject base tag
+                content = _inject_base_tag_in_html(content, base_path)
+                logger.debug(f"Injected base tag with href='{base_path}'")
+            
+            # Filter out problematic headers
             safe_headers = {}
             for key, value in response.headers.items():
                 if key.lower() not in ASREVIEW_PROXY_FILTERED_HEADERS:
                     safe_headers[key] = value
             
+            # Set the correct Content-Type
+            safe_headers['Content-Type'] = content_type
+            
             return Response(
-                response.content,
+                content,
                 status=response.status_code,
                 headers=safe_headers
             )
