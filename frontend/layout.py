@@ -1007,7 +1007,31 @@ def get_layout():
                                                                 [
                                                                     dbc.Col(
                                                                         [
-                                                                            dbc.Label("Select Search Sources", style={"fontWeight": "bold"}),
+                                                                            dbc.Label(
+                                                                                [
+                                                                                    "Select Search Sources ",
+                                                                                    html.I(
+                                                                                        className="bi bi-info-circle-fill",
+                                                                                        id="sources-info-icon",
+                                                                                        style={"fontSize": "0.85rem", "color": "#6c757d", "cursor": "help"}
+                                                                                    ),
+                                                                                ],
+                                                                                style={"fontWeight": "bold"}
+                                                                            ),
+                                                                            dbc.Tooltip(
+                                                                                [
+                                                                                    html.Strong("Semantic Scholar:"), " AI2's open academic database. Supports natural language queries and has good coverage of CS/AI papers.",
+                                                                                    html.Br(), html.Br(),
+                                                                                    html.Strong("arXiv:"), " Preprint repository for physics, math, CS, etc. Best for recent research. Supports natural language.",
+                                                                                    html.Br(), html.Br(),
+                                                                                    html.Strong("Web of Science:"), " Comprehensive citation database. Supports advanced search syntax (e.g., TS=(topic) AND PY=(2020-2024)).",
+                                                                                    html.Br(), html.Br(),
+                                                                                    html.Strong("OpenAlex:"), " Free, open catalog of scholarly works. Good coverage across all disciplines."
+                                                                                ],
+                                                                                target="sources-info-icon",
+                                                                                placement="right",
+                                                                                style={"maxWidth": "450px"}
+                                                                            ),
                                                                             dbc.Checklist(
                                                                                 id="lit-search-sources",
                                                                                 options=[
@@ -1148,19 +1172,51 @@ def get_layout():
                                                                 [
                                                                     dbc.Col(
                                                                         [
-                                                                            dbc.Label("Pipeline Workflow Controls", style={"fontWeight": "bold"}),
+                                                                            dbc.Label(
+                                                                                [
+                                                                                    "Pipeline Workflow Controls ",
+                                                                                    html.I(
+                                                                                        className="bi bi-info-circle-fill",
+                                                                                        id="pipeline-info-icon",
+                                                                                        style={"fontSize": "0.85rem", "color": "#6c757d", "cursor": "help"}
+                                                                                    ),
+                                                                                ],
+                                                                                style={"fontWeight": "bold"}
+                                                                            ),
+                                                                            dbc.Tooltip(
+                                                                                [
+                                                                                    html.Strong("Query Expansion (AutoResearch):"), " Disabled by default to improve precision. Modern search engines handle semantic similarity internally.",
+                                                                                    html.Br(), html.Br(),
+                                                                                    html.Strong("Deduplication:"), " Removes duplicate papers using DOI and fuzzy title matching (85% similarity threshold).",
+                                                                                    html.Br(), html.Br(),
+                                                                                    html.Strong("Semantic Reranking (DELM):"), " Reorders results by abstract similarity to your query using AI embeddings."
+                                                                                ],
+                                                                                target="pipeline-info-icon",
+                                                                                placement="right",
+                                                                                style={"maxWidth": "400px"}
+                                                                            ),
                                                                             dbc.Checklist(
                                                                                 id="lit-search-pipeline-controls",
                                                                                 options=[
-                                                                                    {"label": " Query Expansion (AutoResearch)", "value": "query_expansion"},
-                                                                                    {"label": " Deduplication", "value": "deduplication"},
-                                                                                    {"label": " Semantic Reranking (DELM)", "value": "reranking"},
+                                                                                    {
+                                                                                        "label": " Query Expansion (AutoResearch) - Recommended: OFF",
+                                                                                        "value": "query_expansion",
+                                                                                        "disabled": False
+                                                                                    },
+                                                                                    {
+                                                                                        "label": " Deduplication - Recommended: ON",
+                                                                                        "value": "deduplication",
+                                                                                    },
+                                                                                    {
+                                                                                        "label": " Semantic Reranking (DELM) - Recommended: ON",
+                                                                                        "value": "reranking",
+                                                                                    },
                                                                                 ],
-                                                                                value=["query_expansion", "deduplication", "reranking"],  # All enabled by default
+                                                                                value=["deduplication", "reranking"],  # Query expansion OFF by default
                                                                                 className="mb-2",
                                                                             ),
                                                                             html.Small(
-                                                                                "Control which pipeline steps to execute. Disabling steps may speed up searches but affect result quality.",
+                                                                                "Control which pipeline steps to execute. Disabling deduplication or reranking may speed up searches but affect result quality.",
                                                                                 className="text-muted"
                                                                             ),
                                                                         ],
