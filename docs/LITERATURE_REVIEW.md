@@ -176,12 +176,59 @@ python3 launch_harvest.py
 
 ## Nginx Configuration (Optional)
 
-If using nginx proxy:
+### Option 1: HARVEST Proxies to ASReview (Recommended)
+
+This is the **recommended approach** where HARVEST's frontend proxy handles all ASReview communication:
 
 ```nginx
-# Add to nginx.conf
+# In your nginx configuration, just proxy to HARVEST
+location /harvest/ {
+    proxy_pass http://localhost:8050/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+Then configure HARVEST to connect directly to ASReview service:
+```python
+# In config.py
+ASREVIEW_SERVICE_URL = "http://asreview-host:5275"  # Direct connection
+```
+
+**How it works:**
+1. Browser requests `/harvest/proxy/asreview/...`
+2. Nginx forwards to HARVEST frontend
+3. HARVEST's `/proxy/asreview/` route forwards to ASReview service
+4. HARVEST handles MIME type correction and base path injection
+5. Browser receives correctly formatted responses
+
+**Advantages:**
+- ✅ HARVEST handles React SPA routing automatically
+- ✅ No additional nginx configuration needed for ASReview
+- ✅ Centralized proxy logic in HARVEST code
+- ✅ Works with ASReview on internal/private networks
+
+### Option 2: Nginx Proxies ASReview Directly (Advanced)
+
+If you need nginx to proxy ASReview directly (e.g., for load balancing):
+
+```nginx
+# Proxy HARVEST
+location /harvest/ {
+    proxy_pass http://localhost:8050/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+# Proxy ASReview service (if needed)
 location /asreview/ {
-    proxy_pass http://gpu-server:5275/;
+    proxy_pass http://asreview-host:5275/;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection 'upgrade';
@@ -190,13 +237,44 @@ location /asreview/ {
     proxy_connect_timeout 10s;
     proxy_send_timeout 300s;
     proxy_read_timeout 300s;
+    
+    # DO NOT use sub_filter for React SPA - HARVEST handles this
 }
 ```
 
 Then configure HARVEST:
 ```python
-ASREVIEW_SERVICE_URL = "https://yourdomain.com/asreview"
+# In config.py
+ASREVIEW_SERVICE_URL = "https://yourdomain.com/asreview"  # Via nginx
 ```
+
+**Note:** Even with this setup, HARVEST's proxy at `/harvest/proxy/asreview/` still handles the React SPA routing. This configuration is mainly useful if you need direct access to ASReview outside of HARVEST.
+
+### Troubleshooting Nginx Setup
+
+If ASReview doesn't load properly through nginx:
+
+1. **Check nginx logs** for errors:
+   ```bash
+   tail -f /var/log/nginx/error.log
+   ```
+
+2. **Verify proxy headers** are passed correctly:
+   ```bash
+   curl -I https://yourdomain.com/harvest/proxy/asreview/
+   ```
+
+3. **Test without nginx** to isolate the issue:
+   ```bash
+   # Access HARVEST directly
+   curl http://localhost:8050/proxy/asreview/
+   ```
+
+4. **Check Content-Type headers** for static files:
+   ```bash
+   curl -I https://yourdomain.com/harvest/proxy/asreview/static/js/main.xxx.js
+   # Should return: Content-Type: application/javascript
+   ```
 
 ## Performance Tips
 
@@ -1148,6 +1226,61 @@ Returns list of relevant papers.
 2. Be consistent in decision criteria
 3. Try different ML model type
 4. Ensure sufficient training data (>20 decisions)
+
+### MIME Type Errors / Static Files Not Loading
+
+**Symptom**: Browser console errors like:
+```
+Error: Could not establish connection. Receiving end does not exist.
+GET https://domain.com/static/js/main.xxx.js NS_ERROR_CORRUPTED_CONTENT
+The resource was blocked due to MIME type ("text/html") mismatch (X-Content-Type-Options: nosniff)
+```
+
+**Cause**: ASReview is a React Single Page Application (SPA) that serves static assets (JavaScript, CSS) from `/static/` paths. When proxied through HARVEST, these assets may:
+1. Be served with incorrect MIME types (e.g., `text/html` instead of `application/javascript`)
+2. Have incorrect base paths, causing the browser to request them from the wrong location
+
+**Solution**: This issue has been fixed in the HARVEST proxy implementation. The proxy now:
+1. **Detects correct MIME types** from file extensions (`.js`, `.css`, `.json`, etc.)
+2. **Injects `<base>` tag** into HTML responses to fix relative URL resolution
+3. **Overrides incorrect Content-Type headers** for static assets
+
+If you're still experiencing this issue after updating HARVEST:
+
+1. **Verify you have the latest version** with the proxy fix:
+   ```bash
+   cd /home/runner/work/HARVEST/HARVEST
+   git pull
+   ```
+
+2. **Clear browser cache** to remove cached responses:
+   - Open browser DevTools (F12)
+   - Right-click reload button → "Empty Cache and Hard Reload"
+   - Or use Incognito/Private mode
+
+3. **Check proxy configuration**:
+   - Ensure `ASREVIEW_SERVICE_URL` is correct in config.py
+   - If using nginx, verify the proxy configuration passes all requests correctly
+
+4. **Verify ASReview service** is returning correct responses:
+   ```bash
+   # Test direct access to ASReview (should return HTML)
+   curl -i http://asreview-host:5275/
+   
+   # Test static file directly (should return JavaScript)
+   curl -i http://asreview-host:5275/static/js/main.xxx.js
+   ```
+
+5. **Check HARVEST logs** for proxy errors:
+   ```bash
+   tail -f harvest.log | grep -i "asreview\|proxy"
+   ```
+
+**Technical Details**:
+- HARVEST's `/proxy/asreview/` route now handles React SPA routing properly
+- HTML responses receive a `<base href="/proxy/asreview/">` tag injection
+- Static assets (.js, .css, .json, fonts, images) have their Content-Type corrected
+- This allows ASReview to load correctly within HARVEST's iframe
 
 ## Security Considerations
 
