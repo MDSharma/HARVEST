@@ -23,7 +23,9 @@ Welcome to the HARVEST (Human-in-the-loop Actionable Research and Vocabulary Ext
 ### Legal & Compliance
 - **[GDPR Privacy Policy](GDPR_PRIVACY.md)** - Privacy policy and data protection compliance
 
-### Configuration
+### Configuration & Maintenance
+- **[Schema Update Guide](SCHEMA_UPDATE_GUIDE.md)** - Update database schema when new entity/relation types are added
+- **[Schema Update Quickstart](SCHEMA_UPDATE_QUICKSTART.md)** - Quick reference for fixing dropdown issues
 - **[nginx Configuration Example](nginx.conf.example)** - Sample nginx configuration for reverse proxy deployment
 
 ## 🏗️ Architecture Overview

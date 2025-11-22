@@ -46,13 +46,24 @@ python3 migrate_db_v2.py
 ```
 This will safely update your database schema while preserving existing data.
 
+4. **Update schema types** (entity types and relation types):
+```bash
+python3 update_schema_types.py
+```
+This ensures your database has all the latest entity types and relation types for the annotation dropdowns. See **[SCHEMA_UPDATE_GUIDE.md](docs/SCHEMA_UPDATE_GUIDE.md)** for details.
+
 **Note**: The migration will:
 - Remove redundant article metadata fields (title, authors, year) from the doi_metadata table
 - Remove contributor_email from sentences table (tracked at triple level)
 - Add `project_id` column to triples table for project association
 - Add new tables for projects and admin authentication
 
-**Important**: After upgrading, make sure to run the migration script before starting the application to avoid database errors.
+The schema update will:
+- Add any new entity types (e.g., Metabolite, Coordinates) to the database
+- Add any new relation types (e.g., may_influence, contributes_to) to the database
+- Ensure dropdowns show all available annotation options
+
+**Important**: After upgrading, make sure to run both scripts before starting the application to avoid missing dropdown options or database errors.
 
 ## Running the Application
 
