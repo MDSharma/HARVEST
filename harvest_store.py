@@ -589,6 +589,10 @@ def delete_project(db_path: str, project_id: int) -> bool:
     cur = conn.cursor()
     
     try:
+        # Temporarily disable autocommit for transactional delete
+        # (get_conn uses isolation_level=None which is autocommit mode)
+        conn.isolation_level = "DEFERRED"
+        
         # Begin explicit transaction
         conn.execute("BEGIN TRANSACTION;")
         
@@ -609,13 +613,13 @@ def delete_project(db_path: str, project_id: int) -> bool:
         cur.execute("DELETE FROM projects WHERE id = ?;", (project_id,))
         
         # Commit transaction
-        conn.execute("COMMIT;")
+        conn.commit()
         conn.close()
         return True
     except Exception as e:
         # Rollback on failure to prevent inconsistent database state
         try:
-            conn.execute("ROLLBACK;")
+            conn.rollback()
         except Exception:
             pass
         print(f"Failed to delete project: {e}")
