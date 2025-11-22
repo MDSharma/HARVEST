@@ -1200,8 +1200,7 @@ def get_layout():
                                                                                 options=[
                                                                                     {
                                                                                         "label": " Query Expansion (AutoResearch) - Recommended: OFF",
-                                                                                        "value": "query_expansion",
-                                                                                        "disabled": False
+                                                                                        "value": "query_expansion"
                                                                                     },
                                                                                     {
                                                                                         "label": " Deduplication - Recommended: ON",

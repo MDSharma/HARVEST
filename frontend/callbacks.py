@@ -829,11 +829,11 @@ def sort_and_filter_results(sort_by, filter_source, all_papers):
     if sort_by == "citations_desc":
         filtered_papers = sorted(filtered_papers, key=lambda x: x.get('citations', 0), reverse=True)
     elif sort_by == "year_desc":
-        # Sort by year, treating None/missing as 0 (oldest)
-        filtered_papers = sorted(filtered_papers, key=lambda x: x.get('year') if x.get('year') is not None else 0, reverse=True)
+        # Sort by year, treating None/missing as -1 (very old) so they appear at the bottom when sorting newest first
+        filtered_papers = sorted(filtered_papers, key=lambda x: x.get('year') if x.get('year') is not None else -1, reverse=True)
     elif sort_by == "year_asc":
-        # Sort by year, treating None/missing as 0 (oldest)
-        filtered_papers = sorted(filtered_papers, key=lambda x: x.get('year') if x.get('year') is not None else 0)
+        # Sort by year, treating None/missing as -1 (very old) so they appear at the top when sorting oldest first
+        filtered_papers = sorted(filtered_papers, key=lambda x: x.get('year') if x.get('year') is not None else -1)
     # else: keep relevance order (original search order)
     
     # Re-render the paper cards with new order using helper function
