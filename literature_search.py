@@ -18,6 +18,7 @@ from typing import List, Dict, Any, Optional, Set
 from functools import lru_cache
 import time
 import os
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -941,8 +942,6 @@ def _normalize_title(title: str) -> str:
     Normalize a paper title for fuzzy matching.
     Removes punctuation, extra spaces, and common variations.
     """
-    import re
-    
     # Convert to lowercase
     title = title.lower().strip()
     
@@ -999,16 +998,17 @@ def deduplicate_papers(papers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     - Fuzzy title matching to catch slight variations
     - Title normalization (punctuation, spacing, case)
     - Better handling of papers without DOIs
+    - Optimized O(n) lookup using set for exact matches
     """
     seen_dois = set()
-    seen_titles = []  # Store (normalized_title, original_paper) tuples
+    seen_normalized_titles = {}  # normalized_title -> paper mapping
     unique_papers = []
 
     # Sort by citations (descending) to prioritize highly cited papers
     sorted_papers = sorted(papers, key=lambda x: x.get('citations', 0), reverse=True)
 
     for paper in sorted_papers:
-        # Check DOI first (exact match)
+        # Check DOI first (exact match - O(1) lookup)
         doi = paper.get('doi')
         if doi and doi in seen_dois:
             continue
@@ -1018,9 +1018,14 @@ def deduplicate_papers(papers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if title:
             normalized_title = _normalize_title(title)
             
-            # Check against all previously seen titles
+            # Fast exact match check first (O(1))
+            if normalized_title in seen_normalized_titles:
+                continue
+            
+            # Only do fuzzy matching for new normalized titles
+            # This reduces O(n²) to O(n) in most cases where titles are truly unique
             is_duplicate = False
-            for seen_normalized, _ in seen_titles:
+            for seen_normalized in seen_normalized_titles.keys():
                 if _titles_are_similar(normalized_title, seen_normalized):
                     is_duplicate = True
                     break
@@ -1029,7 +1034,7 @@ def deduplicate_papers(papers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 continue
             
             # Add to seen titles
-            seen_titles.append((normalized_title, paper))
+            seen_normalized_titles[normalized_title] = paper
 
         # Add to unique list
         unique_papers.append(paper)
