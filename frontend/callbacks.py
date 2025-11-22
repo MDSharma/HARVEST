@@ -27,16 +27,28 @@ from frontend import (
     API_ADMIN_TRIPLE, 
     SCHEMA_JSON, OTHER_SENTINEL, EMAIL_HASH_SALT,
     ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING, ENABLE_LITERATURE_REVIEW,
-    DASH_REQUESTS_PATHNAME_PREFIX, PORT, ASREVIEW_SERVICE_URL
+    DASH_REQUESTS_PATHNAME_PREFIX, PORT, ASREVIEW_SERVICE_URL,
+    ENABLE_DEBUG_LOGGING
 )
 
 # Import layout utilities
-from frontend.layout import create_execution_log_display
+from frontend.layout import (
+    create_execution_log_display,
+    triple_row,
+    build_entity_options,
+    build_relation_options
+)
 
 # Import literature search module
 import literature_search
 
 logger = logging.getLogger(__name__)
+
+# Configure logging level based on debug setting
+if ENABLE_DEBUG_LOGGING:
+    logging.basicConfig(level=logging.DEBUG)
+    logger.setLevel(logging.DEBUG)
+    logger.debug("DEBUG LOGGING ENABLED - This will generate verbose logs!")
 
 # Rate limiting state for data fetches
 _last_fetch_times = {
@@ -324,15 +336,10 @@ def resend_otp_code(n_clicks, otp_data):
     Output("lit-search-auth-required", "style"),
     Output("lit-search-content", "style"),
     Input("admin-auth-store", "data"),
-    Input("main-tabs", "value"),
     prevent_initial_call=False,
 )
-def check_lit_search_auth(auth_data, active_tab):
+def check_lit_search_auth(auth_data):
     """Check if user is authenticated via Admin panel and show/hide Literature Search content"""
-    # Only apply when Literature Search tab is active
-    if active_tab != "tab-literature":
-        return no_update, no_update
-    
     if auth_data and ("email" in auth_data or "token" in auth_data):
         # User is authenticated, show search content and hide auth required message
         return {"display": "none"}, {"display": "block"}
@@ -346,15 +353,10 @@ def check_lit_search_auth(auth_data, active_tab):
     Output("lit-review-auth-required", "style"),
     Output("lit-review-auth-content", "style"),
     Input("admin-auth-store", "data"),
-    Input("main-tabs", "value"),
     prevent_initial_call=False,
 )
-def check_lit_review_auth(auth_data, active_tab):
+def check_lit_review_auth(auth_data):
     """Check if user is authenticated via Admin panel and show/hide Literature Review content"""
-    # Only apply when Literature Review tab is active
-    if active_tab != "tab-literature-review":
-        return no_update, no_update
-    
     if auth_data and ("email" in auth_data or "token" in auth_data):
         # User is authenticated, show review content and hide auth required message
         return {"display": "none"}, {"display": "block"}
@@ -1590,7 +1592,7 @@ def load_projects(load_trigger, create_click, tab_value):
     Output("project-doi-selector", "disabled"),
     Input("project-selector", "value"),
     State("projects-store", "data"),
-    prevent_initial_call=True,
+    prevent_initial_call=False,
 )
 def show_project_info(project_id, projects):
     if not project_id or not projects:
@@ -1616,9 +1618,30 @@ def show_project_info(project_id, projects):
     except Exception as e:
         logger.error(f"Failed to check for batches: {e}")
     
-    # No batches - populate DOI dropdown directly
-    doi_list = project.get("doi_list", [])
-    doi_options = [{"label": doi, "value": doi} for doi in doi_list]
+    # No batches - populate DOI dropdown directly with PDF indicators
+    try:
+        # Fetch DOI list with PDF indicators
+        response = requests.get(f"{API_BASE}/api/projects/{project_id}/dois-with-pdfs", timeout=5)
+        if response.ok:
+            data = response.json()
+            dois_with_pdfs = data.get("dois", [])
+            # Add 📄 emoji for DOIs that have PDFs
+            doi_options = [
+                {
+                    "label": f"{item['doi']} 📄" if item.get("has_pdf") else item['doi'],
+                    "value": item['doi']
+                }
+                for item in dois_with_pdfs
+            ]
+        else:
+            # Fallback to simple list if API fails
+            doi_list = project.get("doi_list", [])
+            doi_options = [{"label": doi, "value": doi} for doi in doi_list]
+    except Exception as e:
+        logger.error(f"Failed to fetch DOI PDF indicators: {e}")
+        # Fallback to simple list
+        doi_list = project.get("doi_list", [])
+        doi_options = [{"label": doi, "value": doi} for doi in doi_list]
     
     return info_text, doi_options, False
 
@@ -2070,7 +2093,7 @@ def create_project_callback(n_clicks, name, description, doi_list_text, auth_dat
     Input("btn-refresh-projects", "n_clicks"),
     Input("project-message", "children"),  # Trigger refresh when project message changes
     Input("delete-project-confirm", "n_clicks"),
-    State("admin-auth-store", "data"),
+    Input("admin-auth-store", "data"),  # Trigger refresh when auth changes
     prevent_initial_call=False,
 )
 def display_projects_list(refresh_clicks, project_message, delete_clicks, auth_data):
@@ -2105,6 +2128,8 @@ def display_projects_list(refresh_clicks, project_message, delete_clicks, auth_d
                                     [
                                         dbc.Button("View DOIs", id={"type": "view-project-dois", "index": p["id"]}, 
                                                  color="info", size="sm", outline=True),
+                                        dbc.Button("Edit DOIs", id={"type": "edit-project-dois", "index": p["id"]}, 
+                                                 color="primary", size="sm", outline=True),
                                         dbc.Button("Download PDFs", id={"type": "download-project-pdfs", "index": p["id"]}, 
                                                  color="success", size="sm", outline=True),
                                         dbc.Button("Upload PDFs", id={"type": "upload-project-pdfs", "index": p["id"]}, 
@@ -2161,6 +2186,170 @@ def view_project_dois(n_clicks_list, projects):
         color="info",
         dismissable=True,
     )
+
+# Handle Edit DOIs button click - Open modal and populate with project data
+@app.callback(
+    Output("edit-dois-modal", "is_open"),
+    Output("edit-dois-project-id-store", "data"),
+    Output("edit-dois-project-info", "children"),
+    Output("edit-dois-current-list", "children"),
+    Output("edit-dois-add-input", "value"),
+    Output("edit-dois-remove-input", "value"),
+    Output("edit-dois-delete-pdfs", "value"),
+    Output("edit-dois-message", "children"),
+    Input({"type": "edit-project-dois", "index": ALL}, "n_clicks"),
+    Input("edit-dois-modal-close", "n_clicks"),
+    Input("btn-add-dois-to-project", "n_clicks"),
+    Input("btn-remove-dois-from-project", "n_clicks"),
+    State("projects-store", "data"),
+    State("edit-dois-modal", "is_open"),
+    State("edit-dois-project-id-store", "data"),
+    State("edit-dois-add-input", "value"),
+    State("edit-dois-remove-input", "value"),
+    State("edit-dois-delete-pdfs", "value"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def handle_edit_dois_modal(edit_clicks_list, close_clicks, add_clicks, remove_clicks, 
+                           projects, is_open, current_project_id, add_input, remove_input, 
+                           delete_pdfs, auth_data):
+    """Handle opening/closing the edit DOIs modal and performing add/remove operations"""
+    trigger = ctx.triggered_id
+    
+    # Close modal
+    if trigger == "edit-dois-modal-close":
+        return False, None, "", "", "", "", False, ""
+    
+    # Open modal with project data
+    if trigger and isinstance(trigger, dict) and trigger.get("type") == "edit-project-dois":
+        if not any(edit_clicks_list) or not projects:
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        
+        project_id = trigger["index"]
+        project = next((p for p in projects if p["id"] == project_id), None)
+        
+        if not project:
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        
+        doi_list = project.get("doi_list", [])
+        doi_items = [html.Div(f"• {doi}", className="small") for doi in doi_list]
+        
+        project_info = dbc.Alert([
+            html.Strong(f"Project: {project['name']}"),
+            html.Br(),
+            html.Small(f"ID: {project['id']} | Total DOIs: {len(doi_list)}")
+        ], color="info")
+        
+        return True, project_id, project_info, doi_items, "", "", False, ""
+    
+    # Add DOIs
+    if trigger == "btn-add-dois-to-project":
+        if not auth_data or not current_project_id or not add_input:
+            return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                   dbc.Alert("Missing authentication or DOI input", color="danger")
+        
+        # Parse DOIs from input
+        dois_to_add = [doi.strip() for doi in add_input.strip().split('\n') if doi.strip()]
+        
+        if not dois_to_add:
+            return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                   dbc.Alert("No valid DOIs to add", color="warning")
+        
+        try:
+            payload = {
+                "email": auth_data.get("email"),
+                "password": auth_data.get("password"),
+                "dois": dois_to_add
+            }
+            r = requests.post(f"{API_ADMIN_PROJECTS}/{current_project_id}/add-dois", json=payload, timeout=10)
+            
+            if r.ok:
+                result = r.json()
+                # Refresh project list
+                projects_r = requests.get(API_PROJECTS, timeout=5)
+                if projects_r.ok:
+                    updated_projects = projects_r.json()
+                    updated_project = next((p for p in updated_projects if p["id"] == current_project_id), None)
+                    if updated_project:
+                        doi_list = updated_project.get("doi_list", [])
+                        doi_items = [html.Div(f"• {doi}", className="small") for doi in doi_list]
+                        
+                        project_info = dbc.Alert([
+                            html.Strong(f"Project: {updated_project['name']}"),
+                            html.Br(),
+                            html.Small(f"ID: {updated_project['id']} | Total DOIs: {len(doi_list)}")
+                        ], color="info")
+                        
+                        return True, current_project_id, project_info, doi_items, "", no_update, no_update, \
+                               dbc.Alert(result.get("message", "DOIs added successfully"), color="success", dismissable=True)
+                
+                return True, current_project_id, no_update, no_update, "", no_update, no_update, \
+                       dbc.Alert(result.get("message", "DOIs added successfully"), color="success", dismissable=True)
+            else:
+                error_msg = r.json().get("error", f"Failed: {r.status_code}")
+                return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                       dbc.Alert(f"Error: {error_msg}", color="danger", dismissable=True)
+        except Exception as e:
+            return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                   dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True)
+    
+    # Remove DOIs
+    if trigger == "btn-remove-dois-from-project":
+        if not auth_data or not current_project_id or not remove_input:
+            return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                   dbc.Alert("Missing authentication or DOI input", color="danger")
+        
+        # Parse DOIs from input
+        dois_to_remove = [doi.strip() for doi in remove_input.strip().split('\n') if doi.strip()]
+        
+        if not dois_to_remove:
+            return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                   dbc.Alert("No valid DOIs to remove", color="warning")
+        
+        try:
+            payload = {
+                "email": auth_data.get("email"),
+                "password": auth_data.get("password"),
+                "dois": dois_to_remove,
+                "delete_pdfs": delete_pdfs
+            }
+            r = requests.post(f"{API_ADMIN_PROJECTS}/{current_project_id}/remove-dois", json=payload, timeout=10)
+            
+            if r.ok:
+                result = r.json()
+                # Refresh project list
+                projects_r = requests.get(API_PROJECTS, timeout=5)
+                if projects_r.ok:
+                    updated_projects = projects_r.json()
+                    updated_project = next((p for p in updated_projects if p["id"] == current_project_id), None)
+                    if updated_project:
+                        doi_list = updated_project.get("doi_list", [])
+                        doi_items = [html.Div(f"• {doi}", className="small") for doi in doi_list]
+                        
+                        project_info = dbc.Alert([
+                            html.Strong(f"Project: {updated_project['name']}"),
+                            html.Br(),
+                            html.Small(f"ID: {updated_project['id']} | Total DOIs: {len(doi_list)}")
+                        ], color="info")
+                        
+                        message = result.get("message", "DOIs removed successfully")
+                        if result.get("deleted_pdfs", 0) > 0:
+                            message += f" | {result['deleted_pdfs']} PDF(s) deleted"
+                        
+                        return True, current_project_id, project_info, doi_items, no_update, "", False, \
+                               dbc.Alert(message, color="success", dismissable=True)
+                
+                return True, current_project_id, no_update, no_update, no_update, "", False, \
+                       dbc.Alert(result.get("message", "DOIs removed successfully"), color="success", dismissable=True)
+            else:
+                error_msg = r.json().get("error", f"Failed: {r.status_code}")
+                return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                       dbc.Alert(f"Error: {error_msg}", color="danger", dismissable=True)
+        except Exception as e:
+            return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                   dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True)
+    
+    return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
 # Handle Download PDFs button click - Start download and enable progress polling
 @app.callback(
@@ -2241,18 +2430,26 @@ def start_download_project_pdfs(n_clicks_list, auth_data):
     Output("pdf-download-progress-container", "children", allow_duplicate=True),
     Output("pdf-download-progress-interval", "disabled", allow_duplicate=True),
     Output("pdf-download-project-id", "data", allow_duplicate=True),
+    Output("pdf-download-state-store", "data", allow_duplicate=True),
     Input("pdf-download-progress-interval", "n_intervals"),
     State("pdf-download-project-id", "data"),
     State("admin-auth-store", "data"),
+    State("pdf-download-state-store", "data"),
     prevent_initial_call=True,
 )
-def poll_pdf_download_progress(n_intervals, project_id, auth_data):
-    """Poll the backend for PDF download progress"""
-    if not project_id:
-        return no_update, no_update, no_update
+def poll_pdf_download_progress(n_intervals, project_id, auth_data, download_state):
+    """Poll the backend for PDF download progress - persists across refresh"""
+    # Use stored project_id if current one is None (after refresh)
+    if not project_id and download_state and download_state.get("project_id"):
+        project_id = download_state.get("project_id")
     
-    if not auth_data:
-        return no_update, True, None  # Disable polling if not authenticated
+    if not project_id:
+        return no_update, no_update, no_update, no_update
+    
+    # Continue polling even without auth if we have a stored download state
+    # (download was started before logout/refresh)
+    if not auth_data and not (download_state and download_state.get("active")):
+        return no_update, True, None, None  # Disable polling if not authenticated and no active download
     
     print(f"[Frontend] PDF Download: Polling progress for project {project_id} (interval {n_intervals})")
     
@@ -2266,11 +2463,11 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data):
         if r.status_code == 404:
             # Not started or no progress info
             print(f"[Frontend] PDF Download: No progress info for project {project_id}")
-            return no_update, True, None  # Disable polling
+            return no_update, True, None, None  # Disable polling and clear state
         
         if not r.ok:
             print(f"[Frontend] PDF Download: Error fetching progress - {r.status_code}")
-            return no_update, no_update, no_update  # Keep polling
+            return no_update, no_update, no_update, no_update  # Keep polling
         
         data = r.json()
         status = data.get("status")
@@ -2280,6 +2477,15 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data):
         current_source = data.get("current_source", "")
         
         print(f"[Frontend] PDF Download: Status={status}, Progress={current}/{total}, Source={current_source}")
+        
+        # Update download state to persist across refresh
+        new_download_state = {
+            "project_id": project_id,
+            "active": status == "running",
+            "status": status,
+            "current": current,
+            "total": total
+        }
         
         if status == "running":
             # Show progress
@@ -2352,7 +2558,7 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data):
                 color="info",
                 dismissable=False
             )
-            return progress_message, False, project_id  # Keep polling
+            return progress_message, False, project_id, new_download_state  # Keep polling
         
         elif status == "completed":
             print(f"[Frontend] PDF Download: Completed!")
@@ -2408,21 +2614,21 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data):
             report_items.append(html.Hr())
             report_items.append(html.P(f"PDFs stored in: {data.get('project_dir', 'N/A')}", className="small text-muted"))
             
-            return dbc.Alert(report_items, color="success", dismissable=True), True, None  # Disable polling
+            return dbc.Alert(report_items, color="success", dismissable=True), True, None, None  # Disable polling, clear state
         
         elif status == "error":
             error_message = data.get("error_message", "Unknown error")
             print(f"[Frontend] PDF Download: Error - {error_message}")
-            return dbc.Alert(f"Download error: {error_message}", color="danger", dismissable=True), True, None  # Disable polling
+            return dbc.Alert(f"Download error: {error_message}", color="danger", dismissable=True), True, None, None  # Disable polling, clear state
         
         else:
             # Unknown status
-            return no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update
             
     except Exception as e:
         print(f"[Frontend] PDF Download: Error polling - {str(e)}")
         # Don't disable polling on error, might be temporary
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
 
 
 # Handle Delete project button click - opens modal
@@ -3158,6 +3364,74 @@ def export_triples_callback(n_clicks, auth_data):
 #  - Running with: python -B harvest_fe.py (disables bytecode generation)
 #  - Setting: export PYTHONDONTWRITEBYTECODE=1 (prevents .pyc creation)
 #  - Using systemd service with proper restart policies
+
+# COMPATIBILITY CALLBACK: Handle legacy markdown reload requests from cached browsers
+# This prevents KeyError when browsers with old cached JavaScript try to trigger
+# the removed markdown reload callback. This callback does nothing and can be
+# safely removed after all users have refreshed their browser cache (e.g., after a few weeks).
+@app.callback(
+    Output("annotator-guide-content", "children"),
+    Output("schema-tab-content", "children"),
+    Output("admin-guide-content", "children"),
+    Output("dbmodel-tab-content", "children"),
+    Output("participate-tab-content", "children"),
+    Input("load-trigger", "n_intervals"),
+    prevent_initial_call=True,
+)
+def handle_legacy_markdown_reload_request_5(n):
+    """
+    Compatibility callback to gracefully handle legacy markdown reload requests (5 outputs).
+    Old versions of the frontend had a markdown-reload-interval that would trigger
+    updates to these 5 markdown content divs. Even though that component is removed,
+    browsers with cached JavaScript may still try to trigger this callback.
+    
+    This callback catches those requests and returns no_update, preventing KeyError.
+    Once all users have cleared their browser cache, this callback can be removed.
+    """
+    if ENABLE_DEBUG_LOGGING:
+        logger.debug("Legacy markdown reload request caught (5 outputs) - returning no_update")
+    # Always return no_update - markdown is loaded once at startup
+    return no_update, no_update, no_update, no_update, no_update
+
+
+# COMPATIBILITY CALLBACK: Handle legacy markdown reload with 4 outputs (variant)
+# Some cached browser versions may request only 4 of the 5 markdown divs
+@app.callback(
+    Output("annotator-guide-content", "children", allow_duplicate=True),
+    Output("schema-tab-content", "children", allow_duplicate=True),
+    Output("admin-guide-content", "children", allow_duplicate=True),
+    Output("dbmodel-tab-content", "children", allow_duplicate=True),
+    Input("load-trigger", "n_intervals"),
+    prevent_initial_call=True,
+)
+def handle_legacy_markdown_reload_request_4(n):
+    """
+    Compatibility callback for legacy markdown reload with only 4 outputs.
+    This handles a different variant of the cached callback that may exist in some browsers.
+    """
+    if ENABLE_DEBUG_LOGGING:
+        logger.debug("Legacy markdown reload request caught (4 outputs variant 1) - returning no_update")
+    return no_update, no_update, no_update, no_update
+
+
+# COMPATIBILITY CALLBACK: Handle legacy markdown reload with 4 outputs (variant 2)
+# Another cached browser variant that requests the same 4 outputs with different trigger
+@app.callback(
+    Output("annotator-guide-content", "children", allow_duplicate=True),
+    Output("schema-tab-content", "children", allow_duplicate=True),
+    Output("admin-guide-content", "children", allow_duplicate=True),
+    Output("dbmodel-tab-content", "children", allow_duplicate=True),
+    Input("main-tabs", "value"),
+    prevent_initial_call=True,
+)
+def handle_legacy_markdown_reload_request_4_v2(tab_value):
+    """
+    Compatibility callback for legacy markdown reload with only 4 outputs (variant 2).
+    This handles yet another variant that triggers on tab changes.
+    """
+    if ENABLE_DEBUG_LOGGING:
+        logger.debug("Legacy markdown reload request caught (4 outputs variant 2) - returning no_update")
+    return no_update, no_update, no_update, no_update
 
 
 # Callback to save browse field configuration

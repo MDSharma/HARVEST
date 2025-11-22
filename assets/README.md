@@ -1,6 +1,17 @@
 # Assets Directory
 
-This directory contains static files served by the Dash application.
+This directory contains static files and documentation served by the HARVEST application.
+
+## Documentation Files
+
+### User Guides
+- `annotator_guide.md` - Guide for end users/annotators
+- `admin_guide.md` - Guide for administrators
+- `db_model.md` - Database schema documentation
+- `schema.md` - Entity types and relation types schema
+
+### Configuration
+- Logo files and static assets are configured in `config.py`
 
 ## Partner Institution Logos
 

@@ -49,8 +49,12 @@ from harvest_store import (
 try:
     from config import (
         DB_PATH, BE_PORT as PORT, HOST, ENABLE_PDF_HIGHLIGHTING,
-        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, ENABLE_ENHANCED_PDF_DOWNLOAD
+        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, ENABLE_ENHANCED_PDF_DOWNLOAD,
+        NCBI_API_KEY
     )
+    # Set NCBI_API_KEY as environment variable for metapub if defined
+    if NCBI_API_KEY:
+        os.environ['NCBI_API_KEY'] = NCBI_API_KEY
 except ImportError:
     # Fallback to environment variables if config.py doesn't exist
     DB_PATH = os.environ.get("HARVEST_DB", "harvest.db")
@@ -60,6 +64,7 @@ except ImportError:
     DEPLOYMENT_MODE = os.environ.get("HARVEST_DEPLOYMENT_MODE", "internal")
     BACKEND_PUBLIC_URL = os.environ.get("HARVEST_BACKEND_PUBLIC_URL", "")
     ENABLE_ENHANCED_PDF_DOWNLOAD = False  # Default to standard PDF download
+    NCBI_API_KEY = ""
 
 # Setup logging first
 logger = logging.getLogger(__name__)
@@ -552,6 +557,15 @@ def create_new_project():
     if not doi_list or not isinstance(doi_list, list):
         return jsonify({"error": "DOI list is required and must be an array"}), 400
 
+    # Normalize DOIs to lowercase and remove duplicates
+    normalized_dois = {}
+    for doi in doi_list:
+        doi_normalized = doi.strip().lower()
+        if doi_normalized:  # Skip empty strings
+            normalized_dois[doi_normalized] = doi_normalized
+    
+    doi_list = list(normalized_dois.values())
+
     project_id = create_project(DB_PATH, name, description, doi_list, email)
     
     if project_id > 0:
@@ -614,6 +628,15 @@ def update_existing_project(project_id: int):
     name = payload.get("name")
     description = payload.get("description")
     doi_list = payload.get("doi_list")
+    
+    # Normalize DOI list to lowercase if provided
+    if doi_list is not None and isinstance(doi_list, list):
+        normalized_dois = {}
+        for doi in doi_list:
+            doi_normalized = doi.strip().lower()
+            if doi_normalized:  # Skip empty strings
+                normalized_dois[doi_normalized] = doi_normalized
+        doi_list = list(normalized_dois.values())
 
     success = update_project(DB_PATH, project_id, name, description, doi_list)
     
@@ -621,6 +644,236 @@ def update_existing_project(project_id: int):
         return jsonify({"ok": True, "message": "Project updated successfully"})
     else:
         return jsonify({"error": "Failed to update project or project not found"}), 404
+
+@app.post("/api/admin/validate-dois")
+def validate_dois():
+    """
+    Validate DOIs via CrossRef API (admin only).
+    Expected JSON: { 
+        "email": "admin@example.com", 
+        "password": "secret",
+        "dois": ["10.1234/example1", "10.1234/example2", ...]
+    }
+    Returns: {
+        "valid": [...],  // List of valid DOIs
+        "invalid": [{"doi": "...", "reason": "..."}]  // List of invalid DOIs with reasons
+    }
+    """
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    email = (payload.get("email") or "").strip()
+    password = payload.get("password") or ""
+    dois = payload.get("dois", [])
+
+    if not email or not password:
+        return jsonify({"error": "Admin authentication required"}), 401
+
+    # Verify admin credentials
+    if not (verify_admin_password(DB_PATH, email, password) or is_admin_user(email)):
+        return jsonify({"error": "Invalid admin credentials"}), 403
+
+    if not isinstance(dois, list) or not dois:
+        return jsonify({"error": "dois must be a non-empty list"}), 400
+
+    import requests
+    import time
+    
+    valid_dois = []
+    invalid_dois = []
+    
+    for doi in dois:
+        doi = doi.strip()
+        if not doi:
+            continue
+            
+        try:
+            # Check DOI via CrossRef API
+            url = f"https://api.crossref.org/works/{doi}"
+            response = requests.get(url, timeout=5)
+            
+            if response.status_code == 200:
+                valid_dois.append(doi)
+            elif response.status_code == 404:
+                invalid_dois.append({"doi": doi, "reason": "DOI not found in CrossRef database"})
+            else:
+                invalid_dois.append({"doi": doi, "reason": f"HTTP {response.status_code}"})
+        except requests.exceptions.Timeout:
+            invalid_dois.append({"doi": doi, "reason": "Request timeout"})
+        except requests.exceptions.RequestException as e:
+            invalid_dois.append({"doi": doi, "reason": f"Network error: {str(e)}"})
+        except Exception as e:
+            invalid_dois.append({"doi": doi, "reason": f"Error: {str(e)}"})
+        
+        # Rate limit: be nice to CrossRef API
+        time.sleep(0.05)  # 50ms delay between requests
+    
+    return jsonify({
+        "valid": valid_dois,
+        "invalid": invalid_dois
+    })
+
+@app.post("/api/admin/projects/<int:project_id>/add-dois")
+def add_dois_to_project(project_id: int):
+    """
+    Add DOIs to an existing project (admin only).
+    Expected JSON: { 
+        "email": "admin@example.com", 
+        "password": "secret",
+        "dois": ["10.1234/example1", "10.1234/example2", ...]
+    }
+    """
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    email = (payload.get("email") or "").strip()
+    password = payload.get("password") or ""
+    new_dois = payload.get("dois", [])
+
+    if not email or not password:
+        return jsonify({"error": "Admin authentication required"}), 401
+
+    # Verify admin credentials
+    if not (verify_admin_password(DB_PATH, email, password) or is_admin_user(email)):
+        return jsonify({"error": "Invalid admin credentials"}), 403
+
+    if not isinstance(new_dois, list) or not new_dois:
+        return jsonify({"error": "dois must be a non-empty list"}), 400
+
+    # Get current project
+    project = get_project_by_id(DB_PATH, project_id)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+
+    # Get current DOI list (already normalized to lowercase in storage)
+    current_dois = project.get("doi_list", [])
+    
+    # Normalize new DOIs to lowercase
+    normalized_new_dois = set()
+    for doi in new_dois:
+        doi_normalized = doi.strip().lower()
+        if doi_normalized:  # Skip empty strings
+            normalized_new_dois.add(doi_normalized)
+    
+    # Create set of existing DOIs for deduplication
+    existing_dois_set = set(current_dois)
+    
+    # Add only new DOIs (avoid duplicates)
+    updated_dois = list(existing_dois_set | normalized_new_dois)
+    added_count = len(updated_dois) - len(current_dois)
+
+    # Update project with new DOI list
+    success = update_project(DB_PATH, project_id, doi_list=updated_dois)
+    
+    if success:
+        return jsonify({
+            "ok": True, 
+            "message": f"Added {added_count} new DOIs to project",
+            "total_dois": len(updated_dois)
+        })
+    else:
+        return jsonify({"error": "Failed to update project"}), 500
+
+@app.post("/api/admin/projects/<int:project_id>/remove-dois")
+def remove_dois_from_project(project_id: int):
+    """
+    Remove DOIs from an existing project (admin only).
+    Expected JSON: { 
+        "email": "admin@example.com", 
+        "password": "secret",
+        "dois": ["10.1234/example1", "10.1234/example2", ...],
+        "delete_pdfs": true/false  (optional, default: false)
+    }
+    """
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    email = (payload.get("email") or "").strip()
+    password = payload.get("password") or ""
+    dois_to_remove = payload.get("dois", [])
+    delete_pdfs = payload.get("delete_pdfs", False)
+
+    if not email or not password:
+        return jsonify({"error": "Admin authentication required"}), 401
+
+    # Verify admin credentials
+    if not (verify_admin_password(DB_PATH, email, password) or is_admin_user(email)):
+        return jsonify({"error": "Invalid admin credentials"}), 403
+
+    if not isinstance(dois_to_remove, list) or not dois_to_remove:
+        return jsonify({"error": "dois must be a non-empty list"}), 400
+
+    # Get current project
+    project = get_project_by_id(DB_PATH, project_id)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+
+    # Get current DOI list (already normalized to lowercase in storage)
+    current_dois = project.get("doi_list", [])
+    
+    # Normalize DOIs to remove to lowercase
+    dois_to_remove_lower = {doi.strip().lower() for doi in dois_to_remove if doi.strip()}
+    
+    # Remove specified DOIs
+    updated_dois = [doi for doi in current_dois if doi not in dois_to_remove_lower]
+    removed_count = len(current_dois) - len(updated_dois)
+
+    # Update project with new DOI list
+    success = update_project(DB_PATH, project_id, doi_list=updated_dois)
+    
+    if not success:
+        return jsonify({"error": "Failed to update project"}), 500
+
+    # Delete PDFs if requested
+    deleted_pdfs = []
+    failed_deletions = []
+    if delete_pdfs and removed_count > 0:
+        try:
+            from pdf_manager import get_project_pdf_dir
+            project_dir = os.path.abspath(get_project_pdf_dir(project_id))
+            
+            for doi in dois_to_remove:
+                doi_hash = generate_doi_hash(doi)
+                if not doi_hash:
+                    failed_deletions.append(f"{doi}: invalid DOI hash")
+                    continue
+                
+                pdf_filename = f"{doi_hash}.pdf"
+                pdf_path = os.path.abspath(os.path.join(project_dir, pdf_filename))
+                
+                # Security: Ensure the resolved path is within the project directory
+                if not pdf_path.startswith(project_dir):
+                    logger.error(f"Path traversal attempt detected: {doi} -> {pdf_path}")
+                    failed_deletions.append(f"{doi}: invalid path")
+                    continue
+                
+                if os.path.exists(pdf_path):
+                    try:
+                        os.remove(pdf_path)
+                        deleted_pdfs.append(doi)
+                    except OSError as e:
+                        failed_deletions.append(f"{doi}: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error during PDF deletion for project {project_id}: {e}")
+            failed_deletions.append(f"General error: {str(e)}")
+    
+    response_data = {
+        "ok": True, 
+        "message": f"Removed {removed_count} DOIs from project",
+        "total_dois": len(updated_dois),
+        "deleted_pdfs": len(deleted_pdfs)
+    }
+    
+    if failed_deletions:
+        response_data["deletion_warnings"] = failed_deletions
+    
+    return jsonify(response_data)
 
 @app.delete("/api/admin/projects/<int:project_id>")
 def delete_existing_project(project_id: int):
@@ -1041,7 +1294,7 @@ def create_batches_endpoint(project_id: int):
     if not email or not password:
         return jsonify({"error": "Admin authentication required"}), 401
     
-    if not verify_admin(DB_PATH, email, password):
+    if not (verify_admin_password(DB_PATH, email, password) or is_admin_user(email)):
         return jsonify({"error": "Invalid admin credentials"}), 401
     
     try:
@@ -1167,6 +1420,44 @@ def list_project_pdfs_endpoint(project_id: int):
     except Exception as e:
         logger.error(f"Failed to list PDFs: {e}", exc_info=True)
         return jsonify({"error": "Failed to list PDFs"}), 500
+
+@app.get("/api/projects/<int:project_id>/dois-with-pdfs")
+def get_dois_with_pdf_indicators(project_id: int):
+    """
+    Get DOI list with indicators showing which have associated PDFs.
+    Returns: {"ok": True, "dois": [{"doi": "10.1234/example", "has_pdf": true}, ...]}
+    """
+    try:
+        # Get project DOI list
+        project = get_project_by_id(DB_PATH, project_id)
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+        
+        doi_list = project.get("doi_list", [])
+        
+        # Get list of available PDFs
+        from pdf_manager import get_project_pdf_dir
+        project_dir = get_project_pdf_dir(project_id)
+        
+        # Check which DOIs have PDFs
+        dois_with_indicators = []
+        for doi in doi_list:
+            doi_hash = generate_doi_hash(doi)
+            pdf_path = os.path.join(project_dir, f"{doi_hash}.pdf")
+            has_pdf = os.path.exists(pdf_path)
+            dois_with_indicators.append({
+                "doi": doi,
+                "has_pdf": has_pdf
+            })
+        
+        return jsonify({
+            "ok": True,
+            "project_id": project_id,
+            "dois": dois_with_indicators
+        })
+    except Exception as e:
+        logger.error(f"Failed to get DOIs with PDF indicators: {e}", exc_info=True)
+        return jsonify({"error": "Failed to get DOI list"}), 500
 
 @app.post("/api/admin/projects/<int:project_id>/upload-pdf")
 def upload_project_pdf(project_id: int):

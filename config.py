@@ -189,3 +189,7 @@ PARTNER_LOGOS = [
         "alt": "Funded By Advanced Research + Invention Agency"
     }
 ]
+
+# Debug Configuration
+# Enable verbose logging for troubleshooting (DO NOT enable in production - fills logs!)
+ENABLE_DEBUG_LOGGING = False  # Set to True only for debugging specific issues
