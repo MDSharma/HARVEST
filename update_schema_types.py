@@ -11,6 +11,7 @@ to SCHEMA_JSON in harvest_store.py.
 import sqlite3
 import os
 import sys
+import traceback
 
 # Import configuration and schema
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -113,7 +114,6 @@ def update_schema_types():
     except Exception as e:
         conn.rollback()
         print(f"\n❌ Schema types update failed: {e}")
-        import traceback
         traceback.print_exc()
         sys.exit(1)
     finally:
