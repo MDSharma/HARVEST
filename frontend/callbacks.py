@@ -3397,15 +3397,42 @@ def export_triples_callback(n_clicks, auth_data):
 #  - Setting: export PYTHONDONTWRITEBYTECODE=1 (prevents .pyc creation)
 #  - Using systemd service with proper restart policies
 
-# COMPATIBILITY CALLBACK: Handle legacy markdown reload requests from cached browsers
-# This prevents KeyError when browsers with old cached JavaScript try to trigger
-# the removed markdown reload callback. This callback does nothing and can be
-# safely removed after all users have refreshed their browser cache (e.g., after a few weeks).
+# COMPATIBILITY CALLBACK: Handle legacy markdown reload with 4 outputs (PRIMARY)
+# This is the main callback that handles the most common cached browser request.
+# It matches the exact callback ID format that cached browsers are looking for:
+# ..annotator-guide-content.children...schema-tab-content.children...admin-guide-content.children...dbmodel-tab-content.children..
+# This callback does NOT use allow_duplicate=True, making it the primary callback for these outputs.
 @app.callback(
     Output("annotator-guide-content", "children"),
     Output("schema-tab-content", "children"),
     Output("admin-guide-content", "children"),
     Output("dbmodel-tab-content", "children"),
+    Input("load-trigger", "n_intervals"),
+    prevent_initial_call=True,
+)
+def handle_legacy_markdown_reload_request_4_primary(n):
+    """
+    PRIMARY compatibility callback for legacy markdown reload with 4 outputs.
+    This handles the most common cached browser request without allow_duplicate=True,
+    matching the exact callback ID format that cached browsers expect.
+    
+    The error message "Callback function not found for output '..annotator-guide-content.children...
+    schema-tab-content.children...admin-guide-content.children...dbmodel-tab-content.children..'"
+    indicates that cached browsers are looking for this exact callback signature.
+    """
+    if ENABLE_DEBUG_LOGGING:
+        logger.debug("Legacy markdown reload request caught (4 outputs PRIMARY) - returning no_update")
+    return no_update, no_update, no_update, no_update
+
+
+# COMPATIBILITY CALLBACK: Handle legacy markdown reload requests with 5 outputs
+# This handles cached browsers that expect all 5 markdown divs to be updated.
+# Uses allow_duplicate=True to coexist with the 4-output primary callback.
+@app.callback(
+    Output("annotator-guide-content", "children", allow_duplicate=True),
+    Output("schema-tab-content", "children", allow_duplicate=True),
+    Output("admin-guide-content", "children", allow_duplicate=True),
+    Output("dbmodel-tab-content", "children", allow_duplicate=True),
     Output("participate-tab-content", "children"),
     Input("load-trigger", "n_intervals"),
     prevent_initial_call=True,
@@ -3424,26 +3451,6 @@ def handle_legacy_markdown_reload_request_5(n):
         logger.debug("Legacy markdown reload request caught (5 outputs) - returning no_update")
     # Always return no_update - markdown is loaded once at startup
     return no_update, no_update, no_update, no_update, no_update
-
-
-# COMPATIBILITY CALLBACK: Handle legacy markdown reload with 4 outputs (variant)
-# Some cached browser versions may request only 4 of the 5 markdown divs
-@app.callback(
-    Output("annotator-guide-content", "children", allow_duplicate=True),
-    Output("schema-tab-content", "children", allow_duplicate=True),
-    Output("admin-guide-content", "children", allow_duplicate=True),
-    Output("dbmodel-tab-content", "children", allow_duplicate=True),
-    Input("load-trigger", "n_intervals"),
-    prevent_initial_call=True,
-)
-def handle_legacy_markdown_reload_request_4(n):
-    """
-    Compatibility callback for legacy markdown reload with only 4 outputs.
-    This handles a different variant of the cached callback that may exist in some browsers.
-    """
-    if ENABLE_DEBUG_LOGGING:
-        logger.debug("Legacy markdown reload request caught (4 outputs variant 1) - returning no_update")
-    return no_update, no_update, no_update, no_update
 
 
 # COMPATIBILITY CALLBACK: Handle legacy markdown reload with 4 outputs (variant 2)
