@@ -62,6 +62,231 @@ NO_UPDATE_15 = tuple([no_update] * 15)
 
 
 # -----------------------
+# Helper Functions
+# -----------------------
+
+def _create_paper_card(paper: Dict, index: int) -> dbc.Card:
+    """
+    Create a paper card component with badges, metadata, and collapsible abstract.
+    
+    Args:
+        paper: Paper dictionary with title, authors, year, doi, citations, etc.
+        index: Display index for the paper (1-based)
+    
+    Returns:
+        dbc.Card component for the paper
+    """
+    # Format authors
+    authors_text = ", ".join(paper.get('authors', [])[:3])
+    if len(paper.get('authors', [])) > 3:
+        authors_text += " et al."
+
+    # Format year
+    year_text = str(paper.get('year', 'N/A'))
+    
+    # Get citation count
+    citations = paper.get('citations', 0)
+
+    # Format DOI link
+    doi = paper.get('doi', '')
+    if doi:
+        if doi.startswith('arXiv:'):
+            arxiv_id = doi.replace('arXiv:', '')
+            doi_link = html.A(
+                doi,
+                href=f"https://arxiv.org/abs/{arxiv_id}",
+                target="_blank",
+                className="text-decoration-none"
+            )
+        elif doi.startswith('WOS:'):
+            doi_link = html.Span(doi, className="text-muted font-monospace", style={"fontSize": "0.85rem"})
+        elif doi.startswith('OpenAlex:'):
+            doi_link = html.Span(doi, className="text-muted font-monospace", style={"fontSize": "0.85rem"})
+        else:
+            doi_link = html.A(
+                doi,
+                href=f"https://doi.org/{doi}",
+                target="_blank",
+                className="text-decoration-none"
+            )
+    else:
+        doi_link = html.Span("N/A", className="text-muted")
+    
+    # Source badge with color coding
+    source = paper.get('source', 'N/A')
+    source_colors = {
+        'Semantic Scholar': 'primary',
+        'arXiv': 'success',
+        'Web of Science': 'info',
+        'OpenAlex': 'warning'
+    }
+    source_badge = dbc.Badge(
+        source,
+        color=source_colors.get(source, 'secondary'),
+        className="me-2",
+        pill=True
+    )
+    
+    # Citation badge (only if > 0)
+    citation_badge = None
+    if citations > 0:
+        # Color code by citation count
+        if citations >= 100:
+            citation_color = "danger"  # High impact
+        elif citations >= 50:
+            citation_color = "warning"  # Medium-high impact
+        elif citations >= 10:
+            citation_color = "info"  # Medium impact
+        else:
+            citation_color = "secondary"  # Low impact
+        
+        citation_badge = dbc.Badge(
+            f"📊 {citations} citations",
+            color=citation_color,
+            className="me-2",
+            pill=True
+        )
+    
+    # Year badge
+    year_badge = dbc.Badge(
+        f"📅 {year_text}",
+        color="light",
+        text_color="dark",
+        className="me-2",
+        pill=True
+    )
+    
+    # Open access badge (if available)
+    open_access_badge = None
+    if paper.get('is_open_access'):
+        open_access_badge = dbc.Badge(
+            "🔓 Open Access",
+            color="success",
+            className="me-2",
+            pill=True,
+            title="This paper is freely available"
+        )
+
+    # Create paper card with enhanced visual design
+    return dbc.Card(
+        [
+            dbc.CardBody(
+                [
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [
+                                    dbc.Checkbox(
+                                        id={"type": "paper-checkbox", "index": index},
+                                        className="form-check-input-lg",
+                                        value=False,
+                                    ),
+                                ],
+                                width="auto",
+                                className="d-flex align-items-center",
+                            ),
+                            dbc.Col(
+                                [
+                                    # Title with rank number
+                                    html.Div(
+                                        [
+                                            dbc.Badge(
+                                                f"#{index}",
+                                                color="secondary",
+                                                className="me-2",
+                                                pill=True
+                                            ),
+                                            html.Span(
+                                                paper.get('title', 'N/A'),
+                                                style={"fontWeight": "600", "fontSize": "1.05rem"}
+                                            )
+                                        ],
+                                        className="mb-2"
+                                    ),
+                                    # Badges row
+                                    html.Div(
+                                        [
+                                            source_badge,
+                                            year_badge,
+                                            citation_badge if citation_badge else None,
+                                            open_access_badge if open_access_badge else None,
+                                        ],
+                                        className="mb-2"
+                                    ),
+                                ],
+                            ),
+                        ],
+                        className="g-2",
+                    ),
+                    # Metadata section with improved styling
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.I(className="bi bi-people-fill me-2", style={"color": "#6c757d"}),
+                                    html.Span(authors_text, style={"fontSize": "0.9rem"}),
+                                ],
+                                className="mb-1"
+                            ),
+                            html.Div(
+                                [
+                                    html.I(className="bi bi-link-45deg me-2", style={"color": "#6c757d"}),
+                                    doi_link,
+                                ],
+                                className="mb-2"
+                            ),
+                        ],
+                        className="ms-5",
+                        style={"fontSize": "0.9rem", "color": "#495057"}
+                    ),
+                    # Abstract collapse with improved design
+                    dbc.Collapse(
+                        dbc.Card(
+                            dbc.CardBody(
+                                [
+                                    html.Div(
+                                        [
+                                            html.I(className="bi bi-file-text me-2"),
+                                            html.Strong("Abstract")
+                                        ],
+                                        className="mb-2"
+                                    ),
+                                    html.P(
+                                        paper.get('abstract_snippet', 'No abstract available'),
+                                        className="mb-0",
+                                        style={"fontSize": "0.9rem", "lineHeight": "1.6"}
+                                    ),
+                                ]
+                            ),
+                            color="light",
+                            className="border-0 bg-light",
+                        ),
+                        id=f"collapse-paper-{index}",
+                        is_open=False,
+                        className="ms-5 mt-2",
+                    ),
+                    dbc.Button(
+                        [
+                            html.I(className="bi bi-chevron-down me-1", id=f"chevron-paper-{index}"),
+                            html.Span("Show Abstract", id=f"text-paper-{index}")
+                        ],
+                        id=f"btn-toggle-paper-{index}",
+                        color="link",
+                        size="sm",
+                        className="mt-2 p-0 ms-5",
+                    ),
+                ]
+            )
+        ],
+        className="mb-3 shadow-sm",
+        style={
+            "borderLeft": "4px solid #007bff",
+            "transition": "box-shadow 0.2s ease-in-out"
+        }
+    )
+
+
+# -----------------------
 # Callbacks
 # -----------------------
 
@@ -372,6 +597,7 @@ def check_lit_review_auth(auth_data):
     Output("lit-search-selected-papers", "data"),
     Output("lit-search-export-controls", "style"),
     Output("lit-search-session-papers", "data"),
+    Output("all-papers-data", "data"),
     Input("btn-search-papers", "n_clicks"),
     State("lit-search-query", "value"),
     State("lit-search-sources", "value"),
@@ -408,7 +634,8 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
             None,
             [],
             {"display": "none"},
-            session_papers or []
+            session_papers or [],
+            []
         )
     
     if not sources:
@@ -417,7 +644,8 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
             None,
             [],
             {"display": "none"},
-            session_papers or []
+            session_papers or [],
+            []
         )
 
     try:
@@ -473,14 +701,16 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
                     None,
                     [],
                     {"display": "none"},
-                    session_papers or []
+                    session_papers or [],
+                    []
                 )
             return (
                 dbc.Alert(result['message'], color="danger"),
                 None,
                 [],
                 {"display": "none"},
-                session_papers or []
+                session_papers or [],
+                []
             )
 
         papers = result['papers']
@@ -491,7 +721,8 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
                 None,
                 [],
                 {"display": "none"},
-                session_papers or []
+                session_papers or [],
+                []
             )
 
         # Store all unique papers from session
@@ -526,7 +757,7 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
         # Store paper data for later use
         papers_data = []
         
-        # Create results table
+        # Create results table using helper function
         results_content = []
 
         for i, paper in enumerate(papers, 1):
@@ -537,120 +768,17 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
                 'title': paper.get('title', 'N/A'),
                 'authors': paper.get('authors', []),
                 'year': paper.get('year', 'N/A'),
-                'source': paper.get('source', 'N/A')
+                'source': paper.get('source', 'N/A'),
+                'citations': paper.get('citations', 0),
+                'is_open_access': paper.get('is_open_access', False),
+                'abstract_snippet': paper.get('abstract_snippet', '')
             })
             
-            # Format authors
-            authors_text = ", ".join(paper.get('authors', [])[:3])
-            if len(paper.get('authors', [])) > 3:
-                authors_text += " et al."
-
-            # Format year
-            year_text = str(paper.get('year', 'N/A'))
-
-            # Format DOI link
-            doi = paper.get('doi', '')
-            if doi:
-                if doi.startswith('arXiv:'):
-                    arxiv_id = doi.replace('arXiv:', '')
-                    doi_link = html.A(
-                        doi,
-                        href=f"https://arxiv.org/abs/{arxiv_id}",
-                        target="_blank",
-                        className="text-decoration-none"
-                    )
-                else:
-                    doi_link = html.A(
-                        doi,
-                        href=f"https://doi.org/{doi}",
-                        target="_blank",
-                        className="text-decoration-none"
-                    )
-            else:
-                doi_link = html.Span("N/A", className="text-muted")
-
-            # Create paper card with checkbox
-            paper_card = dbc.Card(
-                [
-                    dbc.CardBody(
-                        [
-                            dbc.Row(
-                                [
-                                    dbc.Col(
-                                        [
-                                            dbc.Checkbox(
-                                                id={"type": "paper-checkbox", "index": i},
-                                                className="form-check-input-lg",
-                                                value=False,
-                                            ),
-                                        ],
-                                        width="auto",
-                                        className="d-flex align-items-center",
-                                    ),
-                                    dbc.Col(
-                                        [
-                                            html.H6(
-                                                f"{i}. {paper.get('title', 'N/A')}",
-                                                className="mb-2",
-                                                style={"fontWeight": "bold"}
-                                            ),
-                                        ],
-                                    ),
-                                ],
-                                className="g-2",
-                            ),
-                            html.P(
-                                [
-                                    html.Strong("Authors: "),
-                                    authors_text,
-                                    html.Br(),
-                                    html.Strong("Year: "),
-                                    year_text,
-                                    html.Br(),
-                                    html.Strong("Source: "),
-                                    paper.get('source', 'N/A'),
-                                    html.Br(),
-                                    html.Strong("DOI: "),
-                                    doi_link,
-                                ],
-                                className="mb-2 ms-5",
-                                style={"fontSize": "0.9rem"}
-                            ),
-                            dbc.Collapse(
-                                dbc.Card(
-                                    dbc.CardBody(
-                                        [
-                                            html.Strong("Abstract:"),
-                                            html.P(
-                                                paper.get('abstract_snippet', 'No abstract available'),
-                                                className="mt-2",
-                                                style={"fontSize": "0.85rem"}
-                                            ),
-                                        ]
-                                    ),
-                                    color="light",
-                                ),
-                                id=f"collapse-paper-{i}",
-                                is_open=False,
-                                className="ms-5",
-                            ),
-                            dbc.Button(
-                                "Show Abstract",
-                                id=f"btn-toggle-paper-{i}",
-                                color="link",
-                                size="sm",
-                                className="mt-2 p-0 ms-5",
-                            ),
-                        ]
-                    )
-                ],
-                className="mb-3",
-                style={"borderLeft": "3px solid #007bff"}
-            )
-
+            # Create paper card using helper function
+            paper_card = _create_paper_card(paper, i)
             results_content.append(paper_card)
 
-        return status, html.Div(results_content), papers_data, {"display": "block"}, new_session_papers
+        return status, html.Div(results_content), papers_data, {"display": "block"}, new_session_papers, papers
 
     except Exception as e:
         logger.error(f"Literature search error: {e}")
@@ -659,7 +787,8 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
             None,
             [],
             {"display": "none"},
-            session_papers or []
+            session_papers or [],
+            []
         )
 
 
@@ -673,6 +802,53 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
 def clear_search_session(n_clicks):
     """Clear the search session history"""
     return [], dbc.Alert("Search session cleared", color="info", duration=3000)
+
+
+# Callback for sorting and filtering search results
+@app.callback(
+    Output("search-results", "children", allow_duplicate=True),
+    Input("result-sort-by", "value"),
+    Input("result-filter-source", "value"),
+    State("all-papers-data", "data"),
+    prevent_initial_call=True,
+)
+def sort_and_filter_results(sort_by, filter_source, all_papers):
+    """
+    Sort and filter the displayed search results without re-running the search.
+    Provides instant client-side filtering and sorting for better UX.
+    """
+    if not all_papers:
+        return no_update
+    
+    # Filter by source
+    filtered_papers = all_papers
+    if filter_source and filter_source != "all":
+        filtered_papers = [p for p in all_papers if p.get('source') == filter_source]
+    
+    # Sort papers
+    if sort_by == "citations_desc":
+        filtered_papers = sorted(filtered_papers, key=lambda x: x.get('citations', 0), reverse=True)
+    elif sort_by == "year_desc":
+        # Sort by year, treating None/missing as -1 (very old) so they appear at the bottom when sorting newest first
+        filtered_papers = sorted(filtered_papers, key=lambda x: x.get('year') if x.get('year') is not None else -1, reverse=True)
+    elif sort_by == "year_asc":
+        # Sort by year, treating None/missing as -1 (very old) so they appear at the top when sorting oldest first
+        filtered_papers = sorted(filtered_papers, key=lambda x: x.get('year') if x.get('year') is not None else -1)
+    # else: keep relevance order (original search order)
+    
+    # Re-render the paper cards with new order using helper function
+    results_content = []
+    for i, paper in enumerate(filtered_papers, 1):
+        paper_card = _create_paper_card(paper, i)
+        results_content.append(paper_card)
+    
+    if not results_content:
+        return html.Div(
+            dbc.Alert("No papers match the selected filters.", color="info", className="text-center"),
+            className="mt-3"
+        )
+    
+    return html.Div(results_content)
 
 
 # Callback to show/hide WoS syntax help modal
