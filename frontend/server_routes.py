@@ -15,6 +15,13 @@ from frontend import server, API_BASE, ASREVIEW_PROXY_FILTERED_HEADERS
 
 logger = logging.getLogger(__name__)
 
+# Import DASH_REQUESTS_PATHNAME_PREFIX for base path handling
+# This is used to construct the correct base URL for ASReview proxy
+try:
+    from frontend import DASH_REQUESTS_PATHNAME_PREFIX
+except ImportError:
+    DASH_REQUESTS_PATHNAME_PREFIX = "/"  # Fallback to root if not available
+
 # Get ASREVIEW_SERVICE_URL from config.py with environment variable override
 try:
     from config import ASREVIEW_SERVICE_URL as CONFIG_ASREVIEW_SERVICE_URL
@@ -275,9 +282,11 @@ def _get_content_type_from_path(path: str) -> str:
     if path_lower.endswith('.json'):
         return 'application/json'
     
-    # Image files
-    if path_lower.endswith(('.png', '.jpg', '.jpeg')):
-        return 'image/jpeg' if path_lower.endswith(('.jpg', '.jpeg')) else 'image/png'
+    # Image files - check specific extensions
+    if path_lower.endswith('.png'):
+        return 'image/png'
+    if path_lower.endswith(('.jpg', '.jpeg')):
+        return 'image/jpeg'
     if path_lower.endswith('.gif'):
         return 'image/gif'
     if path_lower.endswith('.svg'):
@@ -318,8 +327,8 @@ def _inject_base_tag_in_html(html_content: bytes, base_url: str) -> bytes:
         Modified HTML content as bytes
     """
     try:
-        # Decode HTML content
-        html_str = html_content.decode('utf-8', errors='ignore')
+        # Decode HTML content - use 'replace' to handle invalid characters
+        html_str = html_content.decode('utf-8', errors='replace')
         
         # Check if base tag already exists
         if '<base' in html_str.lower():
@@ -401,8 +410,7 @@ def proxy_asreview(path: str):
                 response = requests.get(
                     asreview_url,
                     headers=headers,
-                    timeout=30,
-                    stream=True  # Stream for large responses
+                    timeout=30
                 )
             elif flask_request.method == 'POST':
                 response = requests.post(
@@ -449,13 +457,8 @@ def proxy_asreview(path: str):
             
             # For HTML responses, inject base tag to fix relative URLs
             if content_type.startswith('text/html') and flask_request.method == 'GET':
-                # Get the base path for the proxy
-                # In nginx mode, we need to use the full path prefix
-                try:
-                    from frontend import DASH_REQUESTS_PATHNAME_PREFIX
-                    base_path = f"{DASH_REQUESTS_PATHNAME_PREFIX}proxy/asreview/"
-                except ImportError:
-                    base_path = "/proxy/asreview/"
+                # Use the base path from the module-level import
+                base_path = f"{DASH_REQUESTS_PATHNAME_PREFIX}proxy/asreview/"
                 
                 # Inject base tag
                 content = _inject_base_tag_in_html(content, base_path)
