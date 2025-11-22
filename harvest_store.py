@@ -584,14 +584,40 @@ def update_project(db_path: str, project_id: int, name: str = None, description:
         return False
 
 def delete_project(db_path: str, project_id: int) -> bool:
-    """Delete a project."""
-    conn = get_conn(db_path); cur = conn.cursor()
+    """Delete a project and all its child records in dependency order."""
+    conn = get_conn(db_path)
+    cur = conn.cursor()
     
     try:
+        # Begin explicit transaction
+        conn.execute("BEGIN TRANSACTION;")
+        
+        # Delete child records in dependency order to avoid foreign key constraint errors
+        # 1. Delete doi_annotation_status (depends on project_id)
+        cur.execute("DELETE FROM doi_annotation_status WHERE project_id = ?;", (project_id,))
+        
+        # 2. Delete doi_batch_assignments (depends on project_id and batch_id)
+        cur.execute("DELETE FROM doi_batch_assignments WHERE project_id = ?;", (project_id,))
+        
+        # 3. Delete doi_batches (depends on project_id)
+        cur.execute("DELETE FROM doi_batches WHERE project_id = ?;", (project_id,))
+        
+        # 4. Delete pdf_download_progress (has project_id as primary key, no FK but should be cleaned)
+        cur.execute("DELETE FROM pdf_download_progress WHERE project_id = ?;", (project_id,))
+        
+        # 5. Finally delete the project itself
         cur.execute("DELETE FROM projects WHERE id = ?;", (project_id,))
+        
+        # Commit transaction
+        conn.execute("COMMIT;")
         conn.close()
         return True
     except Exception as e:
+        # Rollback on failure to prevent inconsistent database state
+        try:
+            conn.execute("ROLLBACK;")
+        except Exception:
+            pass
         print(f"Failed to delete project: {e}")
         conn.close()
         return False
