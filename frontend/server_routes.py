@@ -448,7 +448,9 @@ def proxy_asreview(path: str):
             
             # If Content-Type is missing or incorrect (text/html for static files),
             # determine it from the file extension
-            if not content_type or (content_type == 'text/html' and path and '.' in path):
+            # Check if path looks like a static file (has extension in last path segment)
+            is_static_file = path and ('.' in path.split('/')[-1] if '/' in path else '.' in path)
+            if not content_type or (content_type == 'text/html' and is_static_file):
                 inferred_type = _get_content_type_from_path(path)
                 # Only override if we have a static file extension
                 if inferred_type != 'application/octet-stream':
