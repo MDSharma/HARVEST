@@ -330,19 +330,17 @@ def validate_callback_map():
         # If this callback outputs to markdown content
         if markdown_outputs:
             # Check if it's a compatibility callback
-            # Allow four variants:
+            # Allow three variants:
             # 1. Outputs to all 5 markdown divs (original compatibility callback)
             # 2. Outputs to 4 markdown divs (variant 1 for some cached browsers)
             # 3. Outputs to 4 markdown divs (variant 2 for other cached browsers)
-            # 4. Outputs to 4 markdown divs (variant 3 for yet other cached browsers)
             if len(markdown_outputs) == 5 and compatibility_callback_found < 1:
                 # This is the 5-output compatibility callback - allow it once
                 compatibility_callback_found += 1
                 logger.info(f"✓ Found compatibility callback (5 outputs) for legacy browser support: {callback_id}")
-            elif len(markdown_outputs) == 4 and compatibility_callback_found < 4:
+            elif len(markdown_outputs) == 4 and compatibility_callback_found < 3:
                 # This is a 4-output compatibility callback variant
-                # With compatibility_callback_found starting at 1 after the 5-output callback,
-                # this allows up to 3 additional 4-output callbacks (positions 1, 2, 3)
+                # After the 5-output callback (found=1), this allows two more (found=1,2 when found<3)
                 compatibility_callback_found += 1
                 logger.info(f"✓ Found compatibility callback (4 outputs variant {compatibility_callback_found - 1}) for legacy browser support: {callback_id}")
             else:
@@ -356,7 +354,7 @@ def validate_callback_map():
         error_msg = "CALLBACK VALIDATION FAILED: Found unexpected callbacks outputting to forbidden markdown info-tab IDs:\n"
         for v in violations:
             error_msg += f"  - Callback {v['callback_id']} outputs to {', '.join(v['outputs'])}\n"
-        error_msg += "\nOnly compatibility callbacks are allowed (one with 5 outputs, three with 4 outputs).\n"
+        error_msg += "\nOnly compatibility callbacks are allowed (one with 5 outputs, two with 4 outputs).\n"
         error_msg += "Additional callbacks to these IDs can cause KeyError issues."
         logger.error(error_msg)
         raise RuntimeError(error_msg)
