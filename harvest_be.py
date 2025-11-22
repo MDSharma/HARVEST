@@ -969,6 +969,29 @@ def delete_existing_project(project_id: int):
             cur.execute("UPDATE triples SET project_id = NULL WHERE project_id = ?;", (project_id,))
             conn.commit()
         
+        # Delete child records that have foreign key constraints to the project
+        # This must be done before deleting the project to avoid FOREIGN KEY constraint errors
+        try:
+            # Delete doi_annotation_status records
+            cur.execute("DELETE FROM doi_annotation_status WHERE project_id = ?;", (project_id,))
+            
+            # Delete doi_batch_assignments records
+            cur.execute("DELETE FROM doi_batch_assignments WHERE project_id = ?;", (project_id,))
+            
+            # Delete doi_batches records
+            cur.execute("DELETE FROM doi_batches WHERE project_id = ?;", (project_id,))
+            
+            # Delete pdf_download_progress record if exists
+            cur.execute("DELETE FROM pdf_download_progress WHERE project_id = ?;", (project_id,))
+            
+            conn.commit()
+            logger.info(f"Deleted child records for project {project_id}")
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            logger.error(f"Failed to delete child records for project {project_id}: {e}", exc_info=True)
+            return jsonify({"error": f"Failed to delete project child records: {str(e)}"}), 500
+        
         # Now delete the project
         success = delete_project(DB_PATH, project_id)
         
