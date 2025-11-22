@@ -3466,6 +3466,28 @@ def handle_legacy_markdown_reload_request_4_v2(tab_value):
     return no_update, no_update, no_update, no_update
 
 
+# COMPATIBILITY CALLBACK: Handle legacy markdown reload with 4 outputs (variant 3)
+# Yet another cached browser variant with BOTH load-trigger and main-tabs inputs
+@app.callback(
+    Output("annotator-guide-content", "children", allow_duplicate=True),
+    Output("schema-tab-content", "children", allow_duplicate=True),
+    Output("admin-guide-content", "children", allow_duplicate=True),
+    Output("dbmodel-tab-content", "children", allow_duplicate=True),
+    Input("load-trigger", "n_intervals"),
+    Input("main-tabs", "value"),
+    prevent_initial_call=True,
+)
+def handle_legacy_markdown_reload_request_4_v3(n, tab_value):
+    """
+    Compatibility callback for legacy markdown reload with only 4 outputs (variant 3).
+    This handles a variant that has BOTH load-trigger and main-tabs inputs.
+    The error message format '..output1...output2..' suggests a callback with multiple inputs.
+    """
+    if ENABLE_DEBUG_LOGGING:
+        logger.debug("Legacy markdown reload request caught (4 outputs variant 3 - dual inputs) - returning no_update")
+    return no_update, no_update, no_update, no_update
+
+
 # Callback to save browse field configuration
 @app.callback(
     Output("browse-field-config", "data"),
