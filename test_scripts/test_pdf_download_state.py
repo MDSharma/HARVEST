@@ -116,7 +116,7 @@ def test_state_initialization():
         
         # Verify values
         if (initial_download_state["project_id"] == project_id and
-            initial_download_state["active"] == True and
+            initial_download_state["active"] is True and
             initial_download_state["status"] == "running" and
             initial_download_state["current"] == 0 and
             initial_download_state["total"] == total_dois):
