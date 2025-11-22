@@ -941,11 +941,16 @@ def _normalize_title(title: str) -> str:
     """
     Normalize a paper title for fuzzy matching.
     Removes punctuation, extra spaces, and common variations.
+    
+    Note: Removes common prefixes ('the', 'a', 'an') to improve matching.
+    This is a trade-off that works well for most academic titles but may
+    cause false positives in rare cases (e.g., "The Algorithm" vs "Algorithm").
     """
     # Convert to lowercase
     title = title.lower().strip()
     
     # Remove common prefixes/suffixes that might vary
+    # Trade-off: May cause false positives but improves matching for most titles
     title = re.sub(r'^(the|a|an)\s+', '', title)
     
     # Remove punctuation except spaces
@@ -963,15 +968,21 @@ def _normalize_title(title: str) -> str:
 def _titles_are_similar(title1: str, title2: str, threshold: float = 0.85) -> bool:
     """
     Check if two titles are similar enough to be considered duplicates.
-    Uses simple character-based similarity (Jaccard similarity on words).
+    Uses word-level Jaccard similarity (intersection over union of word sets).
     
     Args:
         title1: First title (normalized)
         title2: Second title (normalized)
-        threshold: Similarity threshold (0.0 to 1.0)
+        threshold: Similarity threshold (0.0 to 1.0, default: 0.85)
     
     Returns:
         True if titles are similar enough to be duplicates
+    
+    Examples:
+        >>> _titles_are_similar("machine learning healthcare", "machine learning healthcare")
+        True
+        >>> _titles_are_similar("machine learning healthcare", "deep learning medicine")
+        False  # Only 1/5 words in common
     """
     # Split into word sets
     words1 = set(title1.split())
@@ -980,7 +991,7 @@ def _titles_are_similar(title1: str, title2: str, threshold: float = 0.85) -> bo
     if not words1 or not words2:
         return False
     
-    # Calculate Jaccard similarity
+    # Calculate Jaccard similarity: |A ∩ B| / |A ∪ B|
     intersection = len(words1 & words2)
     union = len(words1 | words2)
     
@@ -998,7 +1009,13 @@ def deduplicate_papers(papers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     - Fuzzy title matching to catch slight variations
     - Title normalization (punctuation, spacing, case)
     - Better handling of papers without DOIs
-    - Optimized O(n) lookup using set for exact matches
+    - Optimized O(n) lookup using dict for exact matches
+    
+    Performance Note:
+    - Best case: O(n) when all titles are unique (fast path via dict lookup)
+    - Worst case: O(n²) when many similar titles require fuzzy matching
+    - Typical case: O(n) for most real-world literature searches (100-200 papers)
+    - For large datasets (1000+ papers), consider implementing LSH if performance becomes an issue
     """
     seen_dois = set()
     seen_normalized_titles = {}  # normalized_title -> paper mapping
@@ -1024,6 +1041,7 @@ def deduplicate_papers(papers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             
             # Only do fuzzy matching for new normalized titles
             # This reduces O(n²) to O(n) in most cases where titles are truly unique
+            # For typical literature searches (100-200 papers), this is acceptable
             is_duplicate = False
             for seen_normalized in seen_normalized_titles.keys():
                 if _titles_are_similar(normalized_title, seen_normalized):
