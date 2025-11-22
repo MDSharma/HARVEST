@@ -350,7 +350,7 @@ def try_biorxiv_medrxiv(doi: str, timeout: int = 15) -> Tuple[bool, str]:
                 response = requests.head(pdf_url, headers=headers, timeout=timeout, allow_redirects=True)
                 if response.status_code == 200:
                     return True, pdf_url
-            except (requests.RequestException, requests.Timeout):
+            except requests.RequestException:
                 pass  # Continue to try other methods
             
             # Try medRxiv
@@ -359,7 +359,7 @@ def try_biorxiv_medrxiv(doi: str, timeout: int = 15) -> Tuple[bool, str]:
                 response = requests.head(pdf_url, headers=headers, timeout=timeout, allow_redirects=True)
                 if response.status_code == 200:
                     return True, pdf_url
-            except (requests.RequestException, requests.Timeout):
+            except requests.RequestException:
                 pass  # Continue to API check
         
         # Try bioRxiv API
@@ -377,7 +377,7 @@ def try_biorxiv_medrxiv(doi: str, timeout: int = 15) -> Tuple[bool, str]:
                     doi_full = article.get('doi', doi)
                     pdf_url = f"https://www.{server}.org/content/{doi_full}.full.pdf"
                     return True, pdf_url
-        except (requests.RequestException, requests.Timeout):
+        except requests.RequestException:
             pass  # Continue to medRxiv API
         
         # Try medRxiv API
@@ -393,7 +393,7 @@ def try_biorxiv_medrxiv(doi: str, timeout: int = 15) -> Tuple[bool, str]:
                     doi_full = article.get('doi', doi)
                     pdf_url = f"https://www.{server}.org/content/{doi_full}.full.pdf"
                     return True, pdf_url
-        except (requests.RequestException, requests.Timeout):
+        except requests.RequestException:
             pass  # All methods exhausted
 
         return False, "Not found in bioRxiv or medRxiv"
@@ -555,9 +555,8 @@ def try_zenodo(doi: str, timeout: int = 15) -> Tuple[bool, str]:
             
             if filename.endswith('.pdf') or 'pdf' in file_type:
                 # Try multiple locations for the download URL
-                pdf_url = (file_info.get('links', {}).get('self') or 
-                          file_info.get('links', {}).get('download') or
-                          file_info.get('url'))
+                links = file_info.get('links', {})
+                pdf_url = links.get('self') or links.get('download') or file_info.get('url')
                 if pdf_url:
                     return True, pdf_url
 
