@@ -13,6 +13,30 @@ import json
 
 PDF_DB_PATH = "pdf_downloads.db"
 
+# Connection pool to reduce database locking
+_db_connection_pool = {}
+_db_pool_lock = None
+
+
+def get_pdf_db_connection(db_path: str = PDF_DB_PATH) -> sqlite3.Connection:
+    """
+    Get a connection to the PDF download tracking database with optimizations.
+    Uses Write-Ahead Logging (WAL) mode to reduce locking issues.
+    """
+    if not os.path.exists(db_path):
+        init_pdf_download_db(db_path)
+    
+    conn = sqlite3.connect(db_path, timeout=30.0, check_same_thread=False)
+    
+    # Enable WAL mode for better concurrent access
+    conn.execute("PRAGMA journal_mode=WAL")
+    # Increase cache size for better performance
+    conn.execute("PRAGMA cache_size=10000")
+    # Use normal synchronous mode (faster, still safe with WAL)
+    conn.execute("PRAGMA synchronous=NORMAL")
+    
+    return conn
+
 
 def init_pdf_download_db(db_path: str = PDF_DB_PATH) -> bool:
     """
@@ -126,11 +150,17 @@ def init_pdf_download_db(db_path: str = PDF_DB_PATH) -> bool:
         default_sources = [
             ("unpaywall", 1, "https://api.unpaywall.org/v2/", 0, 10, 10, "Unpaywall REST API - free open access database", None),
             ("unpywall", 1, None, 0, 10, 20, "Unpywall library fallback for Unpaywall API", "unpywall"),
+            ("biorxiv_medrxiv", 1, "https://api.biorxiv.org/", 0, 15, 25, "bioRxiv/medRxiv - preprint repositories for life sciences", None),
             ("europe_pmc", 1, "https://www.ebi.ac.uk/europepmc/webservices/rest/", 0, 15, 30, "Europe PMC REST API - biomedical literature", None),
+            ("pmc_enhanced", 1, "https://www.ncbi.nlm.nih.gov/pmc/", 0, 15, 35, "Enhanced PubMed Central via E-utilities", None),
+            ("arxiv_enhanced", 1, "https://arxiv.org/", 0, 15, 38, "Enhanced arXiv integration with better DOI handling", None),
             ("core", 1, "https://api.core.ac.uk/v3/", 0, 15, 40, "CORE.ac.uk REST API - open access research papers", None),
+            ("zenodo", 1, "https://zenodo.org/api/", 0, 15, 45, "Zenodo - CERN's multidisciplinary open repository", None),
             ("semantic_scholar", 1, "https://api.semanticscholar.org/", 0, 15, 50, "Semantic Scholar API - academic paper metadata and PDFs", None),
+            ("doaj", 1, "https://doaj.org/api/", 0, 15, 55, "DOAJ - Directory of Open Access Journals", None),
+            ("publisher_direct", 1, None, 0, 15, 65, "Direct publisher URLs for known open access patterns", None),
             ("scihub", 0, None, 0, 20, 90, "SciHub mirror (optional, disabled by default)", None),
-            ("metapub", 0, None, 0, 15, 60, "Metapub - PubMed Central and arXiv", "metapub"),
+            ("metapub", 0, None, 0, 15, 60, "Metapub - PubMed Central and arXiv (legacy)", "metapub"),
             ("habanero", 0, None, 0, 15, 70, "Habanero/Crossref - institutional access", "habanero"),
             ("habanero_proxy", 0, None, 1, 20, 80, "Habanero with institutional proxy", "habanero"),
         ]
@@ -169,13 +199,6 @@ def init_pdf_download_db(db_path: str = PDF_DB_PATH) -> bool:
     except Exception as e:
         print(f"[PDF DB] Error initializing database: {e}")
         return False
-
-
-def get_pdf_db_connection(db_path: str = PDF_DB_PATH) -> sqlite3.Connection:
-    """Get a connection to the PDF download tracking database"""
-    if not os.path.exists(db_path):
-        init_pdf_download_db(db_path)
-    return sqlite3.connect(db_path)
 
 
 def log_download_attempt(
@@ -307,7 +330,7 @@ def get_source_rankings(db_path: str = PDF_DB_PATH) -> List[Dict]:
         cursor.execute("""
             SELECT s.name, s.enabled, s.priority, s.requires_library,
                    sp.success_rate, sp.avg_response_time_ms, sp.total_attempts,
-                   sp.success_count, sp.failure_count
+                   sp.success_count, sp.failure_count, s.description
             FROM sources s
             LEFT JOIN source_performance sp ON s.name = sp.source_name
             WHERE s.enabled = 1
@@ -325,7 +348,8 @@ def get_source_rankings(db_path: str = PDF_DB_PATH) -> List[Dict]:
                 "avg_response_time_ms": row[5] or 0.0,
                 "total_attempts": row[6] or 0,
                 "success_count": row[7] or 0,
-                "failure_count": row[8] or 0
+                "failure_count": row[8] or 0,
+                "description": row[9] or ""
             })
 
         conn.close()

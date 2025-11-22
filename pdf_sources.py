@@ -326,6 +326,300 @@ def try_scihub(doi: str, mirror_index: int = 0, timeout: int = 20) -> Tuple[bool
         return False, f"Sci-Hub error: {str(e)}"
 
 
+def try_biorxiv_medrxiv(doi: str, timeout: int = 15) -> Tuple[bool, str]:
+    """
+    Try to find PDF from bioRxiv or medRxiv preprint repositories.
+    These are the main preprint servers for life sciences and medicine.
+
+    Returns: (success, pdf_url or error_message)
+    """
+    try:
+        headers = {'User-Agent': get_random_user_agent()}
+
+        # bioRxiv/medRxiv use the same URL pattern
+        # Check if it's a bioRxiv or medRxiv DOI
+        if '10.1101' in doi:  # bioRxiv/medRxiv DOI prefix
+            # Try constructing direct PDF URL
+            # Format: https://www.biorxiv.org/content/10.1101/2021.01.01.12345v1.full.pdf
+            # or: https://www.medrxiv.org/content/10.1101/2021.01.01.12345v1.full.pdf
+            
+            # Try bioRxiv first
+            pdf_url = f"https://www.biorxiv.org/content/{doi}.full.pdf"
+            response = requests.head(pdf_url, headers=headers, timeout=timeout, allow_redirects=True)
+            if response.ok:
+                return True, pdf_url
+            
+            # Try medRxiv
+            pdf_url = f"https://www.medrxiv.org/content/{doi}.full.pdf"
+            response = requests.head(pdf_url, headers=headers, timeout=timeout, allow_redirects=True)
+            if response.ok:
+                return True, pdf_url
+        
+        # Also check their API
+        # bioRxiv/medRxiv content details API
+        api_url = f"https://api.biorxiv.org/details/biorxiv/{doi}"
+        response = requests.get(api_url, headers=headers, timeout=timeout)
+        
+        if response.ok:
+            data = response.json()
+            if 'collection' in data and len(data['collection']) > 0:
+                article = data['collection'][0]
+                # Construct PDF URL from article data
+                server = article.get('server', 'biorxiv')
+                doi_full = article.get('doi', doi)
+                pdf_url = f"https://www.{server}.org/content/{doi_full}.full.pdf"
+                return True, pdf_url
+        
+        # Try medRxiv API
+        api_url = f"https://api.biorxiv.org/details/medrxiv/{doi}"
+        response = requests.get(api_url, headers=headers, timeout=timeout)
+        
+        if response.ok:
+            data = response.json()
+            if 'collection' in data and len(data['collection']) > 0:
+                article = data['collection'][0]
+                server = article.get('server', 'medrxiv')
+                doi_full = article.get('doi', doi)
+                pdf_url = f"https://www.{server}.org/content/{doi_full}.full.pdf"
+                return True, pdf_url
+
+        return False, "Not found in bioRxiv or medRxiv"
+
+    except requests.Timeout:
+        return False, "bioRxiv/medRxiv timeout"
+    except Exception as e:
+        return False, f"bioRxiv/medRxiv error: {str(e)}"
+
+
+def try_arxiv_enhanced(doi: str, timeout: int = 15) -> Tuple[bool, str]:
+    """
+    Enhanced arXiv integration with better DOI and ID handling.
+    Supports both DOI-based and arXiv ID-based lookups.
+
+    Returns: (success, pdf_url or error_message)
+    """
+    try:
+        headers = {'User-Agent': get_random_user_agent()}
+        arxiv_id = None
+
+        # Check if DOI contains arxiv
+        if 'arxiv' in doi.lower():
+            # Extract arXiv ID from DOI (e.g., "10.48550/arXiv.2101.00001")
+            arxiv_match = re.search(r'arxiv[./](\d+\.\d+)', doi, re.IGNORECASE)
+            if arxiv_match:
+                arxiv_id = arxiv_match.group(1)
+        else:
+            # Try arXiv API to find by DOI
+            api_url = f"http://export.arxiv.org/api/query?search_query=doi:{doi}&max_results=1"
+            response = requests.get(api_url, headers=headers, timeout=timeout)
+            
+            if response.ok:
+                content = response.text
+                # Parse XML to find arXiv ID
+                id_match = re.search(r'<id>http://arxiv\.org/abs/(\d+\.\d+)(v\d+)?</id>', content)
+                if id_match:
+                    arxiv_id = id_match.group(1)
+
+        if arxiv_id:
+            # Construct PDF URL
+            pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+            return True, pdf_url
+
+        return False, "Not found in arXiv"
+
+    except requests.Timeout:
+        return False, "arXiv timeout"
+    except Exception as e:
+        return False, f"arXiv error: {str(e)}"
+
+
+def try_pmc_enhanced(doi: str, timeout: int = 15) -> Tuple[bool, str]:
+    """
+    Enhanced PubMed Central integration using E-utilities API.
+    Better than metapub library for PMC access.
+
+    Returns: (success, pdf_url or error_message)
+    """
+    try:
+        headers = {'User-Agent': get_random_user_agent()}
+
+        # Step 1: Convert DOI to PMCID using ID Converter API
+        id_converter_url = "https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/"
+        params = {
+            'ids': doi,
+            'format': 'json',
+            'tool': 'harvest',
+            'email': 'research@example.com'
+        }
+        
+        response = requests.get(id_converter_url, params=params, headers=headers, timeout=timeout)
+        
+        if not response.ok:
+            return False, f"PMC ID converter error: HTTP {response.status_code}"
+
+        data = response.json()
+        records = data.get('records', [])
+        
+        if not records:
+            return False, "DOI not found in PubMed Central"
+
+        record = records[0]
+        
+        # Check if article is available in PMC
+        status = record.get('status', '')
+        if status == 'error':
+            return False, "Article not available in PMC"
+
+        pmcid = record.get('pmcid')
+        if not pmcid:
+            return False, "No PMCID found for this DOI"
+
+        # Step 2: Construct PMC PDF URL
+        # Remove "PMC" prefix if present
+        pmcid_num = pmcid.replace('PMC', '')
+        
+        # Try multiple PMC PDF URL formats
+        pdf_urls = [
+            f"https://www.ncbi.nlm.nih.gov/pmc/articles/PMC{pmcid_num}/pdf/",
+            f"https://europepmc.org/articles/PMC{pmcid_num}?pdf=render",
+        ]
+
+        for pdf_url in pdf_urls:
+            # Quick check if URL is accessible
+            head_response = requests.head(pdf_url, headers=headers, timeout=timeout, allow_redirects=True)
+            if head_response.ok:
+                return True, pdf_url
+
+        # Return first URL even if check failed (might still work)
+        return True, pdf_urls[0]
+
+    except requests.Timeout:
+        return False, "PMC timeout"
+    except Exception as e:
+        return False, f"PMC error: {str(e)}"
+
+
+def try_zenodo(doi: str, timeout: int = 15) -> Tuple[bool, str]:
+    """
+    Try to find PDF from Zenodo repository.
+    Zenodo is CERN's multidisciplinary open repository.
+
+    Returns: (success, pdf_url or error_message)
+    """
+    try:
+        headers = {'User-Agent': get_random_user_agent()}
+
+        # Zenodo API endpoint
+        # Search by DOI
+        api_url = "https://zenodo.org/api/records"
+        params = {
+            'q': f'doi:"{doi}"',
+            'size': 1
+        }
+
+        response = requests.get(api_url, params=params, headers=headers, timeout=timeout)
+
+        if not response.ok:
+            return False, f"Zenodo API error: HTTP {response.status_code}"
+
+        data = response.json()
+        hits = data.get('hits', {}).get('hits', [])
+
+        if not hits:
+            return False, "Not found in Zenodo"
+
+        record = hits[0]
+        
+        # Check if record has files
+        files = record.get('files', [])
+        
+        # Look for PDF files
+        for file_info in files:
+            filename = file_info.get('key', '').lower()
+            file_type = file_info.get('type', '').lower()
+            
+            if filename.endswith('.pdf') or 'pdf' in file_type:
+                pdf_url = file_info.get('links', {}).get('self')
+                if pdf_url:
+                    return True, pdf_url
+
+        # If no direct PDF, check links for download
+        links = record.get('links', {})
+        if 'files' in links:
+            return True, links['files']
+
+        return False, "No PDF file found in Zenodo record"
+
+    except requests.Timeout:
+        return False, "Zenodo timeout"
+    except Exception as e:
+        return False, f"Zenodo error: {str(e)}"
+
+
+def try_doaj(doi: str, timeout: int = 15) -> Tuple[bool, str]:
+    """
+    Try to find article in DOAJ (Directory of Open Access Journals).
+    DOAJ indexes high-quality open access journals.
+
+    Returns: (success, pdf_url or error_message)
+    """
+    try:
+        headers = {'User-Agent': get_random_user_agent()}
+
+        # DOAJ API endpoint
+        api_url = "https://doaj.org/api/search/articles/doi"
+        
+        # Clean DOI (remove URL prefix if present)
+        clean_doi = doi.replace('https://doi.org/', '').replace('http://doi.org/', '')
+        
+        # Search by DOI
+        search_url = f"{api_url}:{clean_doi}"
+        
+        response = requests.get(search_url, headers=headers, timeout=timeout)
+
+        if not response.ok:
+            return False, f"DOAJ API error: HTTP {response.status_code}"
+
+        data = response.json()
+        results = data.get('results', [])
+
+        if not results:
+            return False, "Not found in DOAJ"
+
+        article = results[0]
+        bibjson = article.get('bibjson', {})
+
+        # Look for fulltext link
+        links = bibjson.get('link', [])
+        for link in links:
+            link_type = link.get('type', '').lower()
+            url = link.get('url', '')
+            
+            if link_type == 'fulltext' and url:
+                # Check if it's a PDF URL
+                if url.lower().endswith('.pdf'):
+                    return True, url
+                # Otherwise return the fulltext page URL
+                # (might redirect to PDF or have PDF download link)
+                return True, url
+
+        # Check identifier for additional URLs
+        identifiers = bibjson.get('identifier', [])
+        for ident in identifiers:
+            if ident.get('type') == 'doi':
+                doi_url = ident.get('id', '')
+                if doi_url:
+                    # DOAJ confirms it's OA, but we need to get PDF from publisher
+                    return False, "DOAJ: Article is OA but no direct PDF link (try publisher)"
+
+        return False, "DOAJ: No fulltext link found"
+
+    except requests.Timeout:
+        return False, "DOAJ timeout"
+    except Exception as e:
+        return False, f"DOAJ error: {str(e)}"
+
+
 def try_publisher_direct(doi: str, timeout: int = 15) -> Tuple[bool, str]:
     """
     Try to construct direct publisher PDF URL based on known patterns.
@@ -359,11 +653,9 @@ def try_publisher_direct(doi: str, timeout: int = 15) -> Tuple[bool, str]:
             pdf_url = f"https://link.springer.com/content/pdf/{doi}.pdf"
             return True, pdf_url
 
-        # ArXiv (handle arXiv DOIs)
+        # ArXiv (handle arXiv DOIs) - use enhanced version instead
         if 'arxiv' in doi.lower():
-            arxiv_id = doi.split('/')[-1]
-            pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
-            return True, pdf_url
+            return try_arxiv_enhanced(doi, timeout)
 
         return False, f"No known direct pattern for publisher: {publisher}"
 
@@ -456,36 +748,70 @@ def get_retry_delay_seconds(failure_category: str, retry_count: int = 0) -> int:
 
 
 if __name__ == "__main__":
-    # Test the new sources with a known open access DOI
-    test_doi = "10.1371/journal.pone.0000001"
-    print(f"Testing PDF sources with DOI: {test_doi}\n")
+    # Test the sources with known open access DOIs
+    test_doi_plos = "10.1371/journal.pone.0000001"  # PLOS
+    test_doi_arxiv = "10.48550/arXiv.2101.00001"  # arXiv
+    
+    print(f"Testing PDF sources with PLOS DOI: {test_doi_plos}\n")
 
     # Test Europe PMC
     print("1. Testing Europe PMC...")
-    success, result = try_europe_pmc(test_doi)
+    success, result = try_europe_pmc(test_doi_plos)
     print(f"   Success: {success}")
     print(f"   Result: {result}\n")
 
     # Test CORE (without API key)
     print("2. Testing CORE...")
-    success, result = try_core(test_doi)
+    success, result = try_core(test_doi_plos)
     print(f"   Success: {success}")
     print(f"   Result: {result}\n")
 
     # Test Semantic Scholar
     print("3. Testing Semantic Scholar...")
-    success, result = try_semantic_scholar(test_doi)
+    success, result = try_semantic_scholar(test_doi_plos)
     print(f"   Success: {success}")
     print(f"   Result: {result}\n")
 
     # Test Publisher Direct
     print("4. Testing Publisher Direct...")
-    success, result = try_publisher_direct(test_doi)
+    success, result = try_publisher_direct(test_doi_plos)
+    print(f"   Success: {success}")
+    print(f"   Result: {result}\n")
+
+    # Test bioRxiv/medRxiv
+    print("5. Testing bioRxiv/medRxiv...")
+    biorxiv_doi = "10.1101/2021.01.01.425364"  # Example bioRxiv DOI
+    success, result = try_biorxiv_medrxiv(biorxiv_doi)
+    print(f"   Success: {success}")
+    print(f"   Result: {result}\n")
+
+    # Test Enhanced arXiv
+    print("6. Testing Enhanced arXiv...")
+    success, result = try_arxiv_enhanced(test_doi_arxiv)
+    print(f"   Success: {success}")
+    print(f"   Result: {result}\n")
+
+    # Test Enhanced PMC
+    print("7. Testing Enhanced PMC...")
+    success, result = try_pmc_enhanced(test_doi_plos)
+    print(f"   Success: {success}")
+    print(f"   Result: {result}\n")
+
+    # Test Zenodo
+    print("8. Testing Zenodo...")
+    zenodo_doi = "10.5281/zenodo.1234567"  # Example Zenodo DOI
+    success, result = try_zenodo(zenodo_doi)
+    print(f"   Success: {success}")
+    print(f"   Result: {result}\n")
+
+    # Test DOAJ
+    print("9. Testing DOAJ...")
+    success, result = try_doaj(test_doi_plos)
     print(f"   Success: {success}")
     print(f"   Result: {result}\n")
 
     # Test failure classification
-    print("5. Testing failure classification...")
+    print("10. Testing failure classification...")
     test_errors = [
         ("HTTP 429", 429),
         ("Not found", 404),
