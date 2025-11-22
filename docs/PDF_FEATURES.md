@@ -39,7 +39,10 @@ The unified smart PDF download system provides intelligent, multi-source PDF dow
 
 **Optional Enhanced Sources (Require Libraries):**
 - **Unpywall Library** - Enhanced Unpaywall access (requires `unpywall` package)
-- **Metapub** - Legacy PubMed Central and arXiv (requires `metapub` package and NCBI API key)
+- **Metapub** - ⚠️ Legacy PubMed Central and arXiv (requires `metapub` package and NCBI API key)
+  - Note: Metapub's dependency `eutils` uses deprecated `pkg_resources` API
+  - **Prefer using Enhanced PMC and Enhanced arXiv** sources instead (no extra dependencies)
+  - Disabled by default; deprecation warnings are automatically suppressed
 - **Habanero** - Crossref institutional access (requires `habanero` package)
 
 **Disabled by Default:**
@@ -457,6 +460,27 @@ print(f"Deleted {deleted} old records")
 2. Reduce concurrent download threads
 3. Check source-specific rate limits
 4. Use API keys where available
+
+### Deprecation Warnings
+
+**pkg_resources Warning from eutils/metapub:**
+
+If you see this warning:
+```
+UserWarning: pkg_resources is deprecated as an API
+```
+
+**Cause:** The `metapub` library depends on `eutils`, which uses the deprecated `pkg_resources` API.
+
+**Solution:**
+1. **Automatic:** The warning is automatically suppressed in `pdf_manager.py`
+2. **Preferred:** Use the newer sources instead:
+   - Use `pmc_enhanced` instead of `metapub` for PubMed Central
+   - Use `arxiv_enhanced` instead of `metapub` for arXiv
+3. **Optional:** Disable metapub entirely (it's disabled by default)
+4. **Future:** The `metapub` source is marked as legacy and may be removed
+
+These enhanced sources provide better performance and don't require the problematic dependencies.
 
 ## Best Practices
 

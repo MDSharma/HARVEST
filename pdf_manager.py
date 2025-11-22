@@ -14,6 +14,12 @@ from typing import List, Dict, Tuple, Optional
 import time
 from urllib.parse import urlparse
 import ipaddress
+import warnings
+
+# Suppress pkg_resources deprecation warning from eutils (dependency of metapub)
+# The eutils package uses deprecated pkg_resources API which will be removed in 2025
+# We use pmc_enhanced as the preferred alternative to metapub
+warnings.filterwarnings('ignore', message='.*pkg_resources is deprecated.*', category=UserWarning)
 
 try:
     from config import UNPAYWALL_EMAIL, ENABLE_METAPUB_FALLBACK, ENABLE_HABANERO_DOWNLOAD, HABANERO_PROXY_URL
@@ -24,6 +30,8 @@ except ImportError:
     HABANERO_PROXY_URL = ""
 
 # Try importing optional libraries
+# Note: metapub depends on eutils which uses deprecated pkg_resources
+# The warning is suppressed at module level; prefer pmc_enhanced over metapub
 try:
     from metapub import PubMedFetcher
     METAPUB_AVAILABLE = True
@@ -212,6 +220,11 @@ def check_open_access(doi: str, email: str = None) -> Tuple[bool, str]:
 def try_metapub_download(doi: str) -> Tuple[bool, str]:
     """
     Try to find PDF using metapub (PubMed Central, arXiv, etc.)
+    
+    LEGACY: This function uses the metapub library which depends on eutils.
+    The eutils package uses deprecated pkg_resources API.
+    Prefer using try_pmc_enhanced() and try_arxiv_enhanced() instead.
+    
     Returns: (success, pdf_url or error_message)
     """
     if not METAPUB_AVAILABLE or not ENABLE_METAPUB_FALLBACK:
