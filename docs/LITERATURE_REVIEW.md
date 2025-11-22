@@ -178,6 +178,26 @@ python3 launch_harvest.py
 
 You have **two main options** for deploying ASReview with HARVEST. Choose based on your needs.
 
+### ⚙️ How to Switch Between Options
+
+**IMPORTANT: There is no on/off switch!** You just configure which URL to use in `config.py`:
+
+```python
+# Option 1: Nginx Direct Proxy (faster)
+ASREVIEW_SERVICE_URL = "https://yourdomain.com/harvest/asreview"
+
+# Option 2: HARVEST Proxy (simpler)  
+ASREVIEW_SERVICE_URL = "http://asreview-host:5123"
+```
+
+**That's it!** The URL format determines which method is used:
+- **Full URL with path** (e.g., `https://domain.com/harvest/asreview`) → Nginx proxies ASReview
+- **Direct host:port** (e.g., `http://host:5123`) → HARVEST proxies ASReview
+
+No code changes needed to switch - just update config.py and restart HARVEST!
+
+---
+
 ### 🤔 Which Option Should I Choose?
 
 **Quick Decision:**
@@ -220,7 +240,8 @@ location /harvest/asreview/ {
     rewrite ^/harvest/asreview/(.*) /$1 break;
     
     # Proxy to ASReview service
-    proxy_pass http://spark-ec4c.tail16c7f.ts.net:5123;
+    # Replace with your ASReview host and port
+    proxy_pass http://asreview-host:5123;
     
     # Standard proxy headers
     proxy_set_header Host $host;
@@ -299,7 +320,8 @@ location /harvest/ {
 Then configure HARVEST to connect directly to ASReview:
 ```python
 # In config.py
-ASREVIEW_SERVICE_URL = "http://spark-ec4c.tail16c7f.ts.net:5123"  # Direct connection
+# Replace with your ASReview host and port
+ASREVIEW_SERVICE_URL = "http://asreview-host:5123"  # Direct connection
 ```
 
 **How it works:**

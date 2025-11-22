@@ -89,17 +89,28 @@ ENABLE_LITERATURE_REVIEW = True  # Enable Literature Review feature (requires ad
 # ASReview should be deployed separately on a GPU-enabled host for optimal performance
 # The service runs independently and HARVEST communicates via REST API
 # 
-# Setup instructions:
-# 1. Deploy ASReview on a GPU-enabled server (see docs/LITERATURE_REVIEW.md)
-# 2. Configure the service URL below (include protocol and port)
-# 3. Ensure network connectivity between HARVEST and ASReview service
-# 4. ASReview service should be accessible via nginx proxy or direct connection
+# IMPORTANT: The URL you set here determines which proxy method is used:
+#
+# METHOD 1: HARVEST Python Proxy (Simpler, for development/testing)
+#   - Set this to the DIRECT ASReview service URL
+#   - HARVEST will handle all proxying and path rewriting
+#   - Example: ASREVIEW_SERVICE_URL = "http://asreview-host:5123"
+#   - Browser → nginx → HARVEST → ASReview
+#
+# METHOD 2: Nginx Direct Proxy (Faster, for production)
+#   - Set this to the nginx-proxied ASReview URL
+#   - Nginx handles proxying and path rewriting (requires sub_filter config)
+#   - Example: ASREVIEW_SERVICE_URL = "https://yourdomain.com/harvest/asreview"
+#   - Browser → nginx → ASReview
+#
+# No code changes needed to switch between methods - just change this URL!
+# See docs/LITERATURE_REVIEW.md for detailed setup instructions for each method.
 #
 # Examples:
-#   - Direct connection: "http://asreview-server.local:5000"
-#   - Via nginx proxy: "https://yourdomain.com/asreview"
-#   - Same host: "http://localhost:5275" (if ASReview runs on same machine)
-ASREVIEW_SERVICE_URL = ""  # Enter ASReview service URL here (e.g., "http://asreview-host:5000")
+#   - Direct connection (HARVEST proxy): "http://asreview-server.local:5123"
+#   - Via nginx proxy (nginx direct): "https://yourdomain.com/harvest/asreview"
+#   - Same host (HARVEST proxy): "http://localhost:5275"
+ASREVIEW_SERVICE_URL = ""  # Enter ASReview service URL here
 
 # ASReview API Key (optional)
 # If your ASReview service requires authentication, enter the API key here
