@@ -9,6 +9,7 @@ import sys
 import os
 import tempfile
 import json
+import sqlite3
 
 # Add parent directory to path to import harvest_store
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -144,8 +145,6 @@ def test_delete_project_rollback_on_error():
         db_path = tmp.name
     
     try:
-        import sqlite3
-        
         # Initialize database
         init_db(db_path)
         
