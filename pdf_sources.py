@@ -350,7 +350,7 @@ def try_biorxiv_medrxiv(doi: str, timeout: int = 15) -> Tuple[bool, str]:
                 response = requests.head(pdf_url, headers=headers, timeout=timeout, allow_redirects=True)
                 if response.status_code == 200:
                     return True, pdf_url
-            except:
+            except (requests.RequestException, requests.Timeout):
                 pass  # Continue to try other methods
             
             # Try medRxiv
@@ -359,7 +359,7 @@ def try_biorxiv_medrxiv(doi: str, timeout: int = 15) -> Tuple[bool, str]:
                 response = requests.head(pdf_url, headers=headers, timeout=timeout, allow_redirects=True)
                 if response.status_code == 200:
                     return True, pdf_url
-            except:
+            except (requests.RequestException, requests.Timeout):
                 pass  # Continue to API check
         
         # Try bioRxiv API
@@ -377,7 +377,7 @@ def try_biorxiv_medrxiv(doi: str, timeout: int = 15) -> Tuple[bool, str]:
                     doi_full = article.get('doi', doi)
                     pdf_url = f"https://www.{server}.org/content/{doi_full}.full.pdf"
                     return True, pdf_url
-        except:
+        except (requests.RequestException, requests.Timeout):
             pass  # Continue to medRxiv API
         
         # Try medRxiv API
@@ -393,7 +393,7 @@ def try_biorxiv_medrxiv(doi: str, timeout: int = 15) -> Tuple[bool, str]:
                     doi_full = article.get('doi', doi)
                     pdf_url = f"https://www.{server}.org/content/{doi_full}.full.pdf"
                     return True, pdf_url
-        except:
+        except (requests.RequestException, requests.Timeout):
             pass  # All methods exhausted
 
         return False, "Not found in bioRxiv or medRxiv"
