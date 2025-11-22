@@ -1339,9 +1339,20 @@ def get_project_batches_endpoint(project_id: int):
 
 @app.get("/api/projects/<int:project_id>/batches/<int:batch_id>/dois")
 def get_batch_dois_endpoint(project_id: int, batch_id: int):
-    """Get all DOIs in a specific batch with their status (public)"""
+    """Get all DOIs in a specific batch with their status and PDF indicators (public)"""
     try:
         dois = get_batch_dois(DB_PATH, project_id, batch_id)
+        
+        # Add PDF indicators to each DOI
+        from pdf_manager import get_project_pdf_dir
+        project_dir = get_project_pdf_dir(project_id)
+        
+        for doi_info in dois:
+            doi = doi_info['doi']
+            doi_hash = generate_doi_hash(doi)
+            pdf_path = os.path.join(project_dir, f"{doi_hash}.pdf")
+            doi_info['has_pdf'] = os.path.exists(pdf_path)
+        
         return jsonify({
             "ok": True,
             "dois": dois
