@@ -120,6 +120,9 @@ As of the latest version, HARVEST supports:
 - **QTL**: qtl
 - **Coordinates**: coordinates
 - **Metabolite**: metabolite
+- **Pathway**: pathway
+- **Process**: process
+- **Factor**: factor (biotic or abiotic factors)
 
 ### Relation Types
 - is_a
@@ -137,6 +140,23 @@ As of the latest version, HARVEST supports:
 - regulates
 - contributes_to
 - inhers_in
+- encodes
+- binds_to
+- phosphorylates
+- methylates
+- acetylates
+- activates
+- inhibits
+- represses
+- interacts_with
+- localizes_to
+- expressed_in
+- associated_with
+- causes
+- prevents
+- co_occurs_with
+- precedes
+- follows
 
 ## Troubleshooting
 
