@@ -340,7 +340,9 @@ def validate_callback_map():
                 compatibility_callback_found += 1
                 logger.info(f"✓ Found compatibility callback (5 outputs) for legacy browser support: {callback_id}")
             elif len(markdown_outputs) == 4 and compatibility_callback_found < 4:
-                # This is a 4-output compatibility callback variant - allow up to 3 of these
+                # This is a 4-output compatibility callback variant
+                # With compatibility_callback_found starting at 1 after the 5-output callback,
+                # this allows up to 3 additional 4-output callbacks (positions 1, 2, 3)
                 compatibility_callback_found += 1
                 logger.info(f"✓ Found compatibility callback (4 outputs variant {compatibility_callback_found - 1}) for legacy browser support: {callback_id}")
             else:

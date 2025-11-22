@@ -987,8 +987,10 @@ def delete_existing_project(project_id: int):
             conn.commit()
             logger.info(f"Deleted child records for project {project_id}")
         except Exception as e:
-            logger.warning(f"Error deleting child records for project {project_id}: {e}")
-            # Continue with project deletion anyway
+            conn.rollback()
+            conn.close()
+            logger.error(f"Failed to delete child records for project {project_id}: {e}", exc_info=True)
+            return jsonify({"error": f"Failed to delete project child records: {str(e)}"}), 500
         
         # Now delete the project
         success = delete_project(DB_PATH, project_id)
