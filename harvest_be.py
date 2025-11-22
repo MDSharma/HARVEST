@@ -49,7 +49,7 @@ from harvest_store import (
 try:
     from config import (
         DB_PATH, BE_PORT as PORT, HOST, ENABLE_PDF_HIGHLIGHTING,
-        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL, ENABLE_ENHANCED_PDF_DOWNLOAD,
+        DEPLOYMENT_MODE, BACKEND_PUBLIC_URL,
         NCBI_API_KEY
     )
     # Set NCBI_API_KEY as environment variable for metapub if defined
@@ -63,7 +63,6 @@ except ImportError:
     ENABLE_PDF_HIGHLIGHTING = True  # Default to enabled
     DEPLOYMENT_MODE = os.environ.get("HARVEST_DEPLOYMENT_MODE", "internal")
     BACKEND_PUBLIC_URL = os.environ.get("HARVEST_BACKEND_PUBLIC_URL", "")
-    ENABLE_ENHANCED_PDF_DOWNLOAD = False  # Default to standard PDF download
     NCBI_API_KEY = ""
 
 # Setup logging first
@@ -1009,20 +1008,16 @@ def _run_pdf_download_task(project_id: int, doi_list: List[str], project_dir: st
     """Background task to download PDFs and update progress in database"""
     import json
     
-    # Use enhanced or standard PDF manager based on config
-    if ENABLE_ENHANCED_PDF_DOWNLOAD:
-        try:
-            from pdf_manager_enhanced import process_dois_smart as process_function
-            from pdf_manager import get_project_pdf_dir, generate_doi_hash
-            print(f"[PDF Download Task] Using ENHANCED PDF download system")
-        except ImportError as e:
-            print(f"[PDF Download Task] Warning: Enhanced PDF manager not available, falling back to standard: {e}")
-            from pdf_manager import process_project_dois_with_progress as process_function
-            from pdf_manager import get_project_pdf_dir, generate_doi_hash
-    else:
+    # Use the unified smart PDF manager
+    try:
+        from pdf_manager import process_dois_smart as process_function
+        from pdf_manager import get_project_pdf_dir, generate_doi_hash
+        print(f"[PDF Download Task] Using smart PDF download system")
+    except ImportError as e:
+        # Fallback to standard if smart version not available
+        print(f"[PDF Download Task] Warning: Smart PDF manager not available, falling back to standard: {e}")
         from pdf_manager import process_project_dois_with_progress as process_function
         from pdf_manager import get_project_pdf_dir, generate_doi_hash
-        print(f"[PDF Download Task] Using STANDARD PDF download system")
     
     print(f"[PDF Download Task] Starting background download for project {project_id}")
     
@@ -1072,21 +1067,20 @@ def _run_pdf_download_task(project_id: int, doi_list: List[str], project_dir: st
                 "errors": errors
             })
         
-        # Initialize the database if using enhanced mode
-        if ENABLE_ENHANCED_PDF_DOWNLOAD:
+        # Initialize the PDF download database (always use smart mode now)
+        try:
+            from pdf_download_db import init_pdf_download_db
+            init_pdf_download_db()
+            # Smart version needs project_id parameter
+            results = process_function(doi_list, project_id, project_dir, progress_callback)
+        except Exception as e:
+            print(f"[PDF Download Task] Error: {e}")
+            # Try fallback without project_id if using old function
             try:
-                from pdf_download_db import init_pdf_download_db
-                init_pdf_download_db()
-                # Enhanced version needs project_id parameter
-                results = process_function(doi_list, project_id, project_dir, progress_callback)
-            except Exception as e:
-                print(f"[PDF Download Task] Warning: Could not initialize enhanced PDF download database: {e}")
-                # Fallback to standard if enhanced fails
-                from pdf_manager import process_project_dois_with_progress
-                results = process_project_dois_with_progress(doi_list, project_dir, progress_callback)
-        else:
-            # Standard version doesn't need project_id
-            results = process_function(doi_list, project_dir, progress_callback)
+                results = process_function(doi_list, project_dir, progress_callback)
+            except TypeError:
+                # Must be the smart function, re-raise original error
+                raise e
         
         # Update final status in database
         update_pdf_download_progress(DB_PATH, project_id, {
@@ -1202,6 +1196,18 @@ def get_pdf_download_status(project_id: int):
     print(f"[PDF Download Status] Project {project_id}: status={progress.get('status')}, "
           f"current={progress.get('current')}/{progress.get('total')}")
     
+    # Get active download mechanisms
+    try:
+        from pdf_manager import get_active_download_mechanisms
+        active_mechanisms = get_active_download_mechanisms()
+        mechanisms_info = [
+            {"name": m['name'], "description": m.get('description', '')}
+            for m in active_mechanisms
+        ]
+    except Exception as e:
+        print(f"[PDF Download Status] Could not get active mechanisms: {e}")
+        mechanisms_info = []
+    
     # Return current progress
     return jsonify({
         "ok": True,
@@ -1217,6 +1223,7 @@ def get_pdf_download_status(project_id: int):
         "needs_upload": progress.get("needs_upload", [])[:10],
         "errors": progress.get("errors", [])[:5],
         "project_dir": progress.get("project_dir", ""),
+        "active_mechanisms": mechanisms_info,  # List of active download sources
         # Include full results when completed
         "full_results": {
             "downloaded": progress.get("downloaded", []),
@@ -1229,63 +1236,32 @@ def get_pdf_download_status(project_id: int):
 def get_pdf_download_config():
     """Get PDF download configuration and available sources (public endpoint)"""
     try:
-        from pdf_manager import (
-            UNPAYWALL_EMAIL,
-            UNPYWALL_AVAILABLE,
-            METAPUB_AVAILABLE,
-            HABANERO_AVAILABLE,
-            ENABLE_METAPUB_FALLBACK,
-            ENABLE_HABANERO_DOWNLOAD
-        )
+        from pdf_manager import get_active_download_mechanisms
         
+        # Get active download mechanisms from database
+        active_mechanisms = get_active_download_mechanisms()
+        
+        # Format for API response
         sources = []
-        
-        # Unpaywall (REST API) - always attempted first
-        sources.append({
-            "name": "Unpaywall (REST API)",
-            "enabled": True,
-            "available": True,
-            "order": 1,
-            "description": "Open access repository via REST API"
-        })
-        
-        # Unpywall library - optional enhancement to Unpaywall
-        if UNPYWALL_AVAILABLE:
+        for idx, mechanism in enumerate(active_mechanisms, 1):
             sources.append({
-                "name": "Unpywall Library",
-                "enabled": True,
-                "available": True,
-                "order": 2,
-                "description": "Python library for enhanced Unpaywall access"
+                "name": mechanism['name'],
+                "enabled": mechanism.get('enabled', True),
+                "available": True,  # If it's in active list, it's available
+                "order": idx,
+                "description": mechanism.get('description', ''),
+                "success_rate": mechanism.get('success_rate', 0.0),
+                "total_attempts": mechanism.get('total_attempts', 0),
+                "avg_response_time_ms": mechanism.get('avg_response_time_ms', 0.0)
             })
-        
-        # Metapub - PubMed Central, arXiv, etc.
-        sources.append({
-            "name": "Metapub",
-            "enabled": ENABLE_METAPUB_FALLBACK,
-            "available": METAPUB_AVAILABLE,
-            "order": 3,
-            "description": "PubMed Central, arXiv, and other sources"
-        })
-        
-        # Habanero - Crossref with optional institutional access
-        sources.append({
-            "name": "Habanero",
-            "enabled": ENABLE_HABANERO_DOWNLOAD,
-            "available": HABANERO_AVAILABLE,
-            "order": 4,
-            "description": "Crossref API with institutional access"
-        })
-        
-        # Count enabled sources
-        enabled_count = sum(1 for s in sources if s["enabled"] and s["available"])
         
         return jsonify({
             "ok": True,
             "sources": sources,
-            "enabled_count": enabled_count,
-            "email_configured": UNPAYWALL_EMAIL and UNPAYWALL_EMAIL != "research@example.com"
+            "total_sources": len(sources),
+            "active_sources": len([s for s in sources if s['enabled']])
         })
+        
     except Exception as e:
         logger.error(f"Failed to get PDF configuration: {e}", exc_info=True)
         return jsonify({"error": "Failed to get PDF configuration"}), 500

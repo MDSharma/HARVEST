@@ -23,7 +23,9 @@ from pdf_download_db import (
 from pdf_sources import (
     try_europe_pmc, try_core, try_semantic_scholar, try_scihub,
     try_publisher_direct, classify_failure, is_temporary_failure,
-    get_retry_delay_seconds, extract_doi_prefix, get_publisher_name
+    get_retry_delay_seconds, extract_doi_prefix, get_publisher_name,
+    try_biorxiv_medrxiv, try_arxiv_enhanced, try_pmc_enhanced,
+    try_zenodo, try_doaj
 )
 
 try:
@@ -76,9 +78,27 @@ def try_source(source_name: str, doi: str, config: Dict) -> Tuple[bool, str, Opt
                 response_time = int((time.time() - start_time) * 1000)
                 return False, f"Unpywall library error: {str(e)}", response_time
 
+        elif source_name == 'biorxiv_medrxiv':
+            timeout = config.get('timeout', 15)
+            success, result = try_biorxiv_medrxiv(doi, timeout)
+            response_time = int((time.time() - start_time) * 1000)
+            return success, result, response_time
+
         elif source_name == 'europe_pmc':
             timeout = config.get('timeout', 15)
             success, result = try_europe_pmc(doi, timeout)
+            response_time = int((time.time() - start_time) * 1000)
+            return success, result, response_time
+
+        elif source_name == 'pmc_enhanced':
+            timeout = config.get('timeout', 15)
+            success, result = try_pmc_enhanced(doi, timeout)
+            response_time = int((time.time() - start_time) * 1000)
+            return success, result, response_time
+
+        elif source_name == 'arxiv_enhanced':
+            timeout = config.get('timeout', 15)
+            success, result = try_arxiv_enhanced(doi, timeout)
             response_time = int((time.time() - start_time) * 1000)
             return success, result, response_time
 
@@ -89,9 +109,21 @@ def try_source(source_name: str, doi: str, config: Dict) -> Tuple[bool, str, Opt
             response_time = int((time.time() - start_time) * 1000)
             return success, result, response_time
 
+        elif source_name == 'zenodo':
+            timeout = config.get('timeout', 15)
+            success, result = try_zenodo(doi, timeout)
+            response_time = int((time.time() - start_time) * 1000)
+            return success, result, response_time
+
         elif source_name == 'semantic_scholar':
             timeout = config.get('timeout', 15)
             success, result = try_semantic_scholar(doi, timeout)
+            response_time = int((time.time() - start_time) * 1000)
+            return success, result, response_time
+
+        elif source_name == 'doaj':
+            timeout = config.get('timeout', 15)
+            success, result = try_doaj(doi, timeout)
             response_time = int((time.time() - start_time) * 1000)
             return success, result, response_time
 
@@ -401,6 +433,36 @@ def process_dois_smart(
           f"Needs upload: {len(results['needs_upload'])}, Errors: {len(results['errors'])}")
 
     return results
+
+
+def get_active_download_mechanisms(db_path: str = None) -> List[Dict]:
+    """
+    Get list of active (enabled) download mechanisms with their status.
+    
+    Returns: List of dicts with source information:
+        - name: source name
+        - description: source description
+        - enabled: whether source is enabled
+        - success_rate: historical success rate (%)
+        - total_attempts: total download attempts
+        - avg_response_time_ms: average response time
+    """
+    from pdf_download_db import get_source_rankings, PDF_DB_PATH
+    
+    if db_path is None:
+        db_path = PDF_DB_PATH
+    
+    try:
+        # Get all sources with rankings
+        sources = get_source_rankings(db_path)
+        
+        # Filter to only enabled sources
+        active_sources = [s for s in sources if s.get('enabled')]
+        
+        return active_sources
+    except Exception as e:
+        print(f"[PDF Smart] Error getting active mechanisms: {e}")
+        return []
 
 
 if __name__ == "__main__":
