@@ -1700,12 +1700,12 @@ def load_project_batches(project_id):
     prevent_initial_call=True,
 )
 def load_batch_dois(batch_id, project_id, user_email):
-    """Load DOIs for selected batch with status indicators"""
+    """Load DOIs for selected batch with status indicators and PDF indicators"""
     if not batch_id or not project_id:
         return [], True, ""
     
     try:
-        # Call backend API to get DOIs with status
+        # Call backend API to get DOIs with status and PDF indicators
         response = requests.get(
             f"{API_BASE}/api/projects/{project_id}/batches/{batch_id}/dois",
             timeout=5
@@ -1715,26 +1715,30 @@ def load_batch_dois(batch_id, project_id, user_email):
             data = response.json()
             dois_data = data.get("dois", [])
             
-            # Build options with status indicators
+            # Build options with status indicators and PDF indicators
             options = []
             for doi_info in dois_data:
                 status = doi_info.get('status', 'unstarted')
                 annotator = doi_info.get('annotator_email', '')
                 doi = doi_info['doi']
+                has_pdf = doi_info.get('has_pdf', False)
                 
-                # Choose indicator based on status
+                # Choose status indicator based on annotation status
                 if status == 'completed':
-                    indicator = '🟢'
+                    status_indicator = '🟢'
                 elif status == 'in_progress':
                     if annotator == user_email:
-                        indicator = '🔵'  # Your work
+                        status_indicator = '🔵'  # Your work
                     else:
-                        indicator = '🟡'  # Someone else's work
+                        status_indicator = '🟡'  # Someone else's work
                 else:
-                    indicator = '🔴'
+                    status_indicator = '🔴'
+                
+                # Add PDF indicator if PDF exists
+                pdf_indicator = ' 📄' if has_pdf else ''
                 
                 options.append({
-                    "label": f"{indicator} {doi}",
+                    "label": f"{status_indicator} {doi}{pdf_indicator}",
                     "value": doi
                 })
             
