@@ -163,7 +163,9 @@ def validate_doi():
     if not doi:
         return jsonify({"error": "Missing 'doi'"}), 400
 
+    # Normalize DOI: remove URL prefix and convert to lowercase
     doi = doi.replace("https://doi.org/", "").replace("http://doi.org/", "")
+    doi = doi.lower()
 
     doi_pattern = r'^10\.\d{4,9}/[-._;()/:A-Za-z0-9]+$'
     if not re.match(doi_pattern, doi):
@@ -685,7 +687,7 @@ def validate_dois():
     invalid_dois = []
     
     for doi in dois:
-        doi = doi.strip()
+        doi = doi.strip().lower()  # Normalize to lowercase
         if not doi:
             continue
             

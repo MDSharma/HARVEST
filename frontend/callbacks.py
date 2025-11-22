@@ -2356,6 +2356,7 @@ def handle_edit_dois_modal(edit_clicks_list, close_clicks, add_clicks, remove_cl
     Output("pdf-download-progress-container", "children"),
     Output("pdf-download-project-id", "data"),
     Output("pdf-download-progress-interval", "disabled"),
+    Output("pdf-download-state-store", "data"),
     Input({"type": "download-project-pdfs", "index": ALL}, "n_clicks"),
     State("admin-auth-store", "data"),
     prevent_initial_call=True,
@@ -2363,22 +2364,22 @@ def handle_edit_dois_modal(edit_clicks_list, close_clicks, add_clicks, remove_cl
 def start_download_project_pdfs(n_clicks_list, auth_data):
     """Start PDF download and enable progress polling"""
     if not any(n_clicks_list):
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
     
     if not auth_data:
         print("[Frontend] PDF Download: No auth data")
-        return dbc.Alert("Please login first", color="danger"), None, True
+        return dbc.Alert("Please login first", color="danger"), None, True, None
     
     email = auth_data.get("email")
     password = auth_data.get("password")
     if not email or not password:
         print("[Frontend] PDF Download: Missing credentials")
-        return dbc.Alert("Please login first", color="danger"), None, True
+        return dbc.Alert("Please login first", color="danger"), None, True, None
     
     # Find which button was clicked
     trigger = ctx.triggered_id
     if not trigger:
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
     
     project_id = trigger["index"]
     
@@ -2414,16 +2415,43 @@ def start_download_project_pdfs(n_clicks_list, auth_data):
                 dismissable=False
             )
             
-            # Return: message, project_id (to track), enable interval
-            return initial_message, project_id, False
+            # Initialize download state for persistence across refresh
+            initial_download_state = {
+                "project_id": project_id,
+                "active": True,
+                "status": "running",
+                "current": 0,
+                "total": data.get('total_dois', 0)
+            }
+            
+            # Return: message, project_id (to track), enable interval, initial state
+            return initial_message, project_id, False, initial_download_state
         else:
             error_msg = r.json().get("error", "Unknown error") if r.headers.get("content-type") == "application/json" else f"HTTP {r.status_code}"
             print(f"[Frontend] PDF Download: Failed to start - {error_msg}")
-            return dbc.Alert(f"Download failed: {error_msg}", color="danger", dismissable=True), None, True
+            return dbc.Alert(f"Download failed: {error_msg}", color="danger", dismissable=True), None, True, None
             
     except Exception as e:
         print(f"[Frontend] PDF Download: Error starting download - {str(e)}")
-        return dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True), None, True
+        return dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True), None, True, None
+
+# Restore PDF download polling on page load if there's an active download
+@app.callback(
+    Output("pdf-download-progress-interval", "disabled"),
+    Output("pdf-download-project-id", "data"),
+    Input("pdf-download-state-store", "data"),
+    prevent_initial_call=False,
+)
+def restore_pdf_download_polling(download_state):
+    """Restore polling on page load if there's an active download in progress"""
+    if download_state and download_state.get("active") and download_state.get("project_id"):
+        project_id = download_state.get("project_id")
+        print(f"[Frontend] PDF Download: Restoring polling for project {project_id} after refresh")
+        # Enable polling and set project_id
+        return False, project_id
+    
+    # No active download, keep polling disabled
+    return no_update, no_update
 
 # Poll for PDF download progress
 @app.callback(
