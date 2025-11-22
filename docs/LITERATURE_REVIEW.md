@@ -174,11 +174,96 @@ python3 launch_harvest.py
    ASREVIEW_REQUEST_TIMEOUT = 600  # 10 minutes
    ```
 
-## Nginx Configuration (Optional)
+## Nginx Configuration
 
-### Option 1: HARVEST Proxies to ASReview (Recommended)
+You have **two main options** for deploying ASReview with HARVEST. Choose based on your needs:
 
-This is the **recommended approach** where HARVEST's frontend proxy handles all ASReview communication:
+### Option 1: Nginx Proxies ASReview Directly (Recommended for Production)
+
+**Best for:** Production deployments, better performance, standard practice
+
+This approach has nginx proxy ASReview directly, which is more efficient and offloads work from HARVEST.
+
+```nginx
+# Proxy HARVEST application
+location /harvest/ {
+    proxy_pass http://localhost:8050/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+# Proxy ASReview service with React SPA support
+location /harvest/asreview/ {
+    # Remove /harvest/asreview prefix before passing to ASReview
+    rewrite ^/harvest/asreview/(.*) /$1 break;
+    
+    # Proxy to ASReview service
+    proxy_pass http://spark-ec4c.tail16c7f.ts.net:5123;
+    
+    # Standard proxy headers
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    
+    # WebSocket support
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    
+    # Timeouts
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 300s;
+    proxy_read_timeout 300s;
+    
+    # CRITICAL: Fix React SPA paths using sub_filter
+    # This injects a <base> tag to tell the browser where to resolve relative URLs
+    sub_filter_once off;
+    sub_filter_types text/html text/css application/javascript;
+    sub_filter '<head>' '<head><base href="/harvest/asreview/">';
+    
+    # Also rewrite absolute paths in HTML/JS
+    sub_filter 'href="/' 'href="/harvest/asreview/';
+    sub_filter 'src="/' 'src="/harvest/asreview/';
+    
+    # Disable redirect rewriting
+    proxy_redirect off;
+    
+    # CORS headers (if needed)
+    add_header Access-Control-Allow-Origin "*" always;
+}
+```
+
+Then configure HARVEST to use the nginx-proxied ASReview:
+```python
+# In config.py
+ASREVIEW_SERVICE_URL = "https://yourdomain.com/harvest/asreview"
+```
+
+**Advantages:**
+- ✅ Better performance (one less hop)
+- ✅ Offloads proxying to nginx (designed for this)
+- ✅ Standard production practice
+- ✅ Works with your existing nginx setup
+
+**Requirements:**
+- nginx `sub_filter` module (usually included by default)
+- nginx configured with proper base path rewriting
+
+**Test nginx config before reloading:**
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### Option 2: HARVEST Proxies to ASReview (Simpler Setup)
+
+**Best for:** Development, testing, simpler deployments without nginx
+
+Let HARVEST handle all ASReview proxying (nginx just proxies HARVEST):
 
 ```nginx
 # In your nginx configuration, just proxy to HARVEST
@@ -192,89 +277,85 @@ location /harvest/ {
 }
 ```
 
-Then configure HARVEST to connect directly to ASReview service:
+Then configure HARVEST to connect directly to ASReview:
 ```python
 # In config.py
-ASREVIEW_SERVICE_URL = "http://asreview-host:5275"  # Direct connection
+ASREVIEW_SERVICE_URL = "http://spark-ec4c.tail16c7f.ts.net:5123"  # Direct connection
 ```
 
 **How it works:**
 1. Browser requests `/harvest/proxy/asreview/...`
 2. Nginx forwards to HARVEST frontend
 3. HARVEST's `/proxy/asreview/` route forwards to ASReview service
-4. HARVEST handles MIME type correction and base path injection
+4. HARVEST handles MIME type correction and base path injection automatically
 5. Browser receives correctly formatted responses
 
 **Advantages:**
-- ✅ HARVEST handles React SPA routing automatically
-- ✅ No additional nginx configuration needed for ASReview
-- ✅ Centralized proxy logic in HARVEST code
+- ✅ HARVEST handles React SPA routing automatically (code already in place)
+- ✅ No nginx sub_filter configuration needed
+- ✅ Centralized proxy logic in HARVEST code (easier to debug)
 - ✅ Works with ASReview on internal/private networks
 
-### Option 2: Nginx Proxies ASReview Directly (Advanced)
+**Disadvantages:**
+- ❌ Extra hop adds latency (Browser → nginx → HARVEST → ASReview)
+- ❌ Uses HARVEST server resources for proxying
 
-If you need nginx to proxy ASReview directly (e.g., for load balancing):
+### Which Option Should You Use?
 
-```nginx
-# Proxy HARVEST
-location /harvest/ {
-    proxy_pass http://localhost:8050/;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
+**Use Option 1 (nginx direct proxy) if:**
+- You're deploying to production
+- You want best performance
+- You're comfortable with nginx configuration
+- You want to follow standard web server practices
+- You have nginx with sub_filter module available
 
-# Proxy ASReview service (if needed)
-location /asreview/ {
-    proxy_pass http://asreview-host:5275/;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection 'upgrade';
-    proxy_set_header Host $host;
-    proxy_cache_bypass $http_upgrade;
-    proxy_connect_timeout 10s;
-    proxy_send_timeout 300s;
-    proxy_read_timeout 300s;
-    
-    # DO NOT use sub_filter for React SPA - HARVEST handles this
-}
-```
-
-Then configure HARVEST:
-```python
-# In config.py
-ASREVIEW_SERVICE_URL = "https://yourdomain.com/asreview"  # Via nginx
-```
-
-**Note:** Even with this setup, HARVEST's proxy at `/harvest/proxy/asreview/` still handles the React SPA routing. This configuration is mainly useful if you need direct access to ASReview outside of HARVEST.
+**Use Option 2 (HARVEST proxy) if:**
+- You're in development/testing
+- You want simpler configuration
+- You don't have access to nginx config
+- ASReview is on an internal/private network only accessible from HARVEST server
+- You prefer centralized proxy logic
 
 ### Troubleshooting Nginx Setup
 
-If ASReview doesn't load properly through nginx:
+If ASReview doesn't load properly through nginx (Option 1):
 
-1. **Check nginx logs** for errors:
+1. **Verify sub_filter module is available:**
+   ```bash
+   nginx -V 2>&1 | grep -o with-http_sub_module
+   # Should output: with-http_sub_module
+   ```
+
+2. **Check nginx logs** for errors:
    ```bash
    tail -f /var/log/nginx/error.log
    ```
 
-2. **Verify proxy headers** are passed correctly:
+3. **Test the base tag injection** by viewing page source:
    ```bash
-   curl -I https://yourdomain.com/harvest/proxy/asreview/
-   ```
-
-3. **Test without nginx** to isolate the issue:
-   ```bash
-   # Access HARVEST directly
-   curl http://localhost:8050/proxy/asreview/
+   curl https://yourdomain.com/harvest/asreview/ | grep -i "<base"
+   # Should show: <base href="/harvest/asreview/">
    ```
 
 4. **Check Content-Type headers** for static files:
    ```bash
-   curl -I https://yourdomain.com/harvest/proxy/asreview/static/js/main.xxx.js
+   curl -I https://yourdomain.com/harvest/asreview/static/js/main.xxx.js
    # Should return: Content-Type: application/javascript
    ```
+
+5. **If sub_filter doesn't work**, fall back to Option 2 (HARVEST proxy)
+
+### Converting from Option 2 to Option 1
+
+If you're currently using Option 2 and want to switch:
+
+1. Update nginx config with the Option 1 configuration
+2. Test nginx config: `sudo nginx -t`
+3. Update HARVEST config.py to point to nginx URL
+4. Reload nginx: `sudo systemctl reload nginx`
+5. Restart HARVEST: `python3 launch_harvest.py`
+
+No code changes needed - HARVEST's proxy at `/proxy/asreview/` will still work but won't be used.
 
 ## Performance Tips
 
