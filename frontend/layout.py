@@ -1251,6 +1251,56 @@ def get_layout():
                                                             html.Div(
                                                                 id="lit-search-export-controls",
                                                                 children=[
+                                                                    # Sorting and filtering controls
+                                                                    dbc.Card(
+                                                                        dbc.CardBody(
+                                                                            [
+                                                                                dbc.Row(
+                                                                                    [
+                                                                                        dbc.Col(
+                                                                                            [
+                                                                                                dbc.Label("Sort By:", className="fw-bold mb-1", style={"fontSize": "0.9rem"}),
+                                                                                                dcc.Dropdown(
+                                                                                                    id="result-sort-by",
+                                                                                                    options=[
+                                                                                                        {"label": "Relevance (Default)", "value": "relevance"},
+                                                                                                        {"label": "Citations (High to Low)", "value": "citations_desc"},
+                                                                                                        {"label": "Year (Newest First)", "value": "year_desc"},
+                                                                                                        {"label": "Year (Oldest First)", "value": "year_asc"},
+                                                                                                    ],
+                                                                                                    value="relevance",
+                                                                                                    clearable=False,
+                                                                                                    className="mb-2"
+                                                                                                ),
+                                                                                            ],
+                                                                                            md=6
+                                                                                        ),
+                                                                                        dbc.Col(
+                                                                                            [
+                                                                                                dbc.Label("Filter by Source:", className="fw-bold mb-1", style={"fontSize": "0.9rem"}),
+                                                                                                dcc.Dropdown(
+                                                                                                    id="result-filter-source",
+                                                                                                    options=[
+                                                                                                        {"label": "All Sources", "value": "all"},
+                                                                                                        {"label": "Semantic Scholar", "value": "Semantic Scholar"},
+                                                                                                        {"label": "arXiv", "value": "arXiv"},
+                                                                                                        {"label": "Web of Science", "value": "Web of Science"},
+                                                                                                        {"label": "OpenAlex", "value": "OpenAlex"},
+                                                                                                    ],
+                                                                                                    value="all",
+                                                                                                    clearable=False,
+                                                                                                    className="mb-2"
+                                                                                                ),
+                                                                                            ],
+                                                                                            md=6
+                                                                                        ),
+                                                                                    ],
+                                                                                    className="g-2"
+                                                                                ),
+                                                                            ]
+                                                                        ),
+                                                                        className="mb-3 bg-light border-0"
+                                                                    ),
                                                                     dbc.Row(
                                                                         [
                                                                             dbc.Col(
@@ -1295,6 +1345,8 @@ def get_layout():
                                                                 type="default",
                                                                 children=[
                                                                     html.Div(id="search-status", className="mb-3"),
+                                                                    # Store for all papers data (for sorting/filtering)
+                                                                    dcc.Store(id="all-papers-data", data=[]),
                                                                     html.Div(id="search-results"),
                                                                 ],
                                                             ),
