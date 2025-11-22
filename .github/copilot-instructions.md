@@ -6,6 +6,7 @@
 - `assets/`: contains static files and documentation served by the HARVEST application.
 
 ## Key Guidelines
-1. Follow Go best practices
+1. Follow Go best practices and idiomatic patterns
 2. Maintain existing code structure and organization
-3. When documenting suggest changes to the `docs/` folder and consolidate documentation when appropriate
+3. Use dependency injection patterns where appropriate
+4. When documenting suggest changes to the `docs/` folder and consolidate documentation when appropriate
