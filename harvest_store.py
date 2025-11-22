@@ -585,16 +585,14 @@ def update_project(db_path: str, project_id: int, name: str = None, description:
 
 def delete_project(db_path: str, project_id: int) -> bool:
     """Delete a project and all its child records in dependency order."""
-    conn = get_conn(db_path)
+    # Create connection with standard isolation mode for transaction support
+    conn = sqlite3.connect(db_path, check_same_thread=False)
+    conn.execute("PRAGMA foreign_keys = ON;")
     cur = conn.cursor()
     
     try:
-        # Temporarily disable autocommit for transactional delete
-        # (get_conn uses isolation_level=None which is autocommit mode)
-        conn.isolation_level = "DEFERRED"
-        
         # Begin explicit transaction
-        conn.execute("BEGIN TRANSACTION;")
+        conn.execute("BEGIN DEFERRED;")
         
         # Delete child records in dependency order to avoid foreign key constraint errors
         # 1. Delete doi_annotation_status (depends on project_id)
