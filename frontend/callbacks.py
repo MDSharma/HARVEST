@@ -2437,8 +2437,8 @@ def start_download_project_pdfs(n_clicks_list, auth_data):
 
 # Restore PDF download polling on page load if there's an active download
 @app.callback(
-    Output("pdf-download-progress-interval", "disabled"),
-    Output("pdf-download-project-id", "data"),
+    Output("pdf-download-progress-interval", "disabled", allow_duplicate=True),
+    Output("pdf-download-project-id", "data", allow_duplicate=True),
     Input("pdf-download-state-store", "data"),
     prevent_initial_call=False,
 )
