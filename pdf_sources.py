@@ -343,45 +343,58 @@ def try_biorxiv_medrxiv(doi: str, timeout: int = 15) -> Tuple[bool, str]:
             # Format: https://www.biorxiv.org/content/10.1101/2021.01.01.12345v1.full.pdf
             # or: https://www.medrxiv.org/content/10.1101/2021.01.01.12345v1.full.pdf
             
-            # Try bioRxiv first
+            # Try bioRxiv first - use direct URL without HEAD check
+            # (HEAD requests often fail even when PDF exists)
             pdf_url = f"https://www.biorxiv.org/content/{doi}.full.pdf"
-            response = requests.head(pdf_url, headers=headers, timeout=timeout, allow_redirects=True)
-            if response.ok:
-                return True, pdf_url
+            try:
+                response = requests.head(pdf_url, headers=headers, timeout=timeout, allow_redirects=True)
+                if response.status_code == 200:
+                    return True, pdf_url
+            except:
+                pass  # Continue to try other methods
             
             # Try medRxiv
             pdf_url = f"https://www.medrxiv.org/content/{doi}.full.pdf"
-            response = requests.head(pdf_url, headers=headers, timeout=timeout, allow_redirects=True)
-            if response.ok:
-                return True, pdf_url
+            try:
+                response = requests.head(pdf_url, headers=headers, timeout=timeout, allow_redirects=True)
+                if response.status_code == 200:
+                    return True, pdf_url
+            except:
+                pass  # Continue to API check
         
-        # Also check their API
+        # Try bioRxiv API
         # bioRxiv/medRxiv content details API
         api_url = f"https://api.biorxiv.org/details/biorxiv/{doi}"
-        response = requests.get(api_url, headers=headers, timeout=timeout)
-        
-        if response.ok:
-            data = response.json()
-            if 'collection' in data and len(data['collection']) > 0:
-                article = data['collection'][0]
-                # Construct PDF URL from article data
-                server = article.get('server', 'biorxiv')
-                doi_full = article.get('doi', doi)
-                pdf_url = f"https://www.{server}.org/content/{doi_full}.full.pdf"
-                return True, pdf_url
+        try:
+            response = requests.get(api_url, headers=headers, timeout=timeout)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if 'collection' in data and len(data['collection']) > 0:
+                    article = data['collection'][0]
+                    # Construct PDF URL from article data
+                    server = article.get('server', 'biorxiv')
+                    doi_full = article.get('doi', doi)
+                    pdf_url = f"https://www.{server}.org/content/{doi_full}.full.pdf"
+                    return True, pdf_url
+        except:
+            pass  # Continue to medRxiv API
         
         # Try medRxiv API
         api_url = f"https://api.biorxiv.org/details/medrxiv/{doi}"
-        response = requests.get(api_url, headers=headers, timeout=timeout)
-        
-        if response.ok:
-            data = response.json()
-            if 'collection' in data and len(data['collection']) > 0:
-                article = data['collection'][0]
-                server = article.get('server', 'medrxiv')
-                doi_full = article.get('doi', doi)
-                pdf_url = f"https://www.{server}.org/content/{doi_full}.full.pdf"
-                return True, pdf_url
+        try:
+            response = requests.get(api_url, headers=headers, timeout=timeout)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if 'collection' in data and len(data['collection']) > 0:
+                    article = data['collection'][0]
+                    server = article.get('server', 'medrxiv')
+                    doi_full = article.get('doi', doi)
+                    pdf_url = f"https://www.{server}.org/content/{doi_full}.full.pdf"
+                    return True, pdf_url
+        except:
+            pass  # All methods exhausted
 
         return False, "Not found in bioRxiv or medRxiv"
 
@@ -404,8 +417,9 @@ def try_arxiv_enhanced(doi: str, timeout: int = 15) -> Tuple[bool, str]:
 
         # Check if DOI contains arxiv
         if 'arxiv' in doi.lower():
-            # Extract arXiv ID from DOI (e.g., "10.48550/arXiv.2101.00001")
-            arxiv_match = re.search(r'arxiv[./](\d+\.\d+)', doi, re.IGNORECASE)
+            # Extract arXiv ID from DOI (e.g., "10.48550/arXiv.2101.00001", "arXiv:2103.00020")
+            # Support multiple separators: '.', '/', ':', or none
+            arxiv_match = re.search(r'arxiv[.:/]?(\d+\.\d+)', doi, re.IGNORECASE)
             if arxiv_match:
                 arxiv_id = arxiv_match.group(1)
         else:
@@ -519,7 +533,7 @@ def try_zenodo(doi: str, timeout: int = 15) -> Tuple[bool, str]:
 
         response = requests.get(api_url, params=params, headers=headers, timeout=timeout)
 
-        if not response.ok:
+        if response.status_code != 200:
             return False, f"Zenodo API error: HTTP {response.status_code}"
 
         data = response.json()
@@ -531,6 +545,7 @@ def try_zenodo(doi: str, timeout: int = 15) -> Tuple[bool, str]:
         record = hits[0]
         
         # Check if record has files
+        # Zenodo API v3 structure has files as a list
         files = record.get('files', [])
         
         # Look for PDF files
@@ -539,14 +554,34 @@ def try_zenodo(doi: str, timeout: int = 15) -> Tuple[bool, str]:
             file_type = file_info.get('type', '').lower()
             
             if filename.endswith('.pdf') or 'pdf' in file_type:
-                pdf_url = file_info.get('links', {}).get('self')
+                # Try multiple locations for the download URL
+                pdf_url = (file_info.get('links', {}).get('self') or 
+                          file_info.get('links', {}).get('download') or
+                          file_info.get('url'))
                 if pdf_url:
                     return True, pdf_url
 
-        # If no direct PDF, check links for download
+        # If no direct PDF found in files list, check metadata for alternative structures
+        # Some records might have files in metadata
+        metadata = record.get('metadata', {})
+        
+        # Check for related identifiers that might point to PDFs
+        related_identifiers = metadata.get('related_identifiers', [])
+        for identifier in related_identifiers:
+            if identifier.get('relation') == 'isSupplementTo' or identifier.get('relation') == 'isIdenticalTo':
+                url = identifier.get('identifier', '')
+                if '.pdf' in url.lower():
+                    return True, url
+        
+        # If still no PDF, check links for download
         links = record.get('links', {})
         if 'files' in links:
+            # Return the files endpoint URL
             return True, links['files']
+        
+        # Last resort: check for download link in record
+        if 'download' in links:
+            return True, links['download']
 
         return False, "No PDF file found in Zenodo record"
 
