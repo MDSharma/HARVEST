@@ -147,6 +147,26 @@ def choices():
         logger.error(f"Failed to fetch choices: {e}", exc_info=True)
         return jsonify({"error": "Failed to fetch dropdown options"}), 500
 
+# Helper function for DOI normalization
+def normalize_doi(doi: str) -> str:
+    """
+    Normalize a DOI by removing URL prefixes and converting to lowercase.
+    
+    Args:
+        doi: The DOI string to normalize
+        
+    Returns:
+        Normalized DOI string
+    """
+    if not doi:
+        return ""
+    doi = doi.strip()
+    # Remove URL prefixes
+    doi = doi.replace("https://doi.org/", "").replace("http://doi.org/", "")
+    # Convert to lowercase
+    doi = doi.lower()
+    return doi
+
 @app.post("/api/validate-doi")
 def validate_doi():
     """
@@ -163,7 +183,8 @@ def validate_doi():
     if not doi:
         return jsonify({"error": "Missing 'doi'"}), 400
 
-    doi = doi.replace("https://doi.org/", "").replace("http://doi.org/", "")
+    # Normalize DOI: remove URL prefix and convert to lowercase
+    doi = normalize_doi(doi)
 
     doi_pattern = r'^10\.\d{4,9}/[-._;()/:A-Za-z0-9]+$'
     if not re.match(doi_pattern, doi):
@@ -685,7 +706,7 @@ def validate_dois():
     invalid_dois = []
     
     for doi in dois:
-        doi = doi.strip()
+        doi = normalize_doi(doi)  # Normalize DOI
         if not doi:
             continue
             
