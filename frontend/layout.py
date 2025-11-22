@@ -449,6 +449,7 @@ def get_layout():
             dcc.Store(id="otp-session-store", storage_type="local"),  # NEW: Verified session (24h)
             dcc.Store(id="doi-metadata-store"),
             dcc.Store(id="admin-auth-store", storage_type="local"),  # Changed to local for persistence across refresh
+            dcc.Store(id="pdf-download-state-store", storage_type="local"),  # Store PDF download state across refresh
             dcc.Store(id="projects-store"),
             dcc.Store(id="delete-project-id-store"),  # Store project ID to delete
             dcc.Store(id="upload-project-id-store"),  # Store project ID for upload

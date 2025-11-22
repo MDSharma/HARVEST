@@ -645,6 +645,76 @@ def update_existing_project(project_id: int):
     else:
         return jsonify({"error": "Failed to update project or project not found"}), 404
 
+@app.post("/api/admin/validate-dois")
+def validate_dois():
+    """
+    Validate DOIs via CrossRef API (admin only).
+    Expected JSON: { 
+        "email": "admin@example.com", 
+        "password": "secret",
+        "dois": ["10.1234/example1", "10.1234/example2", ...]
+    }
+    Returns: {
+        "valid": [...],  // List of valid DOIs
+        "invalid": [{"doi": "...", "reason": "..."}]  // List of invalid DOIs with reasons
+    }
+    """
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    email = (payload.get("email") or "").strip()
+    password = payload.get("password") or ""
+    dois = payload.get("dois", [])
+
+    if not email or not password:
+        return jsonify({"error": "Admin authentication required"}), 401
+
+    # Verify admin credentials
+    if not (verify_admin_password(DB_PATH, email, password) or is_admin_user(email)):
+        return jsonify({"error": "Invalid admin credentials"}), 403
+
+    if not isinstance(dois, list) or not dois:
+        return jsonify({"error": "dois must be a non-empty list"}), 400
+
+    import requests
+    import time
+    
+    valid_dois = []
+    invalid_dois = []
+    
+    for doi in dois:
+        doi = doi.strip()
+        if not doi:
+            continue
+            
+        try:
+            # Check DOI via CrossRef API
+            url = f"https://api.crossref.org/works/{doi}"
+            response = requests.get(url, timeout=5)
+            
+            if response.status_code == 200:
+                valid_dois.append(doi)
+            elif response.status_code == 404:
+                invalid_dois.append({"doi": doi, "reason": "DOI not found in CrossRef database"})
+            else:
+                invalid_dois.append({"doi": doi, "reason": f"HTTP {response.status_code}"})
+        except requests.exceptions.Timeout:
+            invalid_dois.append({"doi": doi, "reason": "Request timeout"})
+        except requests.exceptions.RequestException as e:
+            invalid_dois.append({"doi": doi, "reason": f"Network error: {str(e)}"})
+        except Exception as e:
+            invalid_dois.append({"doi": doi, "reason": f"Error: {str(e)}"})
+        
+        # Rate limit: be nice to CrossRef API
+        time.sleep(0.05)  # 50ms delay between requests
+    
+    return jsonify({
+        "valid": valid_dois,
+        "invalid": invalid_dois
+    })
+
 @app.post("/api/admin/projects/<int:project_id>/add-dois")
 def add_dois_to_project(project_id: int):
     """

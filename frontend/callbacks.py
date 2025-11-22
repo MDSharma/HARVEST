@@ -1592,7 +1592,7 @@ def load_projects(load_trigger, create_click, tab_value):
     Output("project-doi-selector", "disabled"),
     Input("project-selector", "value"),
     State("projects-store", "data"),
-    prevent_initial_call=True,
+    prevent_initial_call=False,
 )
 def show_project_info(project_id, projects):
     if not project_id or not projects:
@@ -2430,18 +2430,26 @@ def start_download_project_pdfs(n_clicks_list, auth_data):
     Output("pdf-download-progress-container", "children", allow_duplicate=True),
     Output("pdf-download-progress-interval", "disabled", allow_duplicate=True),
     Output("pdf-download-project-id", "data", allow_duplicate=True),
+    Output("pdf-download-state-store", "data", allow_duplicate=True),
     Input("pdf-download-progress-interval", "n_intervals"),
     State("pdf-download-project-id", "data"),
     State("admin-auth-store", "data"),
+    State("pdf-download-state-store", "data"),
     prevent_initial_call=True,
 )
-def poll_pdf_download_progress(n_intervals, project_id, auth_data):
-    """Poll the backend for PDF download progress"""
-    if not project_id:
-        return no_update, no_update, no_update
+def poll_pdf_download_progress(n_intervals, project_id, auth_data, download_state):
+    """Poll the backend for PDF download progress - persists across refresh"""
+    # Use stored project_id if current one is None (after refresh)
+    if not project_id and download_state and download_state.get("project_id"):
+        project_id = download_state.get("project_id")
     
-    if not auth_data:
-        return no_update, True, None  # Disable polling if not authenticated
+    if not project_id:
+        return no_update, no_update, no_update, no_update
+    
+    # Continue polling even without auth if we have a stored download state
+    # (download was started before logout/refresh)
+    if not auth_data and not (download_state and download_state.get("active")):
+        return no_update, True, None, None  # Disable polling if not authenticated and no active download
     
     print(f"[Frontend] PDF Download: Polling progress for project {project_id} (interval {n_intervals})")
     
@@ -2455,11 +2463,11 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data):
         if r.status_code == 404:
             # Not started or no progress info
             print(f"[Frontend] PDF Download: No progress info for project {project_id}")
-            return no_update, True, None  # Disable polling
+            return no_update, True, None, None  # Disable polling and clear state
         
         if not r.ok:
             print(f"[Frontend] PDF Download: Error fetching progress - {r.status_code}")
-            return no_update, no_update, no_update  # Keep polling
+            return no_update, no_update, no_update, no_update  # Keep polling
         
         data = r.json()
         status = data.get("status")
@@ -2469,6 +2477,15 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data):
         current_source = data.get("current_source", "")
         
         print(f"[Frontend] PDF Download: Status={status}, Progress={current}/{total}, Source={current_source}")
+        
+        # Update download state to persist across refresh
+        new_download_state = {
+            "project_id": project_id,
+            "active": status == "running",
+            "status": status,
+            "current": current,
+            "total": total
+        }
         
         if status == "running":
             # Show progress
@@ -2541,7 +2558,7 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data):
                 color="info",
                 dismissable=False
             )
-            return progress_message, False, project_id  # Keep polling
+            return progress_message, False, project_id, new_download_state  # Keep polling
         
         elif status == "completed":
             print(f"[Frontend] PDF Download: Completed!")
@@ -2597,21 +2614,21 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data):
             report_items.append(html.Hr())
             report_items.append(html.P(f"PDFs stored in: {data.get('project_dir', 'N/A')}", className="small text-muted"))
             
-            return dbc.Alert(report_items, color="success", dismissable=True), True, None  # Disable polling
+            return dbc.Alert(report_items, color="success", dismissable=True), True, None, None  # Disable polling, clear state
         
         elif status == "error":
             error_message = data.get("error_message", "Unknown error")
             print(f"[Frontend] PDF Download: Error - {error_message}")
-            return dbc.Alert(f"Download error: {error_message}", color="danger", dismissable=True), True, None  # Disable polling
+            return dbc.Alert(f"Download error: {error_message}", color="danger", dismissable=True), True, None, None  # Disable polling, clear state
         
         else:
             # Unknown status
-            return no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update
             
     except Exception as e:
         print(f"[Frontend] PDF Download: Error polling - {str(e)}")
         # Don't disable polling on error, might be temporary
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
 
 
 # Handle Delete project button click - opens modal
@@ -3393,7 +3410,27 @@ def handle_legacy_markdown_reload_request_4(n):
     This handles a different variant of the cached callback that may exist in some browsers.
     """
     if ENABLE_DEBUG_LOGGING:
-        logger.debug("Legacy markdown reload request caught (4 outputs) - returning no_update")
+        logger.debug("Legacy markdown reload request caught (4 outputs variant 1) - returning no_update")
+    return no_update, no_update, no_update, no_update
+
+
+# COMPATIBILITY CALLBACK: Handle legacy markdown reload with 4 outputs (variant 2)
+# Another cached browser variant that requests the same 4 outputs with different trigger
+@app.callback(
+    Output("annotator-guide-content", "children", allow_duplicate=True),
+    Output("schema-tab-content", "children", allow_duplicate=True),
+    Output("admin-guide-content", "children", allow_duplicate=True),
+    Output("dbmodel-tab-content", "children", allow_duplicate=True),
+    Input("main-tabs", "value"),
+    prevent_initial_call=True,
+)
+def handle_legacy_markdown_reload_request_4_v2(tab_value):
+    """
+    Compatibility callback for legacy markdown reload with only 4 outputs (variant 2).
+    This handles yet another variant that triggers on tab changes.
+    """
+    if ENABLE_DEBUG_LOGGING:
+        logger.debug("Legacy markdown reload request caught (4 outputs variant 2) - returning no_update")
     return no_update, no_update, no_update, no_update
 
 
