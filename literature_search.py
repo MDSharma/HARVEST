@@ -588,7 +588,7 @@ def search_arxiv(query: str, limit: int = 10) -> List[Dict[str, Any]]:
 
 
 @lru_cache(maxsize=100)
-def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
+def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[str, Any]:
     """
     Search Web of Science API for papers.
     Uses the newer wos-api.clarivate.com endpoint with better DOI support.
@@ -607,6 +607,14 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
         - Simple: "machine learning" -> converts to "TS=(machine learning)"
         - Advanced: "AB=(genomic* OR transcriptom*) AND PY=(2020-2024)"
     
+    Args:
+        query: Search query string
+        limit: Maximum number of results per page (default: 20, max: 100)
+        page: Page number to retrieve (default: 1)
+    
+    Returns:
+        Dict with 'papers' list and 'total_results' count
+    
     API Reference: https://api.clarivate.com/swagger-ui/?url=https://developer.clarivate.com/apis/wos/swagger
     """
     try:
@@ -616,18 +624,23 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
         
         if api_key is None:
             logger.warning("Web of Science API key not available. Check WOS_API_KEY environment variable.")
-            return []
+            return {'papers': [], 'total_results': 0}
         
         # Convert to WoS advanced query format if needed
         wos_query = convert_to_wos_query(query)
-        logger.info(f"Web of Science query: {wos_query}")
+        logger.info(f"Web of Science query: {wos_query}, page: {page}")
+        
+        # Calculate firstRecord based on page number
+        # WoS uses 1-based indexing
+        count = min(limit, 100)  # API max is 100 per request
+        first_record = (page - 1) * count + 1
         
         # Use newer Web of Science API endpoint with better DOI support
         params = {
             'databaseId': 'WOS',
             'usrQuery': wos_query,
-            'count': min(limit, 100),  # API max is 100 per request
-            'firstRecord': 1
+            'count': count,
+            'firstRecord': first_record
         }
         
         logger.info(f"WoS API request params: {params}")
@@ -643,12 +656,18 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
         
         if response.status_code != 200:
             logger.error(f"Web of Science API error {response.status_code}: {response.text[:500]}")
-            return []
+            return {'papers': [], 'total_results': 0}
         
         result = response.json()
         
+        # Extract total results count from QueryResult
+        total_results = 0
+        query_result = result.get('QueryResult', {})
+        if query_result:
+            total_results = query_result.get('RecordsFound', 0)
+        
         # Log the response structure for debugging
-        logger.info(f"WoS API response keys: {list(result.keys())}")
+        logger.info(f"WoS API response keys: {list(result.keys())}, total_results: {total_results}")
         
         # Parse the response structure from WoS API
         papers = []
@@ -799,19 +818,19 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
                 'citations': citations
             })
         
-        logger.info(f"Retrieved {len(papers)} papers from Web of Science")
-        return papers
+        logger.info(f"Retrieved {len(papers)} papers from Web of Science (page {page}, total available: {total_results})")
+        return {'papers': papers, 'total_results': total_results}
     
     except requests.RequestException as e:
         logger.error(f"Web of Science API request failed: {e}")
-        return []
+        return {'papers': [], 'total_results': 0}
     except Exception as e:
         logger.error(f"Web of Science search failed ({type(e).__name__}): {e}", exc_info=True)
-        return []
+        return {'papers': [], 'total_results': 0}
 
 
 @lru_cache(maxsize=100)
-def search_openalex(query: str, limit: int = 20, contact_email: str = DEFAULT_CONTACT_EMAIL) -> List[Dict[str, Any]]:
+def search_openalex(query: str, limit: int = 20, page: int = 1, contact_email: str = DEFAULT_CONTACT_EMAIL) -> Dict[str, Any]:
     """
     Search OpenAlex API for papers.
     OpenAlex is a free, open catalog of scholarly papers, authors, institutions, and more.
@@ -821,11 +840,12 @@ def search_openalex(query: str, limit: int = 20, contact_email: str = DEFAULT_CO
     
     Args:
         query: Search query string (searches title and abstract)
-        limit: Maximum number of papers to return (default: 20, max: 200)
+        limit: Maximum number of papers per page to return (default: 20, max: 200)
+        page: Page number to retrieve (default: 1)
         contact_email: Contact email for OpenAlex polite pool (faster responses)
     
     Returns:
-        List of paper dictionaries
+        Dict with 'papers' list and 'total_results' count
     
     Notes:
         - OpenAlex uses a different query syntax than other sources
@@ -844,7 +864,7 @@ def search_openalex(query: str, limit: int = 20, contact_email: str = DEFAULT_CO
         params = {
             'search': query,
             'per_page': min(limit, 200),  # OpenAlex max is 200 per page
-            'page': 1,
+            'page': page,
             'sort': 'relevance_score:desc',  # Sort by relevance
             'mailto': contact_email  # Polite pool - faster response
         }
@@ -854,7 +874,7 @@ def search_openalex(query: str, limit: int = 20, contact_email: str = DEFAULT_CO
             'User-Agent': f'HARVEST Literature Search (mailto:{contact_email})'
         }
         
-        logger.debug(f"Searching OpenAlex: query='{query}', limit={limit}")
+        logger.debug(f"Searching OpenAlex: query='{query}', page={page}, limit={limit}")
         
         response = requests.get(
             base_url,
@@ -865,9 +885,13 @@ def search_openalex(query: str, limit: int = 20, contact_email: str = DEFAULT_CO
         
         if response.status_code != 200:
             logger.error(f"OpenAlex API error {response.status_code}: {response.text}")
-            return []
+            return {'papers': [], 'total_results': 0}
         
         result = response.json()
+        
+        # Extract metadata including total count
+        meta = result.get('meta', {})
+        total_results = meta.get('count', 0)
         
         # Parse the response structure from OpenAlex API
         papers = []
@@ -949,15 +973,15 @@ def search_openalex(query: str, limit: int = 20, contact_email: str = DEFAULT_CO
             papers.append(paper_dict)
         
         query_display = query[:50] + ('...' if len(query) > 50 else '')
-        logger.info(f"Retrieved {len(papers)} papers from OpenAlex (query: '{query_display}', requested: {limit})")
-        return papers
+        logger.info(f"Retrieved {len(papers)} papers from OpenAlex (page {page}, total available: {total_results})")
+        return {'papers': papers, 'total_results': total_results}
     
     except requests.RequestException as e:
         logger.error(f"OpenAlex API request failed: {e}")
-        return []
+        return {'papers': [], 'total_results': 0}
     except Exception as e:
         logger.error(f"OpenAlex search failed ({type(e).__name__}): {e}")
-        return []
+        return {'papers': [], 'total_results': 0}
 
 
 def _normalize_title(title: str) -> str:
@@ -1268,7 +1292,8 @@ def search_papers(
         if 'web_of_science' in sources:
             wos_start = time.time()
             wos_limit = per_source_limit.get('web_of_science', 100)
-            wos_papers = search_web_of_science(query, limit=wos_limit)
+            wos_result = search_web_of_science(query, limit=wos_limit)
+            wos_papers = wos_result.get('papers', []) if isinstance(wos_result, dict) else wos_result
             all_papers.extend(wos_papers)
             wos_time = time.time() - wos_start
             wos_count = len(wos_papers)
@@ -1279,7 +1304,8 @@ def search_papers(
             openalex_start = time.time()
             openalex_limit = per_source_limit.get('openalex', 200)
             contact_email = _get_contact_email()
-            openalex_papers = search_openalex(query, limit=openalex_limit, contact_email=contact_email)
+            openalex_result = search_openalex(query, limit=openalex_limit, contact_email=contact_email)
+            openalex_papers = openalex_result.get('papers', []) if isinstance(openalex_result, dict) else openalex_result
             all_papers.extend(openalex_papers)
             openalex_time = time.time() - openalex_start
             openalex_count = len(openalex_papers)

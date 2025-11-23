@@ -1402,7 +1402,47 @@ def get_layout():
                                                                     html.Div(id="search-status", className="mb-3"),
                                                                     # Store for all papers data (for sorting/filtering)
                                                                     dcc.Store(id="all-papers-data", data=[]),
+                                                                    # Stores for pagination state
+                                                                    dcc.Store(id="pagination-state", data={
+                                                                        'current_page': {},  # Per-source page numbers
+                                                                        'total_results': {},  # Per-source total counts
+                                                                        'last_query': '',
+                                                                        'last_sources': []
+                                                                    }),
                                                                     html.Div(id="search-results"),
+                                                                    # Pagination controls (hidden by default, shown when pagination is available)
+                                                                    html.Div(
+                                                                        id="pagination-controls",
+                                                                        children=[
+                                                                            dbc.Card(
+                                                                                dbc.CardBody(
+                                                                                    [
+                                                                                        html.Div(id="pagination-info", className="text-center mb-2"),
+                                                                                        dbc.ButtonGroup(
+                                                                                            [
+                                                                                                dbc.Button(
+                                                                                                    [html.I(className="bi bi-chevron-left me-1"), "Load Previous Page"],
+                                                                                                    id="btn-prev-page",
+                                                                                                    color="secondary",
+                                                                                                    size="sm",
+                                                                                                    disabled=True
+                                                                                                ),
+                                                                                                dbc.Button(
+                                                                                                    ["Load Next Page", html.I(className="bi bi-chevron-right ms-1")],
+                                                                                                    id="btn-next-page",
+                                                                                                    color="primary",
+                                                                                                    size="sm"
+                                                                                                ),
+                                                                                            ],
+                                                                                            className="d-flex justify-content-center"
+                                                                                        ),
+                                                                                    ]
+                                                                                ),
+                                                                                className="mt-3"
+                                                                            )
+                                                                        ],
+                                                                        style={"display": "none"}
+                                                                    ),
                                                                 ],
                                                             ),
                                                         ],
