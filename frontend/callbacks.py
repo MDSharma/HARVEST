@@ -1148,9 +1148,9 @@ def toggle_pipeline_collapse(n_clicks, is_open):
     """Toggle the pipeline execution flow card"""
     if n_clicks:
         new_state = not is_open
-        chevron_class = "bi bi-chevron-up" if new_state else "bi bi-chevron-down"
+        chevron_class = "bi bi-chevron-down" if new_state else "bi bi-chevron-right"
         return new_state, chevron_class + " " + "text-muted" + " " + "float-end"
-    return is_open, "bi bi-chevron-down text-muted float-end"
+    return is_open, "bi bi-chevron-right text-muted float-end"
 
 
 # Callbacks for paper abstract toggling

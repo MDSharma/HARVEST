@@ -23,13 +23,10 @@ logger = logging.getLogger(__name__)
 def create_execution_log_display(execution_log):
     """
     Create a visual display of the search pipeline execution log.
-    Shows AutoResearch, DeepResearch (Python Reimpl), and DELM steps.
+    Shows AutoResearch, DeepResearch (Python Reimpl), and DELM steps in a compact 3-column layout.
     """
     if not execution_log:
         return None
-    
-    # Create timeline items for each step
-    timeline_items = []
     
     # Define colors for each step type
     step_colors = {
@@ -40,6 +37,9 @@ def create_execution_log_display(execution_log):
         'Result Selection': '#ffc107',  # Warning yellow/gold
         'Error': '#dc3545'  # Danger red
     }
+    
+    # Create compact column items
+    column_items = []
     
     for idx, log_entry in enumerate(execution_log):
         step_name = log_entry.get('step', 'Unknown')
@@ -53,73 +53,56 @@ def create_execution_log_display(execution_log):
         
         # Create status icon based on status
         if status == 'completed':
-            status_icon = html.I(className="bi bi-check-circle-fill", style={"color": "#28a745"})
+            status_icon = html.I(className="bi bi-check-circle-fill me-1", style={"color": "#28a745"})
         elif status == 'skipped':
-            status_icon = html.I(className="bi bi-dash-circle-fill", style={"color": "#6c757d"})
+            status_icon = html.I(className="bi bi-dash-circle-fill me-1", style={"color": "#6c757d"})
         elif status == 'error':
-            status_icon = html.I(className="bi bi-x-circle-fill", style={"color": "#dc3545"})
+            status_icon = html.I(className="bi bi-x-circle-fill me-1", style={"color": "#dc3545"})
         else:
-            status_icon = html.I(className="bi bi-clock-fill", style={"color": "#ffc107"})
+            status_icon = html.I(className="bi bi-clock-fill me-1", style={"color": "#ffc107"})
         
-        # Create timeline item
-        timeline_item = dbc.Card(
-            dbc.CardBody(
-                [
-                    html.Div(
-                        [
-                            html.Div(
-                                [
-                                    html.Span(
-                                        f"{idx + 1}",
-                                        style={
-                                            "display": "inline-block",
-                                            "width": "28px",
-                                            "height": "28px",
-                                            "borderRadius": "50%",
-                                            "backgroundColor": color,
-                                            "color": "white",
-                                            "textAlign": "center",
-                                            "lineHeight": "28px",
-                                            "fontWeight": "bold",
-                                            "fontSize": "14px",
-                                            "marginRight": "12px"
-                                        }
-                                    ),
-                                    html.Span(
-                                        step_name,
-                                        style={
-                                            "fontWeight": "bold",
-                                            "fontSize": "16px",
-                                            "color": color
-                                        }
-                                    ),
-                                ],
-                                style={"display": "flex", "alignItems": "center", "marginBottom": "8px"}
-                            ),
-                            html.Div(
-                                [
-                                    html.Strong(description),
-                                    html.Br(),
-                                    html.Span(details, style={"fontSize": "14px", "color": "#6c757d"}),
-                                    html.Br(),
-                                    html.Small(
-                                        f"⏱️ {elapsed_ms}ms",
-                                        style={"color": "#6c757d", "fontStyle": "italic"}
-                                    ),
-                                ],
-                                style={"marginLeft": "40px"}
-                            ),
-                        ]
-                    )
-                ]
-            ),
-            className="mb-2",
-            style={"borderLeft": f"4px solid {color}"}
-        )
+        # Create compact column item (4 columns layout, 3 per row)
+        column_item = dbc.Col([
+            dbc.Card(
+                dbc.CardBody([
+                    html.Div([
+                        html.Span(
+                            f"{idx + 1}",
+                            style={
+                                "display": "inline-block",
+                                "width": "24px",
+                                "height": "24px",
+                                "borderRadius": "50%",
+                                "backgroundColor": color,
+                                "color": "white",
+                                "textAlign": "center",
+                                "lineHeight": "24px",
+                                "fontWeight": "bold",
+                                "fontSize": "12px",
+                                "marginRight": "8px"
+                            }
+                        ),
+                        html.Strong(step_name, style={"fontSize": "14px", "color": color})
+                    ], className="mb-2"),
+                    html.Div([
+                        status_icon,
+                        html.Span(description, style={"fontSize": "12px", "fontWeight": "500"})
+                    ], className="mb-1"),
+                    html.Small(details, className="text-muted d-block mb-1", style={"fontSize": "11px"}),
+                    html.Small(
+                        f"⏱️ {elapsed_ms}ms",
+                        className="text-muted",
+                        style={"fontSize": "10px", "fontStyle": "italic"}
+                    ),
+                ], className="p-2"),
+                className="h-100",
+                style={"borderLeft": f"3px solid {color}"}
+            )
+        ], md=3, className="mb-2")  # Changed from md=4 to md=3 for 4 columns per row
         
-        timeline_items.append(timeline_item)
+        column_items.append(column_item)
     
-    # Create the execution log card with collapse functionality
+    # Create the execution log card with collapse functionality (collapsed by default)
     execution_log_card = dbc.Card(
         [
             dbc.CardHeader(
@@ -129,7 +112,7 @@ def create_execution_log_display(execution_log):
                             html.I(className="bi bi-diagram-3-fill", style={"marginRight": "8px"}),
                             "Pipeline Execution Flow"
                         ]),
-                        html.I(className="bi bi-chevron-down text-muted", id="pipeline-chevron", style={"fontSize": "0.8rem", "float": "right"})
+                        html.I(className="bi bi-chevron-right text-muted", id="pipeline-chevron", style={"fontSize": "0.8rem", "float": "right"})
                     ],
                     id="pipeline-collapse-button",
                     color="link",
@@ -139,18 +122,16 @@ def create_execution_log_display(execution_log):
                 style={"backgroundColor": "#f8f9fa"}
             ),
             dbc.Collapse(
-                dbc.CardBody(
-                    [
-                        html.P(
-                            "The Semantic Paper Discovery system executes the following steps:",
-                            className="text-muted mb-3",
-                            style={"fontSize": "14px"}
-                        ),
-                        html.Div(timeline_items)
-                    ]
-                ),
+                dbc.CardBody([
+                    html.P(
+                        "The Semantic Paper Discovery system executed the following steps:",
+                        className="text-muted mb-3",
+                        style={"fontSize": "13px"}
+                    ),
+                    dbc.Row(column_items, className="g-2")
+                ]),
                 id="pipeline-collapse",
-                is_open=True,  # Open by default to show progress
+                is_open=False,  # Collapsed by default for cleaner UI
             )
         ],
         className="mb-3"
