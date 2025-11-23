@@ -27,14 +27,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONTACT_EMAIL = 'harvest-app@example.com'
 
 # Web of Science API Configuration
-# According to WoS Expanded API documentation, the viewField parameter controls data format
-# Based on Clarivate API Swagger docs: https://developer.clarivate.com/apis/wos/swagger
-# Testing shows that the API behavior may vary:
-# - When viewField is omitted: API may return summary view (no abstracts)
-# - When viewField='fullRecord': API should return full records but format varies
-# Current issue: API returns empty XML strings when viewField='fullRecord' is used
-# Solution: Try without viewField first, then fall back to 'fullRecord' if needed
-WOS_VIEWFIELD_FULLRECORD = 'fullRecord'  # Keep for backward compatibility
+# IMPORTANT: The viewField parameter behavior has been inconsistent
+# Recent observations suggest the Clarivate API may have changed:
+# - 'fullRecord' was returning valid XML, now returns empty XML strings
+# - Without viewField: may return limited data but in stable dict format
+# Per user request to check Swagger docs - value may need updating
+# For now: omit viewField to get stable dict responses
+WOS_VIEWFIELD_FULLRECORD = None  # Disabled - was causing empty XML responses
 
 # Configure Hugging Face cache directory to avoid read-only filesystem errors
 # Set cache to a writable directory alongside other HARVEST data
@@ -820,18 +819,20 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
         first_record = (page - 1) * count + 1
         
         # Use newer Web of Science API endpoint with better DOI support
-        # According to Clarivate API Swagger documentation:
-        # The viewField parameter may cause issues with some API versions
-        # Try WITHOUT viewField first to get JSON response, then fall back to fullRecord if needed
+        # Per Clarivate API Swagger docs: viewField parameter controls response format
+        # CURRENT ISSUE: viewField='fullRecord' returns empty XML strings
+        # TEMPORARY FIX: Omit viewField to get dict responses (may have limited data)
+        # TODO: Check Swagger docs for correct viewField value
         params = {
             'databaseId': 'WOS',
             'usrQuery': wos_query,
             'count': count,
             'firstRecord': first_record
-            # NOTE: viewField parameter temporarily removed - API may have changed
-            # Previous value was: 'viewField': WOS_VIEWFIELD_FULLRECORD
-            # This was causing empty XML strings in static_data field
         }
+        
+        # Only add viewField if it's explicitly set (not None)
+        if WOS_VIEWFIELD_FULLRECORD is not None:
+            params['viewField'] = WOS_VIEWFIELD_FULLRECORD
         
         logger.info(f"WoS API request params: {params}")
         
