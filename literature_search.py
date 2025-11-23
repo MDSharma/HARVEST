@@ -27,10 +27,12 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONTACT_EMAIL = 'harvest-app@example.com'
 
 # Web of Science API Configuration
-# The viewField parameter is REQUIRED to retrieve abstracts from WoS API
-# Without it, the API defaults to 'summary' view which excludes abstracts
-# When viewField='fullRecord' is used, the API returns XML in the response
-WOS_VIEWFIELD_FULLRECORD = 'fullRecord'
+# Per Clarivate API Swagger documentation:
+# - optionView='FR' retrieves Full Record with all metadata including abstracts
+# - optionView='SR' retrieves Short Record (limited fields, doesn't count against quota)
+# - viewField is for selecting specific fields (e.g., 'titles', 'addresses', 'pub_info')
+# Previous bug: used viewField='fullRecord' which is INVALID - should use optionView='FR'
+WOS_OPTION_VIEW_FULL_RECORD = 'FR'
 
 # Configure Hugging Face cache directory to avoid read-only filesystem errors
 # Set cache to a writable directory alongside other HARVEST data
@@ -644,9 +646,11 @@ def _parse_wos_xml_record(xml_string: str) -> Optional[Dict[str, Any]]:
     """
     Parse Web of Science XML record data into a dictionary structure.
     
-    When viewField='fullRecord' is used, the WoS API returns XML data in the
-    'static_data' field instead of JSON. This function converts that XML to
-    a dictionary matching the expected JSON structure.
+    NOTE: This function is kept for backward compatibility but should not be needed
+    when using optionView='FR' which returns JSON responses.
+    
+    Legacy: When an invalid viewField value was used, the API would return XML strings.
+    This function converts XML to dictionary matching the expected JSON structure.
     
     Args:
         xml_string: XML string from WoS API 'static_data' field
@@ -792,8 +796,8 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
         Dict with 'papers' list and 'total_results' count
     
     Important:
-        The viewField='fullRecord' parameter is REQUIRED to retrieve abstracts.
-        Without this parameter, the API defaults to 'summary' view which excludes abstracts.
+        Uses optionView='FR' (Full Record) to retrieve all metadata including abstracts.
+        Per Clarivate API spec: FR retrieves all document metadata, SR retrieves short record.
     
     API Reference: https://api.clarivate.com/swagger-ui/?url=https://developer.clarivate.com/apis/wos/swagger
     """
@@ -816,14 +820,14 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
         first_record = (page - 1) * count + 1
         
         # Use newer Web of Science API endpoint with better DOI support
-        # CRITICAL: viewField parameter is required to get abstracts
-        # Without it, the API defaults to 'summary' view which excludes abstracts
+        # Per Clarivate API Swagger spec: use optionView='FR' for Full Record (all metadata)
+        # NOT viewField='fullRecord' - that was the bug causing empty XML responses
         params = {
             'databaseId': 'WOS',
             'usrQuery': wos_query,
             'count': count,
             'firstRecord': first_record,
-            'viewField': WOS_VIEWFIELD_FULLRECORD  # Request full record including abstracts
+            'optionView': WOS_OPTION_VIEW_FULL_RECORD  # FR = Full Record including abstracts
         }
         
         logger.info(f"WoS API request params: {params}")
@@ -883,7 +887,7 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
                 logger.info(f"Data keys: {list(result['Data'].keys())}")
                 if 'Records' in result.get('Data', {}):
                     logger.info(f"Records keys: {list(result['Data']['Records'].keys())}")
-            return []
+            return {'papers': [], 'total_results': total_results}
         
         logger.info(f"Found {len(records)} records in WoS response")
         
