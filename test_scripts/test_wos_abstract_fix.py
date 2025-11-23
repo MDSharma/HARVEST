@@ -18,8 +18,8 @@ class TestWoSAbstractFix(unittest.TestCase):
     
     @patch('requests.get')
     @patch('literature_search._get_wos_api_key')
-    def test_wos_includes_viewfield_parameter(self, mock_get_key, mock_requests):
-        """Verify that viewField='fullRecord' is included in API request"""
+    def test_wos_includes_optionview_parameter(self, mock_get_key, mock_requests):
+        """Verify that optionView='FR' is included in API request"""
         
         # Setup
         mock_get_key.return_value = 'test-api-key'
@@ -29,6 +29,7 @@ class TestWoSAbstractFix(unittest.TestCase):
             'QueryResult': {'RecordsFound': 0},
             'Data': {'Records': {'records': {'REC': []}}}
         }
+        mock_response.headers = {'Content-Type': 'application/json'}
         mock_requests.return_value = mock_response
         
         # Execute
@@ -42,10 +43,10 @@ class TestWoSAbstractFix(unittest.TestCase):
         
         # Verify viewField parameter is present
         params = call_args[1]['params']
-        self.assertIn('viewField', params, 
-                     "viewField parameter must be included in WoS API request")
-        self.assertEqual(params['viewField'], 'fullRecord',
-                        "viewField must be set to 'fullRecord' to retrieve abstracts")
+        self.assertIn('optionView', params, 
+                     "optionView parameter must be included in WoS API request")
+        self.assertEqual(params['optionView'], 'FR',
+                        "optionView must be set to 'FR' (Full Record) to retrieve abstracts")
         
         # Verify other required parameters are still present
         self.assertEqual(params['databaseId'], 'WOS')
@@ -118,6 +119,7 @@ class TestWoSAbstractFix(unittest.TestCase):
                 }
             }
         }
+        mock_response.headers = {'Content-Type': 'application/json'}
         mock_requests.return_value = mock_response
         
         # Execute
@@ -141,8 +143,8 @@ class TestWoSAbstractFix(unittest.TestCase):
     
     @patch('requests.get')
     @patch('literature_search._get_wos_api_key')
-    def test_wos_pagination_includes_viewfield(self, mock_get_key, mock_requests):
-        """Verify that viewField is included in paginated requests"""
+    def test_wos_pagination_includes_optionview(self, mock_get_key, mock_requests):
+        """Verify that optionView is included in paginated requests"""
         
         # Setup
         mock_get_key.return_value = 'test-api-key'
@@ -152,17 +154,18 @@ class TestWoSAbstractFix(unittest.TestCase):
             'QueryResult': {'RecordsFound': 0},
             'Data': {'Records': {'records': {'REC': []}}}
         }
+        mock_response.headers = {'Content-Type': 'application/json'}
         mock_requests.return_value = mock_response
         
         # Execute - Request page 2
         result = literature_search.search_web_of_science("test query", limit=20, page=2)
         
-        # Verify viewField is still present in paginated request
+        # Verify optionView is still present in paginated request
         call_args = mock_requests.call_args
         params = call_args[1]['params']
         
-        self.assertIn('viewField', params)
-        self.assertEqual(params['viewField'], 'fullRecord')
+        self.assertIn('optionView', params)
+        self.assertEqual(params['optionView'], 'FR')
         
         # Verify pagination parameters
         # For page 2 with limit 20: firstRecord = (page - 1) * limit + 1 = (2 - 1) * 20 + 1 = 21

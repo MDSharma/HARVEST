@@ -10,38 +10,39 @@ The Web of Science literature search was not returning abstracts even for DOIs w
 
 ## Root Cause
 
-The Web of Science Expanded API requires explicit specification of which fields to retrieve via the `viewField` parameter. Without this parameter, the API defaults to a 'summary' view that **excludes abstracts** and other detailed metadata.
+**UPDATE (Nov 2025)**: The original fix incorrectly used `viewField='fullRecord'`. The correct parameter is `optionView='FR'`.
 
-Our implementation was missing this critical parameter, causing the API to return only basic metadata (title, authors, year, DOI) without abstracts.
+The Web of Science Expanded API requires explicit specification of document detail level via the `optionView` parameter:
+- `FR` = Full Record (all metadata including abstracts)
+- `SR` = Short Record (limited fields, doesn't count against quota)
+- `FS` = Field Selection (custom fields via `viewField` parameter)
+
+The `viewField` parameter is for selecting **specific fields** (e.g., 'titles', 'addresses'), NOT for requesting full records.
+
+Our implementation was using an invalid `viewField='fullRecord'` value, causing the API to return empty or malformed responses.
 
 ## Solution
 
-Added the `viewField='fullRecord'` parameter to all Web of Science API requests. This parameter instructs the API to return the complete record including:
-
-- Full abstracts
-- Complete author information
-- Keywords and subject categories
-- Citation data
-- All identifiers (DOI, PMID, etc.)
+Use `optionView='FR'` (Full Record) parameter to retrieve all metadata including abstracts. This is the correct parameter per the Clarivate API Swagger specification.
 
 ## Technical Details
 
 ### Changes Made
 
-1. **literature_search.py** (Line ~658):
+1. **literature_search.py** (Line ~824):
    ```python
    params = {
        'databaseId': 'WOS',
        'usrQuery': wos_query,
        'count': count,
        'firstRecord': first_record,
-       'viewField': 'fullRecord'  # ← Added this parameter
+       'optionView': 'FR'  # ← Full Record (all metadata)
    }
    ```
 
 2. **Function Documentation**:
-   - Updated docstring to document this requirement
-   - Added inline comments explaining why the parameter is critical
+   - Updated docstring to use optionView parameter
+   - Added inline comments explaining FR = Full Record
 
 3. **Test Suite** (test_scripts/test_wos_abstract_fix.py):
    - Test verifying `viewField` parameter is included in API requests
@@ -50,12 +51,16 @@ Added the `viewField='fullRecord'` parameter to all Web of Science API requests.
 
 ### API Reference
 
-According to the Web of Science Expanded API documentation:
+According to the Web of Science Expanded API Swagger documentation:
 
-**Available `viewField` Options**:
-- `fullRecord` - Complete record including abstracts (✅ Now using this)
-- `summary` - Basic metadata only, no abstracts (❌ Was defaulting to this)
-- `abstract` - Abstract field only
+**Document Detail Options (`optionView` parameter)**:
+- `FR` - Full Record: retrieves all metadata including abstracts (✅ Correct usage)
+- `SR` - Short Record: limited fields, doesn't count against quota
+- `FS` - Field Selection: custom fields when combined with `viewField`
+
+**Field Selection (`viewField` parameter)** - for selecting specific fields:
+- Examples: 'titles', 'addresses', 'pub_info', 'doctypes', 'keywords'
+- NOT for requesting full records (previous bug: used 'fullRecord' which is invalid)
 
 ## Verification
 
