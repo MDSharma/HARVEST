@@ -1528,11 +1528,13 @@ def get_layout():
                                                                             " for details."
                                                                         ], color="light", className="mb-3 small", 
                                                                         # Hide alert if screenshot file exists
-                                                                        style={"display": "none"} if os.path.exists(os.path.join(
-                                                                            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                                                            "assets",
-                                                                            "asreview_screenshot.png"
-                                                                        )) else {}),
+                                                                        style={"display": "none"} if os.path.exists(
+                                                                            os.path.join(
+                                                                                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                                                                "assets",
+                                                                                "asreview_screenshot.png"
+                                                                            )
+                                                                        ) else {}),
                                                                         # Placeholder for ASReview screenshot
                                                                         # Administrators should add an 'asreview_screenshot.png' file
                                                                         # to the assets/ directory

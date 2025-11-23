@@ -774,14 +774,15 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
                     references = fullrecord_metadata.get('references', {})
                     if isinstance(references, dict):
                         # Check for DOI in reference metadata
-                        ref_list = references.get('reference', []) if isinstance(references.get('reference'), list) else [references.get('reference', {})]
+                        ref_value = references.get('reference', [])
+                        ref_list = ref_value if isinstance(ref_value, list) else [ref_value] if ref_value else []
                         for ref in ref_list:
                             if isinstance(ref, dict):
                                 ref_doi = ref.get('doi')
                                 if ref_doi:
                                     # This would be a reference's DOI, not the paper's DOI
-                                # Skip this for now as it's not the paper's own DOI
-                                pass
+                                    # Skip this for now as it's not the paper's own DOI
+                                    pass
             
             # Method 3: Check dynamic_data for DOI
             if not doi:
