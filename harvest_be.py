@@ -6,11 +6,13 @@ import re
 import json
 import requests
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 import threading
 import time
 from datetime import datetime
 import secrets
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import lru_cache
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -196,6 +198,114 @@ def verify_admin_auth(payload: dict) -> tuple[bool, str | None]:
             return True, email
     
     return False, None
+
+# DOI Validation Cache - stores validation results to avoid redundant API calls
+# Format: {doi: {"valid": bool, "reason": str, "timestamp": float}}
+_doi_validation_cache = {}
+_doi_cache_lock = threading.Lock()
+DOI_CACHE_TTL = 3600  # 1 hour cache TTL
+
+def _validate_single_doi(doi: str) -> Tuple[str, bool, str]:
+    """
+    Validate a single DOI via CrossRef API.
+    Returns: (doi, is_valid, reason)
+    """
+    # Normalize DOI
+    doi_normalized = normalize_doi(doi)
+    if not doi_normalized:
+        return (doi, False, "Empty DOI")
+    
+    # Check format first (fast check before API call)
+    doi_pattern = r'^10\.\d{4,9}/[-._;()/:A-Za-z0-9]+$'
+    if not re.match(doi_pattern, doi_normalized):
+        return (doi, False, "Invalid DOI format")
+    
+    # Check cache first
+    with _doi_cache_lock:
+        cached = _doi_validation_cache.get(doi_normalized)
+        if cached and (time.time() - cached["timestamp"]) < DOI_CACHE_TTL:
+            return (doi, cached["valid"], cached.get("reason", ""))
+    
+    # Validate via CrossRef API
+    try:
+        headers = {"Accept": "application/json"}
+        response = requests.get(
+            f"https://api.crossref.org/works/{doi_normalized}",
+            headers=headers,
+            timeout=5
+        )
+        
+        if response.status_code == 200:
+            # Cache success
+            with _doi_cache_lock:
+                _doi_validation_cache[doi_normalized] = {
+                    "valid": True,
+                    "reason": "",
+                    "timestamp": time.time()
+                }
+            return (doi, True, "")
+        elif response.status_code == 404:
+            reason = "DOI not found in CrossRef database"
+            # Cache failure
+            with _doi_cache_lock:
+                _doi_validation_cache[doi_normalized] = {
+                    "valid": False,
+                    "reason": reason,
+                    "timestamp": time.time()
+                }
+            return (doi, False, reason)
+        else:
+            return (doi, False, f"CrossRef validation failed (HTTP {response.status_code})")
+            
+    except requests.exceptions.Timeout:
+        return (doi, False, "CrossRef API timeout")
+    except requests.exceptions.RequestException as e:
+        return (doi, False, f"Network error: {str(e)}")
+    except Exception as e:
+        return (doi, False, f"Validation error: {str(e)}")
+
+def validate_dois_concurrent(dois: List[str], max_workers: int = 10) -> Tuple[List[str], List[Dict[str, str]]]:
+    """
+    Validate multiple DOIs concurrently with caching.
+    
+    Args:
+        dois: List of DOI strings to validate
+        max_workers: Maximum number of concurrent validation threads
+        
+    Returns:
+        Tuple of (valid_dois, invalid_dois)
+        - valid_dois: List of normalized valid DOIs
+        - invalid_dois: List of dicts with {"doi": original_doi, "reason": error_message}
+    """
+    if not dois:
+        return ([], [])
+    
+    valid_dois = []
+    invalid_dois = []
+    
+    # Use ThreadPoolExecutor for concurrent validation
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all validation tasks
+        future_to_doi = {executor.submit(_validate_single_doi, doi): doi for doi in dois}
+        
+        # Process results as they complete
+        for future in as_completed(future_to_doi):
+            try:
+                original_doi, is_valid, reason = future.result()
+                if is_valid:
+                    # Add normalized version
+                    valid_dois.append(normalize_doi(original_doi))
+                else:
+                    invalid_dois.append({"doi": original_doi, "reason": reason})
+            except Exception as e:
+                original_doi = future_to_doi[future]
+                invalid_dois.append({"doi": original_doi, "reason": f"Unexpected error: {str(e)}"})
+        
+        # Add small delay to be respectful to CrossRef API (total, not per request)
+        # Since we're making concurrent requests, we add a small delay at the end
+        time.sleep(0.1)
+    
+    return (list(set(valid_dois)), invalid_dois)  # Deduplicate valid DOIs
 
 def slugify(s: str) -> str:
     """Simple slug for entity type 'value' column (lowercase, underscores)."""
@@ -660,57 +770,20 @@ def create_new_project():
     if not doi_list or not isinstance(doi_list, list):
         return jsonify({"error": "DOI list is required and must be an array"}), 400
 
-    # Normalize and validate DOIs
-    normalized_dois = {}
-    invalid_dois = []
+    # Validate DOIs concurrently with caching
+    valid_dois, invalid_dois = validate_dois_concurrent(doi_list)
     
-    for doi in doi_list:
-        # Normalize DOI (lowercase, remove URL prefixes)
-        doi_normalized = normalize_doi(doi)
-        if not doi_normalized:
-            continue
-            
-        # Check DOI format
-        doi_pattern = r'^10\.\d{4,9}/[-._;()/:A-Za-z0-9]+$'
-        if not re.match(doi_pattern, doi_normalized):
-            invalid_dois.append({"doi": doi, "reason": "Invalid DOI format"})
-            continue
-            
-        # Validate via CrossRef API
-        try:
-            headers = {"Accept": "application/json"}
-            response = requests.get(f"https://api.crossref.org/works/{doi_normalized}", 
-                                   headers=headers, timeout=5)
-            
-            if response.status_code == 200:
-                normalized_dois[doi_normalized] = doi_normalized
-            elif response.status_code == 404:
-                invalid_dois.append({"doi": doi, "reason": "DOI not found in CrossRef database"})
-            else:
-                invalid_dois.append({"doi": doi, "reason": f"CrossRef validation failed (HTTP {response.status_code})"})
-                
-            # Rate limit: be nice to CrossRef API
-            time.sleep(0.05)  # 50ms delay
-        except requests.exceptions.Timeout:
-            invalid_dois.append({"doi": doi, "reason": "CrossRef API timeout"})
-        except requests.exceptions.RequestException as e:
-            invalid_dois.append({"doi": doi, "reason": f"Network error: {str(e)}"})
-        except Exception as e:
-            invalid_dois.append({"doi": doi, "reason": f"Validation error: {str(e)}"})
-    
-    doi_list = list(normalized_dois.values())
-    
-    if not doi_list:
+    if not valid_dois:
         return jsonify({"error": "No valid DOIs provided", "invalid_dois": invalid_dois}), 400
 
-    project_id = create_project(DB_PATH, name, description, doi_list, email)
+    project_id = create_project(DB_PATH, name, description, valid_dois, email)
     
     if project_id > 0:
         response_data = {
             "ok": True, 
             "project_id": project_id, 
             "message": "Project created successfully",
-            "valid_count": len(doi_list)
+            "valid_count": len(valid_dois)
         }
         
         # Include warning about invalid DOIs if any
@@ -756,7 +829,7 @@ def get_project(project_id: int):
 def update_existing_project(project_id: int):
     """
     Update a project (admin only).
-    Expected JSON: { "email": "admin@example.com", "password": "secret",
+    Expected JSON: { "token": "...", OR "email": "admin@example.com", "password": "secret",
                      "name": "...", "description": "...", "doi_list": [...] }
     """
     try:
@@ -764,60 +837,20 @@ def update_existing_project(project_id: int):
     except Exception:
         return jsonify({"error": "Invalid JSON"}), 400
 
-    email = (payload.get("email") or "").strip()
-    password = payload.get("password") or ""
-
-    if not email or not password:
-        return jsonify({"error": "Admin authentication required"}), 401
-
-    # Verify admin credentials
-    if not (verify_admin_password(DB_PATH, email, password) or is_admin_user(email)):
+    # Verify admin authentication (token or email/password)
+    is_authenticated, email = verify_admin_auth(payload)
+    if not is_authenticated:
         return jsonify({"error": "Invalid admin credentials"}), 403
 
     name = payload.get("name")
     description = payload.get("description")
     doi_list = payload.get("doi_list")
+    invalid_dois = []
     
     # Normalize and validate DOI list if provided
     if doi_list is not None and isinstance(doi_list, list):
-        normalized_dois = {}
-        invalid_dois = []
-        
-        for doi in doi_list:
-            # Normalize DOI (lowercase, remove URL prefixes)
-            doi_normalized = normalize_doi(doi)
-            if not doi_normalized:
-                continue
-                
-            # Check DOI format
-            doi_pattern = r'^10\.\d{4,9}/[-._;()/:A-Za-z0-9]+$'
-            if not re.match(doi_pattern, doi_normalized):
-                invalid_dois.append({"doi": doi, "reason": "Invalid DOI format"})
-                continue
-                
-            # Validate via CrossRef API
-            try:
-                headers = {"Accept": "application/json"}
-                response = requests.get(f"https://api.crossref.org/works/{doi_normalized}", 
-                                       headers=headers, timeout=5)
-                
-                if response.status_code == 200:
-                    normalized_dois[doi_normalized] = doi_normalized
-                elif response.status_code == 404:
-                    invalid_dois.append({"doi": doi, "reason": "DOI not found in CrossRef database"})
-                else:
-                    invalid_dois.append({"doi": doi, "reason": f"CrossRef validation failed (HTTP {response.status_code})"})
-                    
-                # Rate limit: be nice to CrossRef API
-                time.sleep(0.05)  # 50ms delay
-            except requests.exceptions.Timeout:
-                invalid_dois.append({"doi": doi, "reason": "CrossRef API timeout"})
-            except requests.exceptions.RequestException as e:
-                invalid_dois.append({"doi": doi, "reason": f"Network error: {str(e)}"})
-            except Exception as e:
-                invalid_dois.append({"doi": doi, "reason": f"Validation error: {str(e)}"})
-        
-        doi_list = list(normalized_dois.values())
+        valid_dois, invalid_dois = validate_dois_concurrent(doi_list)
+        doi_list = valid_dois
         
         # If no valid DOIs but invalid ones exist, return error
         if not doi_list and invalid_dois:
@@ -929,16 +962,12 @@ def add_dois_to_project(project_id: int):
     except Exception:
         return jsonify({"error": "Invalid JSON"}), 400
 
-    email = (payload.get("email") or "").strip()
-    password = payload.get("password") or ""
-    new_dois = payload.get("dois", [])
-
-    if not email or not password:
-        return jsonify({"error": "Admin authentication required"}), 401
-
-    # Verify admin credentials
-    if not (verify_admin_password(DB_PATH, email, password) or is_admin_user(email)):
+    # Verify admin authentication (token or email/password)
+    is_authenticated, email = verify_admin_auth(payload)
+    if not is_authenticated:
         return jsonify({"error": "Invalid admin credentials"}), 403
+
+    new_dois = payload.get("dois", [])
 
     if not isinstance(new_dois, list) or not new_dois:
         return jsonify({"error": "dois must be a non-empty list"}), 400
@@ -951,50 +980,8 @@ def add_dois_to_project(project_id: int):
     # Get current DOI list (already normalized to lowercase in storage)
     current_dois = project.get("doi_list", [])
     
-    # Normalize and validate new DOIs
-    normalized_new_dois = {}
-    invalid_dois = []
-    
-    for doi in new_dois:
-        # Normalize DOI (lowercase, remove URL prefixes)
-        doi_normalized = normalize_doi(doi)
-        if not doi_normalized:
-            continue
-            
-        # Check DOI format
-        doi_pattern = r'^10\.\d{4,9}/[-._;()/:A-Za-z0-9]+$'
-        if not re.match(doi_pattern, doi_normalized):
-            invalid_dois.append({"doi": doi, "reason": "Invalid DOI format"})
-            continue
-            
-        # Validate via CrossRef API
-        try:
-            headers = {"Accept": "application/json"}
-            response = requests.get(f"https://api.crossref.org/works/{doi_normalized}", 
-                                   headers=headers, timeout=5)
-            
-            if response.status_code == 200:
-                normalized_new_dois[doi_normalized] = doi_normalized
-            elif response.status_code == 404:
-                invalid_dois.append({"doi": doi, "reason": "DOI not found in CrossRef database"})
-            else:
-                invalid_dois.append({"doi": doi, "reason": f"CrossRef validation failed (HTTP {response.status_code})"})
-                
-            # Rate limit: be nice to CrossRef API
-            time.sleep(0.05)  # 50ms delay
-        except requests.exceptions.Timeout:
-            invalid_dois.append({"doi": doi, "reason": "CrossRef API timeout"})
-        except requests.exceptions.RequestException as e:
-            invalid_dois.append({"doi": doi, "reason": f"Network error: {str(e)}"})
-        except Exception as e:
-            invalid_dois.append({"doi": doi, "reason": f"Validation error: {str(e)}"})
-    
-    
-    # Create set of existing DOIs for deduplication
-    existing_dois_set = set(current_dois)
-    
-    # Add only new DOIs (avoid duplicates)
-    valid_new_dois = list(normalized_new_dois.keys())
+    # Validate new DOIs concurrently with caching
+    valid_new_dois, invalid_dois = validate_dois_concurrent(new_dois)
     
     # If no valid DOIs but invalid ones exist, still report them as warning
     if not valid_new_dois:
@@ -1010,6 +997,8 @@ def add_dois_to_project(project_id: int):
         else:
             return jsonify({"error": "No DOIs provided"}), 400
     
+    # Create set of existing DOIs for deduplication
+    existing_dois_set = set(current_dois)
     updated_dois = list(existing_dois_set | set(valid_new_dois))
     added_count = len(updated_dois) - len(current_dois)
 
