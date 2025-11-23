@@ -43,6 +43,12 @@ from frontend.layout import (
 # Import literature search module
 import literature_search
 
+# Import PDF storage configuration
+try:
+    from config import PDF_STORAGE_DIR
+except ImportError:
+    PDF_STORAGE_DIR = "project_pdfs"
+
 logger = logging.getLogger(__name__)
 
 # Configure logging level based on debug setting
@@ -2697,6 +2703,13 @@ def display_projects_list(refresh_clicks, project_message, delete_clicks, auth_d
     prevent_initial_call=True,
 )
 def view_project_dois(n_clicks_list, projects):
+    """
+    Display DOIs in a project, split into two sections:
+    1. DOIs with associated PDFs (already downloaded)
+    2. DOIs without PDFs (need manual upload)
+    
+    This helps administrators identify which papers still need manual PDF uploads.
+    """
     if not any(n_clicks_list) or not projects:
         return no_update
     
@@ -2713,19 +2726,16 @@ def view_project_dois(n_clicks_list, projects):
     
     doi_list = project.get("doi_list", [])
     
-    # Import PDF_STORAGE_DIR from config
-    try:
-        from config import PDF_STORAGE_DIR
-    except ImportError:
-        PDF_STORAGE_DIR = "project_pdfs"
-    
     # Split DOIs into those with PDFs and those without
-    # Generate hash for each DOI and check if PDF file exists
+    # Check if PDF file exists for each DOI
+    # PDF filename is generated using SHA256 hash (first 16 chars) of the DOI
+    # This matches the logic in pdf_manager.py and harvest_store.py
     dois_with_pdfs = []
     dois_without_pdfs = []
     
     for doi in doi_list:
-        # Generate the expected PDF filename using same hash as pdf_manager
+        # Generate the expected PDF filename using same hash algorithm as pdf_manager.py
+        # See pdf_manager.generate_doi_hash() and harvest_store.generate_doi_hash()
         doi_hash = hashlib.sha256(doi.encode('utf-8')).hexdigest()[:16]
         pdf_filename = f"{doi_hash}.pdf"
         pdf_path = os.path.join(PDF_STORAGE_DIR, str(project_id), pdf_filename)
