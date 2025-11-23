@@ -577,14 +577,56 @@ def create_new_project():
     if not doi_list or not isinstance(doi_list, list):
         return jsonify({"error": "DOI list is required and must be an array"}), 400
 
-    # Normalize DOIs to lowercase and remove duplicates
+    # Normalize and validate DOIs
     normalized_dois = {}
+    invalid_dois = []
+    
     for doi in doi_list:
-        doi_normalized = doi.strip().lower()
-        if doi_normalized:  # Skip empty strings
-            normalized_dois[doi_normalized] = doi_normalized
+        # Normalize DOI (lowercase, remove URL prefixes)
+        doi_normalized = normalize_doi(doi)
+        if not doi_normalized:
+            continue
+            
+        # Check DOI format
+        doi_pattern = r'^10\.\d{4,9}/[-._;()/:A-Za-z0-9]+$'
+        if not re.match(doi_pattern, doi_normalized):
+            invalid_dois.append({"doi": doi, "reason": "Invalid DOI format"})
+            continue
+            
+        # Validate via CrossRef API
+        try:
+            headers = {"Accept": "application/json"}
+            response = requests.get(f"https://api.crossref.org/works/{doi_normalized}", 
+                                   headers=headers, timeout=5)
+            
+            if response.status_code == 200:
+                normalized_dois[doi_normalized] = doi_normalized
+            elif response.status_code == 404:
+                invalid_dois.append({"doi": doi, "reason": "DOI not found in CrossRef database"})
+            else:
+                invalid_dois.append({"doi": doi, "reason": f"CrossRef validation failed (HTTP {response.status_code})"})
+                
+            # Rate limit: be nice to CrossRef API
+            time.sleep(0.05)  # 50ms delay
+        except requests.exceptions.Timeout:
+            invalid_dois.append({"doi": doi, "reason": "CrossRef API timeout"})
+        except requests.exceptions.RequestException as e:
+            invalid_dois.append({"doi": doi, "reason": f"Network error: {str(e)}"})
+        except Exception as e:
+            invalid_dois.append({"doi": doi, "reason": f"Validation error: {str(e)}"})
+    
+    # If there are invalid DOIs, return error with details
+    if invalid_dois:
+        return jsonify({
+            "error": "Some DOIs failed validation",
+            "invalid_dois": invalid_dois,
+            "valid_count": len(normalized_dois)
+        }), 400
     
     doi_list = list(normalized_dois.values())
+    
+    if not doi_list:
+        return jsonify({"error": "No valid DOIs provided"}), 400
 
     project_id = create_project(DB_PATH, name, description, doi_list, email)
     
@@ -649,13 +691,53 @@ def update_existing_project(project_id: int):
     description = payload.get("description")
     doi_list = payload.get("doi_list")
     
-    # Normalize DOI list to lowercase if provided
+    # Normalize and validate DOI list if provided
     if doi_list is not None and isinstance(doi_list, list):
         normalized_dois = {}
+        invalid_dois = []
+        
         for doi in doi_list:
-            doi_normalized = doi.strip().lower()
-            if doi_normalized:  # Skip empty strings
-                normalized_dois[doi_normalized] = doi_normalized
+            # Normalize DOI (lowercase, remove URL prefixes)
+            doi_normalized = normalize_doi(doi)
+            if not doi_normalized:
+                continue
+                
+            # Check DOI format
+            doi_pattern = r'^10\.\d{4,9}/[-._;()/:A-Za-z0-9]+$'
+            if not re.match(doi_pattern, doi_normalized):
+                invalid_dois.append({"doi": doi, "reason": "Invalid DOI format"})
+                continue
+                
+            # Validate via CrossRef API
+            try:
+                headers = {"Accept": "application/json"}
+                response = requests.get(f"https://api.crossref.org/works/{doi_normalized}", 
+                                       headers=headers, timeout=5)
+                
+                if response.status_code == 200:
+                    normalized_dois[doi_normalized] = doi_normalized
+                elif response.status_code == 404:
+                    invalid_dois.append({"doi": doi, "reason": "DOI not found in CrossRef database"})
+                else:
+                    invalid_dois.append({"doi": doi, "reason": f"CrossRef validation failed (HTTP {response.status_code})"})
+                    
+                # Rate limit: be nice to CrossRef API
+                time.sleep(0.05)  # 50ms delay
+            except requests.exceptions.Timeout:
+                invalid_dois.append({"doi": doi, "reason": "CrossRef API timeout"})
+            except requests.exceptions.RequestException as e:
+                invalid_dois.append({"doi": doi, "reason": f"Network error: {str(e)}"})
+            except Exception as e:
+                invalid_dois.append({"doi": doi, "reason": f"Validation error: {str(e)}"})
+        
+        # If there are invalid DOIs, return error with details
+        if invalid_dois:
+            return jsonify({
+                "error": "Some DOIs failed validation",
+                "invalid_dois": invalid_dois,
+                "valid_count": len(normalized_dois)
+            }), 400
+        
         doi_list = list(normalized_dois.values())
 
     success = update_project(DB_PATH, project_id, name, description, doi_list)
@@ -772,18 +854,57 @@ def add_dois_to_project(project_id: int):
     # Get current DOI list (already normalized to lowercase in storage)
     current_dois = project.get("doi_list", [])
     
-    # Normalize new DOIs to lowercase
-    normalized_new_dois = set()
+    # Normalize and validate new DOIs
+    normalized_new_dois = {}
+    invalid_dois = []
+    
     for doi in new_dois:
-        doi_normalized = doi.strip().lower()
-        if doi_normalized:  # Skip empty strings
-            normalized_new_dois.add(doi_normalized)
+        # Normalize DOI (lowercase, remove URL prefixes)
+        doi_normalized = normalize_doi(doi)
+        if not doi_normalized:
+            continue
+            
+        # Check DOI format
+        doi_pattern = r'^10\.\d{4,9}/[-._;()/:A-Za-z0-9]+$'
+        if not re.match(doi_pattern, doi_normalized):
+            invalid_dois.append({"doi": doi, "reason": "Invalid DOI format"})
+            continue
+            
+        # Validate via CrossRef API
+        try:
+            headers = {"Accept": "application/json"}
+            response = requests.get(f"https://api.crossref.org/works/{doi_normalized}", 
+                                   headers=headers, timeout=5)
+            
+            if response.status_code == 200:
+                normalized_new_dois[doi_normalized] = doi_normalized
+            elif response.status_code == 404:
+                invalid_dois.append({"doi": doi, "reason": "DOI not found in CrossRef database"})
+            else:
+                invalid_dois.append({"doi": doi, "reason": f"CrossRef validation failed (HTTP {response.status_code})"})
+                
+            # Rate limit: be nice to CrossRef API
+            time.sleep(0.05)  # 50ms delay
+        except requests.exceptions.Timeout:
+            invalid_dois.append({"doi": doi, "reason": "CrossRef API timeout"})
+        except requests.exceptions.RequestException as e:
+            invalid_dois.append({"doi": doi, "reason": f"Network error: {str(e)}"})
+        except Exception as e:
+            invalid_dois.append({"doi": doi, "reason": f"Validation error: {str(e)}"})
+    
+    # If there are invalid DOIs, return error with details
+    if invalid_dois:
+        return jsonify({
+            "error": "Some DOIs failed validation",
+            "invalid_dois": invalid_dois,
+            "valid_count": len(normalized_new_dois)
+        }), 400
     
     # Create set of existing DOIs for deduplication
     existing_dois_set = set(current_dois)
     
     # Add only new DOIs (avoid duplicates)
-    updated_dois = list(existing_dois_set | normalized_new_dois)
+    updated_dois = list(existing_dois_set | set(normalized_new_dois.keys()))
     added_count = len(updated_dois) - len(current_dois)
 
     # Update project with new DOI list
