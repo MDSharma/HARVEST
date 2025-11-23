@@ -561,12 +561,15 @@ The enhanced implementation detects open access papers and extracts PDF URLs whe
 
 **Note**: The integration uses the Web of Science Expanded API directly via REST calls. No additional Python packages are required beyond `requests` (already included).
 
+**Technical Note**: The implementation includes the `viewField='fullRecord'` parameter in all API requests to ensure abstracts are returned. Without this parameter, the Web of Science API defaults to 'summary' view which excludes abstracts. This is a critical requirement for proper abstract retrieval.
+
 ### API Information
 
-- **Endpoint**: `https://api.clarivate.com/api/wos`
+- **Endpoint**: `https://wos-api.clarivate.com/api/wos`
 - **Database**: WOS (Web of Science Core Collection)
 - **Implementation**: Based on [Clarivate's official examples](https://github.com/clarivate/wos_api_usecases/tree/main/python/societal_impact_analytics)
 - **Max results per query**: 100
+- **Required Parameters**: `viewField='fullRecord'` to retrieve abstracts
 
 ### Advanced Search Syntax
 
