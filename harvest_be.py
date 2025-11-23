@@ -615,23 +615,27 @@ def create_new_project():
         except Exception as e:
             invalid_dois.append({"doi": doi, "reason": f"Validation error: {str(e)}"})
     
-    # If there are invalid DOIs, return error with details
-    if invalid_dois:
-        return jsonify({
-            "error": "Some DOIs failed validation",
-            "invalid_dois": invalid_dois,
-            "valid_count": len(normalized_dois)
-        }), 400
-    
     doi_list = list(normalized_dois.values())
     
     if not doi_list:
-        return jsonify({"error": "No valid DOIs provided"}), 400
+        return jsonify({"error": "No valid DOIs provided", "invalid_dois": invalid_dois}), 400
 
     project_id = create_project(DB_PATH, name, description, doi_list, email)
     
     if project_id > 0:
-        return jsonify({"ok": True, "project_id": project_id, "message": "Project created successfully"})
+        response_data = {
+            "ok": True, 
+            "project_id": project_id, 
+            "message": "Project created successfully",
+            "valid_count": len(doi_list)
+        }
+        
+        # Include warning about invalid DOIs if any
+        if invalid_dois:
+            response_data["warning"] = f"{len(invalid_dois)} DOI(s) failed validation and were excluded"
+            response_data["invalid_dois"] = invalid_dois
+            
+        return jsonify(response_data)
     else:
         return jsonify({"error": "Failed to create project"}), 500
 
@@ -730,20 +734,30 @@ def update_existing_project(project_id: int):
             except Exception as e:
                 invalid_dois.append({"doi": doi, "reason": f"Validation error: {str(e)}"})
         
-        # If there are invalid DOIs, return error with details
-        if invalid_dois:
-            return jsonify({
-                "error": "Some DOIs failed validation",
-                "invalid_dois": invalid_dois,
-                "valid_count": len(normalized_dois)
-            }), 400
-        
         doi_list = list(normalized_dois.values())
+        
+        # If no valid DOIs but invalid ones exist, return error
+        if not doi_list and invalid_dois:
+            return jsonify({
+                "error": "No valid DOIs provided",
+                "invalid_dois": invalid_dois
+            }), 400
 
     success = update_project(DB_PATH, project_id, name, description, doi_list)
     
     if success:
-        return jsonify({"ok": True, "message": "Project updated successfully"})
+        response_data = {
+            "ok": True, 
+            "message": "Project updated successfully"
+        }
+        
+        # Include warning about invalid DOIs if any
+        if doi_list is not None and invalid_dois:
+            response_data["warning"] = f"{len(invalid_dois)} DOI(s) failed validation and were excluded"
+            response_data["invalid_dois"] = invalid_dois
+            response_data["valid_count"] = len(doi_list)
+            
+        return jsonify(response_data)
     else:
         return jsonify({"error": "Failed to update project or project not found"}), 404
 
@@ -892,30 +906,48 @@ def add_dois_to_project(project_id: int):
         except Exception as e:
             invalid_dois.append({"doi": doi, "reason": f"Validation error: {str(e)}"})
     
-    # If there are invalid DOIs, return error with details
-    if invalid_dois:
-        return jsonify({
-            "error": "Some DOIs failed validation",
-            "invalid_dois": invalid_dois,
-            "valid_count": len(normalized_new_dois)
-        }), 400
     
     # Create set of existing DOIs for deduplication
     existing_dois_set = set(current_dois)
     
     # Add only new DOIs (avoid duplicates)
-    updated_dois = list(existing_dois_set | set(normalized_new_dois.keys()))
+    valid_new_dois = list(normalized_new_dois.keys())
+    
+    # If no valid DOIs but invalid ones exist, still report them as warning
+    if not valid_new_dois:
+        if invalid_dois:
+            return jsonify({
+                "ok": True,
+                "message": "No valid DOIs to add",
+                "warning": f"{len(invalid_dois)} DOI(s) failed validation",
+                "invalid_dois": invalid_dois,
+                "added_count": 0,
+                "total_dois": len(current_dois)
+            })
+        else:
+            return jsonify({"error": "No DOIs provided"}), 400
+    
+    updated_dois = list(existing_dois_set | set(valid_new_dois))
     added_count = len(updated_dois) - len(current_dois)
 
     # Update project with new DOI list
     success = update_project(DB_PATH, project_id, doi_list=updated_dois)
     
     if success:
-        return jsonify({
+        response_data = {
             "ok": True, 
-            "message": f"Added {added_count} new DOIs to project",
-            "total_dois": len(updated_dois)
-        })
+            "message": f"Added {added_count} new DOI(s) to project",
+            "total_dois": len(updated_dois),
+            "added_count": added_count
+        }
+        
+        # Include warning about invalid DOIs if any
+        if invalid_dois:
+            response_data["warning"] = f"{len(invalid_dois)} DOI(s) failed validation and were excluded"
+            response_data["invalid_dois"] = invalid_dois
+            response_data["valid_count"] = len(valid_new_dois)
+            
+        return jsonify(response_data)
     else:
         return jsonify({"error": "Failed to update project"}), 500
 
