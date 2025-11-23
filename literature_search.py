@@ -878,15 +878,15 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
                                         pass
                                     break
                 
-                    papers.append({
-                        'title': title,
-                        'abstract': abstract,
-                        'authors': authors,
-                        'year': year,
-                        'doi': doi,
-                        'source': 'Web of Science',
-                        'citations': citations
-                    })
+                papers.append({
+                    'title': title,
+                    'abstract': abstract,
+                    'authors': authors,
+                    'year': year,
+                    'doi': doi,
+                    'source': 'Web of Science',
+                    'citations': citations
+                })
             except Exception as e:
                 logger.error(f"Error processing individual WoS record: {e}")
                 # Continue with next record instead of failing entire search
