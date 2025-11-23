@@ -757,6 +757,9 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
                 # Extract DOI - check multiple locations as per API documentation
                 doi = None
                 
+                # Get dynamic_data once for use in both DOI extraction and citation count
+                dynamic_data = record.get('dynamic_data', {})
+                
                 # Method 1: Check identifiers in fullrecord_metadata
                 identifiers = fullrecord_metadata.get('identifiers', {})
                 if isinstance(identifiers, dict):
@@ -783,101 +786,99 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
                                     # This would be a reference's DOI, not the paper's DOI
                                     # Skip this for now as it's not the paper's own DOI
                                     pass
-            
-            # Method 3: Check dynamic_data for DOI
-            if not doi:
-                dynamic_data = record.get('dynamic_data', {})
-                if isinstance(dynamic_data, dict):
-                    cluster_related = dynamic_data.get('cluster_related', {})
-                    if isinstance(cluster_related, dict):
-                        identifiers_dyn = cluster_related.get('identifiers', {})
-                        if isinstance(identifiers_dyn, dict):
-                            doi_list_dyn = identifiers_dyn.get('identifier', [])
-                            if not isinstance(doi_list_dyn, list):
-                                doi_list_dyn = [doi_list_dyn] if doi_list_dyn else []
-                            for identifier in doi_list_dyn:
-                                if isinstance(identifier, dict) and identifier.get('type') == 'doi':
-                                    doi = identifier.get('value')
-                                    break
-            
-            # Note: Only actual DOIs are stored for proper project integration
-            # Papers without DOIs will have doi=None
-            
-            # Extract authors
-            authors = []
-            names = summary.get('names', {})
-            if isinstance(names, dict):
-                name_list = names.get('name', [])
-                # Handle case where names could be a dict or a list
-                if not isinstance(name_list, list):
-                    name_list = [name_list] if isinstance(name_list, dict) else []
-                for name in name_list[:3]:  # Limit to first 3 authors
-                    if isinstance(name, dict) and name.get('role') == 'author':
-                        display_name = name.get('display_name') or name.get('full_name')
-                        if display_name:
-                            authors.append(display_name)
-            
-            # Extract year
-            year = None
-            pub_info = summary.get('pub_info', {})
-            if isinstance(pub_info, dict):
-                pubyear = pub_info.get('pubyear')
-                if pubyear:
-                    try:
-                        year = int(pubyear)
-                    except (ValueError, TypeError):
-                        pass
-            
-            # Extract abstract
-            abstract = ''
-            abstracts_data = fullrecord_metadata.get('abstracts', {})
-            if isinstance(abstracts_data, dict):
-                abstract_list = abstracts_data.get('abstract', [])
-                if not isinstance(abstract_list, list):
-                    abstract_list = [abstract_list] if abstract_list else []
-                for abs_item in abstract_list:
-                    # Handle both dict and string formats for abstract_text
-                    if isinstance(abs_item, dict):
-                        abstract_text = abs_item.get('abstract_text', '')
-                        # If abstract_text is a dict, try to get 'p' key
-                        if isinstance(abstract_text, dict):
-                            abstract_text = abstract_text.get('p', '')
-                        # Convert to string if not already
-                        if not isinstance(abstract_text, str):
-                            abstract_text = str(abstract_text) if abstract_text else ''
-                    elif isinstance(abs_item, str):
-                        # abs_item is directly the abstract string
-                        abstract_text = abs_item
-                    else:
-                        # Try to convert to string as fallback
-                        abstract_text = str(abs_item) if abs_item else ''
-                    
-                    # Clean up and validate abstract text
-                    if abstract_text and abstract_text.strip():
-                        # Remove any placeholder text like "abstract_text"
-                        if abstract_text.strip() not in ['abstract_text', '{}', 'None']:
-                            abstract = abstract_text.strip()
-                            break
-            
-            # Extract citation count
-            citations = 0
-            dynamic_data = record.get('dynamic_data', {})
-            if isinstance(dynamic_data, dict):
-                citation_related = dynamic_data.get('citation_related', {})
-                if isinstance(citation_related, dict):
-                    tc_list_data = citation_related.get('tc_list', {})
-                    if isinstance(tc_list_data, dict):
-                        silo_tc_list = tc_list_data.get('silo_tc', [])
-                        if not isinstance(silo_tc_list, list):
-                            silo_tc_list = [silo_tc_list] if silo_tc_list else []
-                        for tc in silo_tc_list:
-                            if isinstance(tc, dict) and tc.get('coll_id') == 'WOS':
-                                try:
-                                    citations = int(tc.get('local_count', 0))
-                                except (ValueError, TypeError):
-                                    pass
+                
+                # Method 3: Check dynamic_data for DOI
+                if not doi:
+                    if isinstance(dynamic_data, dict):
+                        cluster_related = dynamic_data.get('cluster_related', {})
+                        if isinstance(cluster_related, dict):
+                            identifiers_dyn = cluster_related.get('identifiers', {})
+                            if isinstance(identifiers_dyn, dict):
+                                doi_list_dyn = identifiers_dyn.get('identifier', [])
+                                if not isinstance(doi_list_dyn, list):
+                                    doi_list_dyn = [doi_list_dyn] if doi_list_dyn else []
+                                for identifier in doi_list_dyn:
+                                    if isinstance(identifier, dict) and identifier.get('type') == 'doi':
+                                        doi = identifier.get('value')
+                                        break
+                
+                # Note: Only actual DOIs are stored for proper project integration
+                # Papers without DOIs will have doi=None
+                
+                # Extract authors
+                authors = []
+                names = summary.get('names', {})
+                if isinstance(names, dict):
+                    name_list = names.get('name', [])
+                    # Handle case where names could be a dict or a list
+                    if not isinstance(name_list, list):
+                        name_list = [name_list] if isinstance(name_list, dict) else []
+                    for name in name_list[:3]:  # Limit to first 3 authors
+                        if isinstance(name, dict) and name.get('role') == 'author':
+                            display_name = name.get('display_name') or name.get('full_name')
+                            if display_name:
+                                authors.append(display_name)
+                
+                # Extract year
+                year = None
+                pub_info = summary.get('pub_info', {})
+                if isinstance(pub_info, dict):
+                    pubyear = pub_info.get('pubyear')
+                    if pubyear:
+                        try:
+                            year = int(pubyear)
+                        except (ValueError, TypeError):
+                            pass
+                
+                # Extract abstract
+                abstract = ''
+                abstracts_data = fullrecord_metadata.get('abstracts', {})
+                if isinstance(abstracts_data, dict):
+                    abstract_list = abstracts_data.get('abstract', [])
+                    if not isinstance(abstract_list, list):
+                        abstract_list = [abstract_list] if abstract_list else []
+                    for abs_item in abstract_list:
+                        # Handle both dict and string formats for abstract_text
+                        if isinstance(abs_item, dict):
+                            abstract_text = abs_item.get('abstract_text', '')
+                            # If abstract_text is a dict, try to get 'p' key
+                            if isinstance(abstract_text, dict):
+                                abstract_text = abstract_text.get('p', '')
+                            # Convert to string if not already
+                            if not isinstance(abstract_text, str):
+                                abstract_text = str(abstract_text) if abstract_text else ''
+                        elif isinstance(abs_item, str):
+                            # abs_item is directly the abstract string
+                            abstract_text = abs_item
+                        else:
+                            # Try to convert to string as fallback
+                            abstract_text = str(abs_item) if abs_item else ''
+                        
+                        # Clean up and validate abstract text
+                        if abstract_text and abstract_text.strip():
+                            # Remove any placeholder text like "abstract_text"
+                            if abstract_text.strip() not in ['abstract_text', '{}', 'None']:
+                                abstract = abstract_text.strip()
                                 break
-            
+                
+                # Extract citation count
+                citations = 0
+                if isinstance(dynamic_data, dict):
+                    citation_related = dynamic_data.get('citation_related', {})
+                    if isinstance(citation_related, dict):
+                        tc_list_data = citation_related.get('tc_list', {})
+                        if isinstance(tc_list_data, dict):
+                            silo_tc_list = tc_list_data.get('silo_tc', [])
+                            if not isinstance(silo_tc_list, list):
+                                silo_tc_list = [silo_tc_list] if silo_tc_list else []
+                            for tc in silo_tc_list:
+                                if isinstance(tc, dict) and tc.get('coll_id') == 'WOS':
+                                    try:
+                                        citations = int(tc.get('local_count', 0))
+                                    except (ValueError, TypeError):
+                                        pass
+                                    break
+                
                 papers.append({
                     'title': title,
                     'abstract': abstract,
