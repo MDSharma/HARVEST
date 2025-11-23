@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 # Default contact email for OpenAlex API if not configured
 DEFAULT_CONTACT_EMAIL = 'harvest-app@example.com'
 
+# Web of Science API Configuration
+# The viewField parameter is REQUIRED to retrieve abstracts from WoS API
+# Without it, the API defaults to 'summary' view which excludes abstracts
+WOS_VIEWFIELD_FULLRECORD = 'fullRecord'
+
 # Configure Hugging Face cache directory to avoid read-only filesystem errors
 # Set cache to a writable directory
 HF_CACHE_DIR = os.path.join(os.path.dirname(__file__), '.cache', 'huggingface')
@@ -659,7 +664,7 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
             'usrQuery': wos_query,
             'count': count,
             'firstRecord': first_record,
-            'viewField': 'fullRecord'  # Request full record including abstracts
+            'viewField': WOS_VIEWFIELD_FULLRECORD  # Request full record including abstracts
         }
         
         logger.info(f"WoS API request params: {params}")

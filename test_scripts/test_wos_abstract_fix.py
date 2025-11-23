@@ -165,7 +165,9 @@ class TestWoSAbstractFix(unittest.TestCase):
         self.assertEqual(params['viewField'], 'fullRecord')
         
         # Verify pagination parameters
-        self.assertEqual(params['firstRecord'], 21)  # Page 2, limit 20: (2-1)*20 + 1 = 21
+        # For page 2 with limit 20: firstRecord = (page - 1) * limit + 1 = (2 - 1) * 20 + 1 = 21
+        expected_first_record = (2 - 1) * 20 + 1
+        self.assertEqual(params['firstRecord'], expected_first_record)
         self.assertEqual(params['count'], 20)
 
 
