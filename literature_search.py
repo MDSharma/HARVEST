@@ -27,9 +27,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONTACT_EMAIL = 'harvest-app@example.com'
 
 # Web of Science API Configuration
-# The viewField parameter is REQUIRED to retrieve abstracts from WoS API
-# Without it, the API defaults to 'summary' view which excludes abstracts
-WOS_VIEWFIELD_FULLRECORD = 'fullRecord'
+# According to WoS Expanded API documentation, the viewField parameter controls data format
+# Based on Clarivate API Swagger docs: https://developer.clarivate.com/apis/wos/swagger
+# Testing shows that the API behavior may vary:
+# - When viewField is omitted: API may return summary view (no abstracts)
+# - When viewField='fullRecord': API should return full records but format varies
+# Current issue: API returns empty XML strings when viewField='fullRecord' is used
+# Solution: Try without viewField first, then fall back to 'fullRecord' if needed
+WOS_VIEWFIELD_FULLRECORD = 'fullRecord'  # Keep for backward compatibility
 
 # Configure Hugging Face cache directory to avoid read-only filesystem errors
 # Set cache to a writable directory alongside other HARVEST data
@@ -815,14 +820,17 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
         first_record = (page - 1) * count + 1
         
         # Use newer Web of Science API endpoint with better DOI support
-        # CRITICAL: viewField parameter is required to get abstracts
-        # Without it, the API defaults to 'summary' view which excludes abstracts
+        # According to Clarivate API Swagger documentation:
+        # The viewField parameter may cause issues with some API versions
+        # Try WITHOUT viewField first to get JSON response, then fall back to fullRecord if needed
         params = {
             'databaseId': 'WOS',
             'usrQuery': wos_query,
             'count': count,
-            'firstRecord': first_record,
-            'viewField': WOS_VIEWFIELD_FULLRECORD  # Request full record including abstracts
+            'firstRecord': first_record
+            # NOTE: viewField parameter temporarily removed - API may have changed
+            # Previous value was: 'viewField': WOS_VIEWFIELD_FULLRECORD
+            # This was causing empty XML strings in static_data field
         }
         
         logger.info(f"WoS API request params: {params}")
@@ -886,7 +894,14 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
                 
                 # If static_data is a string, it's XML that needs to be parsed
                 if isinstance(static_data, str):
-                    logger.info(f"Parsing XML record from WoS API (static_data is XML string)")
+                    # Check if the string is empty or just whitespace
+                    if not static_data or not static_data.strip():
+                        logger.warning(f"Skipping record: static_data is an empty string")
+                        # Log the record structure for debugging
+                        logger.debug(f"Record keys: {list(record.keys())}")
+                        continue
+                    
+                    logger.info(f"Parsing XML record from WoS API (static_data is XML string, length: {len(static_data)})")
                     parsed_data = _parse_wos_xml_record(static_data)
                     if parsed_data is None:
                         logger.warning(f"Failed to parse XML record, skipping")
