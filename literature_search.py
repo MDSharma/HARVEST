@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 # Default contact email for OpenAlex API if not configured
 DEFAULT_CONTACT_EMAIL = 'harvest-app@example.com'
 
+# Web of Science API Configuration
+# The viewField parameter is REQUIRED to retrieve abstracts from WoS API
+# Without it, the API defaults to 'summary' view which excludes abstracts
+WOS_VIEWFIELD_FULLRECORD = 'fullRecord'
+
 # Configure Hugging Face cache directory to avoid read-only filesystem errors
 # Set cache to a writable directory
 HF_CACHE_DIR = os.path.join(os.path.dirname(__file__), '.cache', 'huggingface')
@@ -627,6 +632,10 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
     Returns:
         Dict with 'papers' list and 'total_results' count
     
+    Important:
+        The viewField='fullRecord' parameter is REQUIRED to retrieve abstracts.
+        Without this parameter, the API defaults to 'summary' view which excludes abstracts.
+    
     API Reference: https://api.clarivate.com/swagger-ui/?url=https://developer.clarivate.com/apis/wos/swagger
     """
     try:
@@ -648,11 +657,14 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
         first_record = (page - 1) * count + 1
         
         # Use newer Web of Science API endpoint with better DOI support
+        # CRITICAL: viewField parameter is required to get abstracts
+        # Without it, the API defaults to 'summary' view which excludes abstracts
         params = {
             'databaseId': 'WOS',
             'usrQuery': wos_query,
             'count': count,
-            'firstRecord': first_record
+            'firstRecord': first_record,
+            'viewField': WOS_VIEWFIELD_FULLRECORD  # Request full record including abstracts
         }
         
         logger.info(f"WoS API request params: {params}")
