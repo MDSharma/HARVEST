@@ -10,6 +10,7 @@ from typing import Dict, Any, List
 import threading
 import time
 from datetime import datetime
+import secrets
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -119,6 +120,82 @@ else:
     # In internal mode, only allow localhost origins
     CORS(app, origins=["http://localhost:*", "http://127.0.0.1:*", "http://0.0.0.0:*"])
     logger.info(f"CORS enabled for internal mode (localhost only)")
+
+# Token storage for admin sessions (in-memory)
+# Format: {token: {"email": email, "expires_at": timestamp}}
+_admin_tokens = {}
+_token_lock = threading.Lock()
+TOKEN_EXPIRATION = 86400  # 24 hours in seconds
+
+def generate_admin_token(email: str) -> str:
+    """Generate a secure random token for admin session."""
+    token = secrets.token_urlsafe(32)
+    expires_at = time.time() + TOKEN_EXPIRATION
+    with _token_lock:
+        _admin_tokens[token] = {"email": email, "expires_at": expires_at}
+    return token
+
+def verify_admin_token(token: str) -> str | None:
+    """Verify admin token and return email if valid, None otherwise."""
+    if not token:
+        return None
+    
+    with _token_lock:
+        token_data = _admin_tokens.get(token)
+        if not token_data:
+            return None
+        
+        # Check expiration
+        if time.time() > token_data["expires_at"]:
+            # Token expired, remove it
+            del _admin_tokens[token]
+            return None
+        
+        return token_data["email"]
+
+def revoke_admin_token(token: str) -> bool:
+    """Revoke an admin token."""
+    with _token_lock:
+        if token in _admin_tokens:
+            del _admin_tokens[token]
+            return True
+        return False
+
+def cleanup_expired_tokens():
+    """Clean up expired tokens (should be called periodically)."""
+    with _token_lock:
+        current_time = time.time()
+        expired_tokens = [
+            token for token, data in _admin_tokens.items()
+            if current_time > data["expires_at"]
+        ]
+        for token in expired_tokens:
+            del _admin_tokens[token]
+        if expired_tokens:
+            logger.info(f"Cleaned up {len(expired_tokens)} expired admin tokens")
+
+def verify_admin_auth(payload: dict) -> tuple[bool, str | None]:
+    """
+    Verify admin authentication from request payload.
+    Accepts either token OR email/password.
+    Returns: (is_authenticated, email)
+    """
+    # Try token-based auth first
+    token = payload.get("token", "").strip()
+    if token:
+        email = verify_admin_token(token)
+        if email:
+            return True, email
+    
+    # Fall back to email/password auth for backwards compatibility
+    email = (payload.get("email") or "").strip()
+    password = payload.get("password") or ""
+    
+    if email and password:
+        if verify_admin_password(DB_PATH, email, password) or is_admin_user(email):
+            return True, email
+    
+    return False, None
 
 def slugify(s: str) -> str:
     """Simple slug for entity type 'value' column (lowercase, underscores)."""
@@ -447,9 +524,9 @@ def rows():
 @app.post("/api/admin/auth")
 def admin_auth():
     """
-    Authenticate admin user.
+    Authenticate admin user and return session token.
     Expected JSON: { "email": "admin@example.com", "password": "secret" }
-    Returns: { "authenticated": true/false, "is_admin": true/false }
+    Returns: { "authenticated": true/false, "token": "...", "email": "...", "expires_in": 86400 }
     """
     try:
         payload = request.get_json(force=True, silent=False)
@@ -468,10 +545,21 @@ def admin_auth():
     # Also check if email is in environment variable list
     is_env_admin = is_admin_user(email)
 
-    return jsonify({
-        "authenticated": authenticated or is_env_admin,
-        "is_admin": authenticated or is_env_admin
-    })
+    if authenticated or is_env_admin:
+        # Generate and return token
+        token = generate_admin_token(email)
+        return jsonify({
+            "authenticated": True,
+            "is_admin": True,
+            "token": token,
+            "email": email,
+            "expires_in": TOKEN_EXPIRATION
+        })
+    else:
+        return jsonify({
+            "authenticated": False,
+            "is_admin": False
+        }), 401
 
 @app.post("/api/admin/create-user")
 def admin_create_user():
@@ -550,7 +638,7 @@ def admin_update_triple(triple_id: int):
 def create_new_project():
     """
     Create a new project (admin only).
-    Expected JSON: { "email": "admin@example.com", "password": "secret",
+    Expected JSON: { "token": "...", OR "email": "admin@example.com", "password": "secret",
                      "name": "Project Name", "description": "...", "doi_list": ["10.1234/...", ...] }
     """
     try:
@@ -558,14 +646,9 @@ def create_new_project():
     except Exception:
         return jsonify({"error": "Invalid JSON"}), 400
 
-    email = (payload.get("email") or "").strip()
-    password = payload.get("password") or ""
-
-    if not email or not password:
-        return jsonify({"error": "Admin authentication required"}), 401
-
-    # Verify admin credentials
-    if not (verify_admin_password(DB_PATH, email, password) or is_admin_user(email)):
+    # Verify admin authentication (token or email/password)
+    is_authenticated, email = verify_admin_auth(payload)
+    if not is_authenticated:
         return jsonify({"error": "Invalid admin credentials"}), 403
 
     name = (payload.get("name") or "").strip()
