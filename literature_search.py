@@ -702,11 +702,9 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
                         doi = identifier.get('value')
                         break
             
-            # Extract UT (unique identifier) as fallback
-            if not doi:
-                ut = record.get('UID')
-                if ut:
-                    doi = f"WOS:{ut}"
+            # Note: UT (WOS unique identifier) is NOT used as fallback
+            # Only actual DOIs should be stored for proper project integration
+            # Papers without DOIs will have doi=None
             
             # Extract authors
             authors = []
@@ -857,11 +855,9 @@ def search_openalex(query: str, limit: int = 20, contact_email: str = DEFAULT_CO
             if doi:
                 # OpenAlex returns full DOI URL, extract just the DOI
                 doi = doi.replace('https://doi.org/', '')
-            else:
-                # Use OpenAlex ID as fallback
-                openalex_id = work.get('id', '')
-                if openalex_id:
-                    doi = f"OpenAlex:{openalex_id.split('/')[-1]}"
+            # Note: OpenAlex ID is NOT used as fallback
+            # Only actual DOIs should be stored for proper project integration
+            # Papers without DOIs will have doi=None
             
             # Extract authors
             authors = []

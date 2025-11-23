@@ -1009,23 +1009,57 @@ def toggle_export_modal(export_clicks, cancel_clicks, confirm_clicks, is_open,
         if not selected_papers:
             return False, None, []
         
-        # Create DOI list display
+        # Create DOI list display with warnings for non-DOI identifiers
         doi_list_items = []
+        valid_doi_count = 0
+        invalid_identifier_count = 0
+        
         for paper in selected_papers:
             doi = paper.get('doi', 'N/A')
             title = paper.get('title', 'N/A')
-            doi_list_items.append(
-                html.Li([
-                    html.Strong(doi),
+            
+            # Check if it's a valid DOI or just an identifier
+            is_valid_doi = doi and doi != 'N/A' and not doi.startswith('WOS:') and not doi.startswith('OpenAlex:')
+            
+            if is_valid_doi:
+                valid_doi_count += 1
+                doi_list_items.append(
+                    html.Li([
+                        html.Strong(doi),
+                        html.Br(),
+                        html.Small(title, className="text-muted")
+                    ])
+                )
+            else:
+                invalid_identifier_count += 1
+                doi_list_items.append(
+                    html.Li([
+                        html.Strong(doi, style={"color": "#dc3545"}),
+                        html.Span(" (not a DOI - will be skipped)", className="small text-danger"),
+                        html.Br(),
+                        html.Small(title, className="text-muted")
+                    ])
+                )
+        
+        # Build display with warning if needed
+        display_parts = []
+        
+        if invalid_identifier_count > 0:
+            display_parts.append(
+                dbc.Alert([
+                    html.I(className="bi bi-exclamation-triangle-fill me-2"),
+                    html.Strong(f"Warning: {invalid_identifier_count} paper(s) without valid DOIs will be skipped"),
                     html.Br(),
-                    html.Small(title, className="text-muted")
-                ])
+                    html.Small("Only papers with real DOIs can be added to projects")
+                ], color="warning", className="mb-2")
             )
         
-        doi_list_display = html.Div([
-            html.H6(f"Selected DOIs ({len(selected_papers)}):"),
+        display_parts.extend([
+            html.H6(f"Selected papers ({len(selected_papers)} total, {valid_doi_count} with valid DOIs):"),
             html.Ul(doi_list_items, style={"maxHeight": "200px", "overflowY": "auto"})
         ])
+        
+        doi_list_display = html.Div(display_parts)
         
         # Get projects for dropdown
         try:
@@ -1082,23 +1116,105 @@ def handle_export_confirmation(n_clicks, action, new_name, new_desc, target_proj
     if not auth_data:
         return dbc.Alert("Authentication required", color="danger")
     
-    # Use email/password from admin auth (not token-based for now)
-    # Get selected DOIs
-    selected_dois = [
-        paper['doi'] for i, paper in enumerate(papers_data)
-        if i < len(checkbox_values) and checkbox_values[i] and paper.get('doi')
-    ]
+    # Get selected DOIs and filter out non-DOI identifiers
+    selected_dois = []
+    skipped_identifiers = []
+    
+    for i, paper in enumerate(papers_data):
+        if i < len(checkbox_values) and checkbox_values[i]:
+            doi = paper.get('doi', '')
+            if doi:
+                # Skip WOS: and OpenAlex: identifiers - only accept real DOIs
+                if doi.startswith('WOS:') or doi.startswith('OpenAlex:'):
+                    skipped_identifiers.append(doi)
+                else:
+                    selected_dois.append(doi)
     
     if not selected_dois:
+        if skipped_identifiers:
+            return dbc.Alert([
+                html.Strong("No valid DOIs to export"),
+                html.Br(),
+                html.Small(f"Skipped {len(skipped_identifiers)} identifier(s) without real DOIs: {', '.join(skipped_identifiers[:3])}{'...' if len(skipped_identifiers) > 3 else ''}")
+            ], color="warning")
         return dbc.Alert("No DOIs to export", color="warning")
+    
+    # Normalize DOIs (lowercase, remove URL prefixes)
+    normalized_dois = []
+    for doi in selected_dois:
+        # Remove URL prefixes
+        doi_clean = doi.replace("https://doi.org/", "").replace("http://doi.org/", "")
+        # Convert to lowercase
+        doi_clean = doi_clean.strip().lower()
+        if doi_clean:
+            normalized_dois.append(doi_clean)
+    
+    # Validate DOIs via CrossRef API before adding to project
+    try:
+        validation_payload = {
+            "email": auth_data["email"],
+            "password": auth_data["password"],
+            "dois": normalized_dois
+        }
+        val_response = requests.post(
+            f"{API_BASE}/api/admin/validate-dois", 
+            json=validation_payload, 
+            timeout=30
+        )
+        
+        if val_response.ok:
+            validation_result = val_response.json()
+            valid_dois = validation_result.get("valid", [])
+            invalid_dois = validation_result.get("invalid", [])
+            
+            if not valid_dois:
+                invalid_msg = ", ".join([f"{inv['doi']} ({inv['reason']})" for inv in invalid_dois[:3]])
+                if len(invalid_dois) > 3:
+                    invalid_msg += "..."
+                return dbc.Alert([
+                    html.Strong("All DOIs failed validation"),
+                    html.Br(),
+                    html.Small(f"Invalid DOIs: {invalid_msg}")
+                ], color="danger")
+            
+            # Use only valid DOIs
+            selected_dois = valid_dois
+            
+            # Show warning if some DOIs were invalid
+            validation_warning = None
+            if invalid_dois:
+                validation_warning = html.Div([
+                    html.Strong(f"Note: {len(invalid_dois)} DOI(s) failed validation and were skipped"),
+                    html.Br(),
+                    html.Small(", ".join([f"{inv['doi']}" for inv in invalid_dois[:3]]) + ("..." if len(invalid_dois) > 3 else ""))
+                ], className="text-warning small mb-2")
+        else:
+            # If validation endpoint fails, proceed with normalized DOIs
+            # but show a warning
+            logger.warning(f"DOI validation failed: {val_response.status_code}")
+            validation_warning = html.Div([
+                html.Strong("Warning: Could not validate DOIs via CrossRef"),
+                html.Br(),
+                html.Small("Proceeding with normalized DOIs without validation")
+            ], className="text-warning small mb-2")
+    except Exception as e:
+        logger.error(f"DOI validation error: {e}")
+        # Proceed with normalized DOIs but show warning
+        validation_warning = html.Div([
+            html.Strong("Warning: Could not validate DOIs via CrossRef"),
+            html.Br(),
+            html.Small(f"Error: {str(e)}")
+        ], className="text-warning small mb-2")
     
     # Handle clipboard action
     if action == "clipboard":
         doi_text = "\n".join(selected_dois)
-        return dbc.Alert([
-            html.Strong("Copy these DOIs:"),
-            html.Pre(doi_text, style={"marginTop": "10px", "padding": "10px", "backgroundColor": "#f8f9fa"})
-        ], color="info")
+        result_parts = [html.Strong("Copy these DOIs:")]
+        if validation_warning:
+            result_parts.append(html.Br())
+            result_parts.append(validation_warning)
+        result_parts.append(html.Pre(doi_text, style={"marginTop": "10px", "padding": "10px", "backgroundColor": "#f8f9fa"}))
+        return dbc.Alert(result_parts, color="info")
     
     # Handle new project creation
     if action == "new":
@@ -1117,7 +1233,10 @@ def handle_export_confirmation(n_clicks, action, new_name, new_desc, target_proj
             if r.ok:
                 result = r.json()
                 if result.get("ok"):
-                    return dbc.Alert(f"Project created successfully! ID: {result.get('project_id')}", color="success")
+                    result_parts = [f"Project created successfully! ID: {result.get('project_id')}"]
+                    if validation_warning:
+                        result_parts = [validation_warning, html.Br(), html.Span(result_parts[0])]
+                    return dbc.Alert(result_parts, color="success")
                 else:
                     return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger")
             else:
@@ -1159,10 +1278,12 @@ def handle_export_confirmation(n_clicks, action, new_name, new_desc, target_proj
             if r.ok:
                 result = r.json()
                 if result.get("ok"):
-                    msg = f"Added {len(new_dois)} new DOI(s) to project"
+                    msg_parts = [f"Added {len(new_dois)} new DOI(s) to project"]
                     if duplicates > 0:
-                        msg += f" ({duplicates} duplicate(s) skipped)"
-                    return dbc.Alert(msg, color="success")
+                        msg_parts.append(f" ({duplicates} duplicate(s) skipped)")
+                    if validation_warning:
+                        msg_parts = [validation_warning, html.Br(), html.Span("".join(msg_parts))]
+                    return dbc.Alert(msg_parts, color="success")
                 else:
                     return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger")
             else:
