@@ -4255,6 +4255,7 @@ def dashboard_quick_actions(lit_clicks, ann_clicks, browse_clicks, admin_clicks)
         Output("lit-review-content", "style"),
         Output("lit-review-unavailable", "style"),
         Output("asreview-service-url", "children"),
+        Output("asreview-direct-link", "href"),
     ],
     [
         Input("load-trigger", "n_intervals"),
@@ -4278,7 +4279,8 @@ def check_literature_review_availability(n, auth_data):
                 "",  # Clear loading spinner
                 {"display": "none"},  # Hide content
                 {"display": "none"},  # Hide unavailable message (auth message is shown instead)
-                ""  # No service URL
+                "",  # No service URL
+                "#"  # Default href
             )
         
         # User is authenticated, now check if ASReview is configured
@@ -4287,7 +4289,8 @@ def check_literature_review_availability(n, auth_data):
                 "",  # Clear loading spinner
                 {"display": "none"},  # Hide content
                 {"display": "block"},  # Show unavailable message
-                "ASReview service URL not configured in config.py"
+                "ASReview service URL not configured in config.py",
+                "#"  # Default href
             )
         
         # ASReview service is configured - show the screenshot/preview
@@ -4295,7 +4298,8 @@ def check_literature_review_availability(n, auth_data):
             "",  # Clear loading spinner
             {"display": "block"},  # Show content (screenshot and link)
             {"display": "none"},  # Hide unavailable message
-            ASREVIEW_SERVICE_URL  # Show service URL
+            ASREVIEW_SERVICE_URL,  # Show service URL
+            ASREVIEW_SERVICE_URL  # Set href for direct link
         )
     
     except Exception as e:
@@ -4304,21 +4308,9 @@ def check_literature_review_availability(n, auth_data):
             "",
             {"display": "none"},
             {"display": "block"},
-            f"Internal error: {str(e)}"
+            f"Internal error: {str(e)}",
+            "#"  # Default href
         )
-
-
-# Callback to set the href for direct ASReview link
-@app.callback(
-    Output("asreview-direct-link", "href"),
-    Input("asreview-service-url", "children"),
-    prevent_initial_call=False,
-)
-def update_asreview_link(service_url):
-    """Update the href of the ASReview direct link"""
-    if service_url and service_url.startswith("http"):
-        return service_url
-    return "#"
 
 
 # Callback to load privacy policy content
