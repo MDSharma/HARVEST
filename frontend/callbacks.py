@@ -15,6 +15,7 @@ import threading
 import re
 from datetime import datetime, timedelta
 from functools import lru_cache
+from typing import Dict
 
 from dash import Input, Output, State, MATCH, ALL, ctx, no_update, dcc, html, dash_table
 import dash_bootstrap_components as dbc
