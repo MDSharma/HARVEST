@@ -27,13 +27,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONTACT_EMAIL = 'harvest-app@example.com'
 
 # Web of Science API Configuration
-# IMPORTANT: The viewField parameter behavior has been inconsistent
-# Recent observations suggest the Clarivate API may have changed:
-# - 'fullRecord' was returning valid XML, now returns empty XML strings
-# - Without viewField: may return limited data but in stable dict format
-# Per user request to check Swagger docs - value may need updating
-# For now: omit viewField to get stable dict responses
-WOS_VIEWFIELD_FULLRECORD = None  # Disabled - was causing empty XML responses
+# The viewField parameter is REQUIRED to retrieve abstracts from WoS API
+# Without it, the API defaults to 'summary' view which excludes abstracts
+# When viewField='fullRecord' is used, the API returns XML in the response
+WOS_VIEWFIELD_FULLRECORD = 'fullRecord'
 
 # Configure Hugging Face cache directory to avoid read-only filesystem errors
 # Set cache to a writable directory alongside other HARVEST data
@@ -819,20 +816,15 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
         first_record = (page - 1) * count + 1
         
         # Use newer Web of Science API endpoint with better DOI support
-        # Per Clarivate API Swagger docs: viewField parameter controls response format
-        # CURRENT ISSUE: viewField='fullRecord' returns empty XML strings
-        # TEMPORARY FIX: Omit viewField to get dict responses (may have limited data)
-        # TODO: Check Swagger docs for correct viewField value
+        # CRITICAL: viewField parameter is required to get abstracts
+        # Without it, the API defaults to 'summary' view which excludes abstracts
         params = {
             'databaseId': 'WOS',
             'usrQuery': wos_query,
             'count': count,
-            'firstRecord': first_record
+            'firstRecord': first_record,
+            'viewField': WOS_VIEWFIELD_FULLRECORD  # Request full record including abstracts
         }
-        
-        # Only add viewField if it's explicitly set (not None)
-        if WOS_VIEWFIELD_FULLRECORD is not None:
-            params['viewField'] = WOS_VIEWFIELD_FULLRECORD
         
         logger.info(f"WoS API request params: {params}")
         
@@ -844,9 +836,17 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
         )
         
         logger.info(f"WoS API response status: {response.status_code}")
+        logger.info(f"WoS API response Content-Type: {response.headers.get('Content-Type', 'unknown')}")
         
         if response.status_code != 200:
             logger.error(f"Web of Science API error {response.status_code}: {response.text[:500]}")
+            return {'papers': [], 'total_results': 0}
+        
+        # Check if response is JSON or XML
+        content_type = response.headers.get('Content-Type', '')
+        if 'xml' in content_type.lower():
+            logger.error(f"WoS API returned XML response (not JSON). This suggests viewField parameter may need adjustment.")
+            logger.error(f"Response preview: {response.text[:500]}")
             return {'papers': [], 'total_results': 0}
         
         result = response.json()
@@ -898,14 +898,24 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
                     # Check if the string is empty or just whitespace
                     if not static_data or not static_data.strip():
                         logger.warning(f"Skipping record: static_data is an empty string")
-                        # Log the record structure for debugging
-                        logger.debug(f"Record keys: {list(record.keys())}")
+                        # Log the record structure for debugging to identify where the XML actually is
+                        logger.warning(f"Record keys: {list(record.keys())}")
+                        # Check if XML might be in a different field
+                        for key, value in record.items():
+                            if isinstance(value, str) and len(value) > 0:
+                                preview = value[:100] if len(value) > 100 else value
+                                logger.warning(f"Field '{key}' contains string data (length {len(value)}): {preview}...")
                         continue
                     
                     logger.info(f"Parsing XML record from WoS API (static_data is XML string, length: {len(static_data)})")
+                    # Log a preview of the XML to help debug parsing issues
+                    xml_preview = static_data[:200] if len(static_data) > 200 else static_data
+                    logger.debug(f"XML preview: {xml_preview}...")
+                    
                     parsed_data = _parse_wos_xml_record(static_data)
                     if parsed_data is None:
                         logger.warning(f"Failed to parse XML record, skipping")
+                        logger.warning(f"XML content that failed to parse (first 500 chars): {static_data[:500]}")
                         continue
                     static_data = parsed_data
                 elif not isinstance(static_data, dict):
