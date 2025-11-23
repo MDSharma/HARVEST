@@ -25,6 +25,18 @@ logger = logging.getLogger(__name__)
 # Default contact email for OpenAlex API if not configured
 DEFAULT_CONTACT_EMAIL = 'harvest-app@example.com'
 
+# Configure Hugging Face cache directory to avoid read-only filesystem errors
+# Set cache to a writable directory
+HF_CACHE_DIR = os.path.join(os.path.dirname(__file__), '.cache', 'huggingface')
+os.environ['HF_HOME'] = HF_CACHE_DIR
+os.environ['TRANSFORMERS_CACHE'] = HF_CACHE_DIR
+
+# Create cache directory if it doesn't exist
+try:
+    os.makedirs(HF_CACHE_DIR, exist_ok=True)
+except Exception as e:
+    logger.warning(f"Could not create HuggingFace cache directory: {e}. Using default cache location.")
+
 # Lazy imports to avoid loading heavy libraries at startup
 _semantic_scholar = None
 _sentence_transformers = None
@@ -780,20 +792,26 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
             for abs_item in abstracts:
                 # Handle both dict and string formats for abstract_text
                 if isinstance(abs_item, dict):
-                    abstract_text = abs_item.get('abstract_text', {})
+                    abstract_text = abs_item.get('abstract_text', '')
+                    # If abstract_text is a dict, try to get 'p' key
                     if isinstance(abstract_text, dict):
                         abstract_text = abstract_text.get('p', '')
-                    elif not isinstance(abstract_text, str):
-                        abstract_text = ''
+                    # Convert to string if not already
+                    if not isinstance(abstract_text, str):
+                        abstract_text = str(abstract_text) if abstract_text else ''
                 elif isinstance(abs_item, str):
                     # abs_item is directly the abstract string
                     abstract_text = abs_item
                 else:
-                    abstract_text = ''
+                    # Try to convert to string as fallback
+                    abstract_text = str(abs_item) if abs_item else ''
                 
-                if abstract_text:
-                    abstract = abstract_text
-                    break
+                # Clean up and validate abstract text
+                if abstract_text and abstract_text.strip():
+                    # Remove any placeholder text like "abstract_text"
+                    if abstract_text.strip() not in ['abstract_text', '{}', 'None']:
+                        abstract = abstract_text.strip()
+                        break
             
             # Extract citation count
             citations = 0
@@ -1402,13 +1420,12 @@ def search_papers(
         if progress_callback:
             progress_callback(execution_log[-1])
 
-        # Format abstracts (snippet only)
+        # Format abstracts (full abstract, not snippet)
+        # Display full abstracts to users - truncation happens on frontend if needed
         for paper in reranked_papers:
             abstract = paper.get('abstract', '')
-            if len(abstract) > 300:
-                paper['abstract_snippet'] = abstract[:300] + '...'
-            else:
-                paper['abstract_snippet'] = abstract
+            # Keep full abstract for display
+            paper['abstract_snippet'] = abstract if abstract else 'No abstract available'
 
         elapsed_time = time.time() - start_time
         
