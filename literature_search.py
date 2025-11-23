@@ -590,8 +590,8 @@ def search_arxiv(query: str, limit: int = 10) -> List[Dict[str, Any]]:
 @lru_cache(maxsize=100)
 def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
     """
-    Search Web of Science Expanded API for papers.
-    Uses the direct REST API as shown in Clarivate examples.
+    Search Web of Science API for papers.
+    Uses the newer wos-api.clarivate.com endpoint with better DOI support.
     Cached to avoid redundant API calls.
     Requires WOS_API_KEY environment variable to be set.
     
@@ -607,7 +607,7 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
         - Simple: "machine learning" -> converts to "TS=(machine learning)"
         - Advanced: "AB=(genomic* OR transcriptom*) AND PY=(2020-2024)"
     
-    API Reference: https://github.com/clarivate/wos_api_usecases/
+    API Reference: https://api.clarivate.com/swagger-ui/?url=https://developer.clarivate.com/apis/wos/swagger
     """
     try:
         import requests
@@ -622,11 +622,10 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
         wos_query = convert_to_wos_query(query)
         logger.info(f"Web of Science query: {wos_query}")
         
-        # Use Web of Science Expanded API endpoint
-        # Search WOS Core Collection database
+        # Use newer Web of Science API endpoint with better DOI support
         params = {
             'databaseId': 'WOS',
-            'usrQuery': wos_query,  # Use converted query
+            'usrQuery': wos_query,
             'count': min(limit, 100),  # API max is 100 per request
             'firstRecord': 1
         }
@@ -634,7 +633,7 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
         logger.info(f"WoS API request params: {params}")
         
         response = requests.get(
-            url='https://api.clarivate.com/api/wos',
+            url='https://wos-api.clarivate.com/api/wos',
             params=params,
             headers={'X-ApiKey': api_key},
             timeout=30
@@ -651,7 +650,7 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
         # Log the response structure for debugging
         logger.info(f"WoS API response keys: {list(result.keys())}")
         
-        # Parse the response structure from WoS Expanded API
+        # Parse the response structure from WoS API
         papers = []
         
         # Try different response structures
@@ -692,9 +691,11 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
                     title = t.get('content', 'N/A')
                     break
             
-            # Extract DOI
+            # Extract DOI - check multiple locations as per API documentation
             doi = None
-            identifiers = static_data.get('fullrecord_metadata', {}).get('identifiers', {})
+            
+            # Method 1: Check identifiers in fullrecord_metadata
+            identifiers = fullrecord_metadata.get('identifiers', {})
             if identifiers:
                 doi_list = identifiers.get('identifier', [])
                 for identifier in doi_list:
@@ -702,8 +703,34 @@ def search_web_of_science(query: str, limit: int = 20) -> List[Dict[str, Any]]:
                         doi = identifier.get('value')
                         break
             
-            # Note: UT (WOS unique identifier) is NOT used as fallback
-            # Only actual DOIs should be stored for proper project integration
+            # Method 2: Check ReferenceRecord section if DOI not found yet
+            # As per https://api.clarivate.com/swagger-ui, DOIs may be in references
+            if not doi:
+                references = fullrecord_metadata.get('references', {})
+                if references:
+                    # Check for DOI in reference metadata
+                    ref_list = references.get('reference', []) if isinstance(references.get('reference'), list) else [references.get('reference', {})]
+                    for ref in ref_list:
+                        if isinstance(ref, dict):
+                            ref_doi = ref.get('doi')
+                            if ref_doi:
+                                # This would be a reference's DOI, not the paper's DOI
+                                # Skip this for now as it's not the paper's own DOI
+                                pass
+            
+            # Method 3: Check dynamic_data for DOI
+            if not doi:
+                dynamic_data = record.get('dynamic_data', {})
+                cluster_related = dynamic_data.get('cluster_related', {})
+                identifiers_dyn = cluster_related.get('identifiers', {})
+                if identifiers_dyn:
+                    doi_list_dyn = identifiers_dyn.get('identifier', [])
+                    for identifier in doi_list_dyn:
+                        if identifier.get('type') == 'doi':
+                            doi = identifier.get('value')
+                            break
+            
+            # Note: Only actual DOIs are stored for proper project integration
             # Papers without DOIs will have doi=None
             
             # Extract authors
