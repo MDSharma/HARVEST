@@ -627,6 +627,10 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
     Returns:
         Dict with 'papers' list and 'total_results' count
     
+    Important:
+        The viewField='fullRecord' parameter is REQUIRED to retrieve abstracts.
+        Without this parameter, the API defaults to 'summary' view which excludes abstracts.
+    
     API Reference: https://api.clarivate.com/swagger-ui/?url=https://developer.clarivate.com/apis/wos/swagger
     """
     try:
@@ -648,11 +652,14 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
         first_record = (page - 1) * count + 1
         
         # Use newer Web of Science API endpoint with better DOI support
+        # CRITICAL: viewField parameter is required to get abstracts
+        # Without it, the API defaults to 'summary' view which excludes abstracts
         params = {
             'databaseId': 'WOS',
             'usrQuery': wos_query,
             'count': count,
-            'firstRecord': first_record
+            'firstRecord': first_record,
+            'viewField': 'fullRecord'  # Request full record including abstracts
         }
         
         logger.info(f"WoS API request params: {params}")
