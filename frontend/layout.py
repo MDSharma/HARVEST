@@ -1516,7 +1516,7 @@ def get_layout():
                                                                         html.H5("ASReview Interface Preview", className="d-inline"),
                                                                     ], className="mb-3"),
                                                                     html.Div([
-                                                                        # Info alert about screenshot
+                                                                        # Info alert about screenshot - only show if file doesn't exist
                                                                         dbc.Alert([
                                                                             html.I(className="bi bi-info-circle me-2"),
                                                                             html.Strong("Screenshot: "),
@@ -1526,7 +1526,13 @@ def get_layout():
                                                                             "See ",
                                                                             html.Code("assets/ASREVIEW_SCREENSHOT_INSTRUCTIONS.md"),
                                                                             " for details."
-                                                                        ], color="light", className="mb-3 small"),
+                                                                        ], color="light", className="mb-3 small", 
+                                                                        # Hide alert if screenshot file exists
+                                                                        style={"display": "none"} if os.path.exists(os.path.join(
+                                                                            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                                                            "assets",
+                                                                            "asreview_screenshot.png"
+                                                                        )) else {}),
                                                                         # Placeholder for ASReview screenshot
                                                                         # Administrators should add an 'asreview_screenshot.png' file
                                                                         # to the assets/ directory

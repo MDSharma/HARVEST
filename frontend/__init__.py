@@ -205,6 +205,19 @@ if os.getenv('HARVEST_CLEAR_CACHE', '').lower() in ('true', '1', 'yes'):
 _module_dir = os.path.dirname(os.path.abspath(__file__))
 _assets_folder = os.path.join(os.path.dirname(_module_dir), 'assets')
 
+# Initialize required directories (.cache, project_pdfs) at frontend startup
+try:
+    sys.path.insert(0, os.path.dirname(_module_dir))
+    from init_directories import init_harvest_directories
+    success, messages = init_harvest_directories(base_dir=os.path.dirname(_module_dir))
+    if not success:
+        logger.warning("Some required directories could not be created at frontend startup.")
+        for msg in messages:
+            if "Failed" in msg or "not" in msg.lower():
+                logger.warning(msg)
+except Exception as e:
+    logger.warning(f"Failed to initialize directories at frontend startup: {e}")
+
 external_stylesheets = [dbc.themes.BOOTSTRAP]
 app: Dash = dash.Dash(
     __name__, 

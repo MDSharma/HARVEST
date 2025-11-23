@@ -107,6 +107,18 @@ if db_dir and db_dir != '/' and not os.path.exists(db_dir):
 
     logger.info(f"Created database directory: {db_dir}")
 
+# Initialize required directories (.cache, project_pdfs)
+try:
+    from init_directories import init_harvest_directories
+    success, messages = init_harvest_directories()
+    if not success:
+        logger.warning("Some required directories could not be created. The application may encounter issues.")
+        for msg in messages:
+            if "Failed" in msg or "not" in msg.lower():
+                logger.warning(msg)
+except Exception as e:
+    logger.warning(f"Failed to initialize directories: {e}. The application may encounter issues.")
+
 # Initialize DB on startup
 init_db(DB_PATH)
 
