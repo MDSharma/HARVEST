@@ -19,6 +19,7 @@ from functools import lru_cache
 import time
 import os
 import re
+import xml.etree.ElementTree as ET
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +32,17 @@ DEFAULT_CONTACT_EMAIL = 'harvest-app@example.com'
 WOS_VIEWFIELD_FULLRECORD = 'fullRecord'
 
 # Configure Hugging Face cache directory to avoid read-only filesystem errors
-# Set cache to a writable directory
-HF_CACHE_DIR = os.path.join(os.path.dirname(__file__), '.cache', 'huggingface')
+# Set cache to a writable directory in /tmp or user's home
+# This ensures the cache directory is always writable regardless of deployment
+import tempfile
+HF_CACHE_DIR = os.path.join(tempfile.gettempdir(), 'harvest_huggingface_cache')
 os.environ['HF_HOME'] = HF_CACHE_DIR
 os.environ['TRANSFORMERS_CACHE'] = HF_CACHE_DIR
 
 # Create cache directory if it doesn't exist
 try:
     os.makedirs(HF_CACHE_DIR, exist_ok=True)
+    logger.info(f"HuggingFace cache directory set to: {HF_CACHE_DIR}")
 except Exception as e:
     logger.warning(f"Could not create HuggingFace cache directory: {e}. Using default cache location.")
 
@@ -604,6 +608,127 @@ def search_arxiv(query: str, limit: int = 10) -> List[Dict[str, Any]]:
         return []
 
 
+def _parse_wos_xml_record(xml_string: str) -> Optional[Dict[str, Any]]:
+    """
+    Parse Web of Science XML record data into a dictionary structure.
+    
+    When viewField='fullRecord' is used, the WoS API returns XML data in the
+    'static_data' field instead of JSON. This function converts that XML to
+    a dictionary matching the expected JSON structure.
+    
+    Args:
+        xml_string: XML string from WoS API 'static_data' field
+        
+    Returns:
+        Dictionary with parsed record data, or None if parsing fails
+    """
+    try:
+        # Parse XML string
+        root = ET.fromstring(xml_string)
+        
+        # Initialize result dictionary
+        result = {
+            'summary': {},
+            'fullrecord_metadata': {}
+        }
+        
+        # Define namespace map for WoS XML
+        # WoS uses namespaces in their XML responses
+        ns = {'': 'http://scientific.thomsonreuters.com/schema/wok5.4/public/FullRecord'}
+        
+        # Try without namespace first (for backwards compatibility)
+        # Then try with namespace if not found
+        
+        # Extract summary section (titles, authors, pub_info)
+        summary = root.find('.//summary', ns) or root.find('.//summary')
+        if summary is not None:
+            # Extract titles
+            titles_elem = summary.find('.//titles', ns) or summary.find('.//titles')
+            if titles_elem is not None:
+                title_list = []
+                for title in titles_elem.findall('.//title', ns) or titles_elem.findall('.//title'):
+                    title_type = title.get('type', 'item')
+                    title_text = title.text or ''
+                    title_list.append({'type': title_type, 'content': title_text})
+                if title_list:
+                    result['summary']['titles'] = {'title': title_list}
+            
+            # Extract authors/names
+            names_elem = summary.find('.//names', ns) or summary.find('.//names')
+            if names_elem is not None:
+                name_list = []
+                for name in names_elem.findall('.//name', ns) or names_elem.findall('.//name'):
+                    role = name.get('role', 'author')
+                    display_name = name.find('.//display_name', ns) or name.find('.//display_name')
+                    full_name = name.find('.//full_name', ns) or name.find('.//full_name')
+                    
+                    name_dict = {'role': role}
+                    if display_name is not None and display_name.text:
+                        name_dict['display_name'] = display_name.text
+                    if full_name is not None and full_name.text:
+                        name_dict['full_name'] = full_name.text
+                    
+                    name_list.append(name_dict)
+                if name_list:
+                    result['summary']['names'] = {'name': name_list}
+            
+            # Extract publication info
+            pub_info_elem = summary.find('.//pub_info', ns) or summary.find('.//pub_info')
+            if pub_info_elem is not None:
+                pub_info = {}
+                pubyear_elem = pub_info_elem.find('.//pubyear', ns) or pub_info_elem.find('.//pubyear')
+                if pubyear_elem is not None and pubyear_elem.text:
+                    pub_info['pubyear'] = pubyear_elem.text
+                if pub_info:
+                    result['summary']['pub_info'] = pub_info
+        
+        # Extract fullrecord_metadata section (abstracts, identifiers)
+        fullrecord = root.find('.//fullrecord_metadata', ns) or root.find('.//fullrecord_metadata')
+        if fullrecord is not None:
+            # Extract abstracts
+            abstracts_elem = fullrecord.find('.//abstracts', ns) or fullrecord.find('.//abstracts')
+            if abstracts_elem is not None:
+                abstract_list = []
+                for abstract in abstracts_elem.findall('.//abstract', ns) or abstracts_elem.findall('.//abstract'):
+                    # Try to find abstract_text with p tag
+                    abstract_text_elem = abstract.find('.//abstract_text', ns) or abstract.find('.//abstract_text')
+                    if abstract_text_elem is not None:
+                        # Check for p tag inside abstract_text
+                        p_elem = abstract_text_elem.find('.//p', ns) or abstract_text_elem.find('.//p')
+                        if p_elem is not None and p_elem.text:
+                            abstract_list.append({
+                                'abstract_text': {'p': p_elem.text}
+                            })
+                        elif abstract_text_elem.text:
+                            # Direct text content
+                            abstract_list.append({
+                                'abstract_text': abstract_text_elem.text
+                            })
+                if abstract_list:
+                    result['fullrecord_metadata']['abstracts'] = {'abstract': abstract_list}
+            
+            # Extract identifiers (including DOI)
+            identifiers_elem = fullrecord.find('.//identifiers', ns) or fullrecord.find('.//identifiers')
+            if identifiers_elem is not None:
+                identifier_list = []
+                for identifier in identifiers_elem.findall('.//identifier', ns) or identifiers_elem.findall('.//identifier'):
+                    id_type = identifier.get('type', '')
+                    id_value = identifier.get('value', '') or identifier.text or ''
+                    if id_type and id_value:
+                        identifier_list.append({'type': id_type, 'value': id_value})
+                if identifier_list:
+                    result['fullrecord_metadata']['identifiers'] = {'identifier': identifier_list}
+        
+        return result
+        
+    except ET.ParseError as e:
+        logger.error(f"Failed to parse WoS XML record: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Error processing WoS XML record: {e}")
+        return None
+
+
 @lru_cache(maxsize=100)
 def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[str, Any]:
     """
@@ -723,10 +848,19 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
         for record in records:
             try:
                 # Extract basic metadata
-                # Defensive check: static_data might be a string or dict
+                # Defensive check: static_data might be a string (XML) or dict (JSON)
                 static_data = record.get('static_data', {})
-                if not isinstance(static_data, dict):
-                    logger.warning(f"Skipping record: static_data is not a dict (type: {type(static_data).__name__})")
+                
+                # If static_data is a string, it's XML that needs to be parsed
+                if isinstance(static_data, str):
+                    logger.info(f"Parsing XML record from WoS API (static_data is XML string)")
+                    parsed_data = _parse_wos_xml_record(static_data)
+                    if parsed_data is None:
+                        logger.warning(f"Failed to parse XML record, skipping")
+                        continue
+                    static_data = parsed_data
+                elif not isinstance(static_data, dict):
+                    logger.warning(f"Skipping record: static_data is not a dict or string (type: {type(static_data).__name__})")
                     continue
                 
                 summary = static_data.get('summary', {})
