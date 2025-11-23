@@ -32,19 +32,50 @@ DEFAULT_CONTACT_EMAIL = 'harvest-app@example.com'
 WOS_VIEWFIELD_FULLRECORD = 'fullRecord'
 
 # Configure Hugging Face cache directory to avoid read-only filesystem errors
-# Set cache to a writable directory in /tmp or user's home
-# This ensures the cache directory is always writable regardless of deployment
-import tempfile
-HF_CACHE_DIR = os.path.join(tempfile.gettempdir(), 'harvest_huggingface_cache')
-os.environ['HF_HOME'] = HF_CACHE_DIR
-os.environ['TRANSFORMERS_CACHE'] = HF_CACHE_DIR
+# Set cache to a writable directory alongside other HARVEST data
+# Priority order: 
+# 1. Environment variable HF_HOME (if set by user)
+# 2. .cache/huggingface in current directory (consistent with project_pdfs location)
+# 3. /tmp fallback if local directory fails
 
-# Create cache directory if it doesn't exist
-try:
-    os.makedirs(HF_CACHE_DIR, exist_ok=True)
-    logger.info(f"HuggingFace cache directory set to: {HF_CACHE_DIR}")
-except Exception as e:
-    logger.warning(f"Could not create HuggingFace cache directory: {e}. Using default cache location.")
+import tempfile
+
+# Check if user has explicitly set HF_HOME
+user_hf_home = os.environ.get('HF_HOME')
+if user_hf_home:
+    HF_CACHE_DIR = user_hf_home
+    logger.info(f"Using user-specified HF_HOME: {HF_CACHE_DIR}")
+else:
+    # Try to use local cache directory first (consistent with project_pdfs)
+    local_cache_dir = os.path.join(os.path.dirname(__file__), '.cache', 'huggingface')
+    
+    try:
+        # Create local cache directory with proper permissions
+        os.makedirs(local_cache_dir, mode=0o755, exist_ok=True)
+        
+        # Verify it's actually writable by creating a test file
+        test_file = os.path.join(local_cache_dir, '.write_test')
+        with open(test_file, 'w') as f:
+            f.write('test')
+        os.remove(test_file)
+        
+        HF_CACHE_DIR = local_cache_dir
+        logger.info(f"HuggingFace cache directory set to: {HF_CACHE_DIR}")
+    except (OSError, IOError, PermissionError) as e:
+        # Fallback to /tmp if local directory is not writable
+        logger.warning(f"Local cache directory not writable ({e}), using /tmp fallback")
+        HF_CACHE_DIR = os.path.join(tempfile.gettempdir(), 'harvest_huggingface_cache')
+        try:
+            os.makedirs(HF_CACHE_DIR, mode=0o755, exist_ok=True)
+            logger.info(f"HuggingFace cache directory set to fallback: {HF_CACHE_DIR}")
+        except Exception as e2:
+            logger.error(f"Could not create fallback cache directory: {e2}. Using default cache location.")
+            HF_CACHE_DIR = None
+
+# Set environment variables if we have a valid cache directory
+if HF_CACHE_DIR:
+    os.environ['HF_HOME'] = HF_CACHE_DIR
+    os.environ['TRANSFORMERS_CACHE'] = HF_CACHE_DIR
 
 # Lazy imports to avoid loading heavy libraries at startup
 _semantic_scholar = None
