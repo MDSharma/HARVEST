@@ -757,6 +757,9 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
                 # Extract DOI - check multiple locations as per API documentation
                 doi = None
                 
+                # Get dynamic_data once for use in both DOI extraction and citation count
+                dynamic_data = record.get('dynamic_data', {})
+                
                 # Method 1: Check identifiers in fullrecord_metadata
                 identifiers = fullrecord_metadata.get('identifiers', {})
                 if isinstance(identifiers, dict):
@@ -786,7 +789,6 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
                 
                 # Method 3: Check dynamic_data for DOI
                 if not doi:
-                    dynamic_data = record.get('dynamic_data', {})
                     if isinstance(dynamic_data, dict):
                         cluster_related = dynamic_data.get('cluster_related', {})
                         if isinstance(cluster_related, dict):
@@ -861,7 +863,6 @@ def search_web_of_science(query: str, limit: int = 20, page: int = 1) -> Dict[st
                 
                 # Extract citation count
                 citations = 0
-                dynamic_data = record.get('dynamic_data', {})
                 if isinstance(dynamic_data, dict):
                     citation_related = dynamic_data.get('citation_related', {})
                     if isinstance(citation_related, dict):
