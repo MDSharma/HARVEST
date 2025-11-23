@@ -4,10 +4,11 @@
 Wrapper script to launch both the HARVEST frontend and backend services.
 
 This script:
-1. Starts the backend API server (Flask on port 5001)
-2. Starts the frontend UI server (Dash on port 8050)
-3. Verifies both services started successfully
-4. Handles graceful shutdown on exit
+1. Initializes required directories (.cache, project_pdfs)
+2. Starts the backend API server (Flask on port 5001)
+3. Starts the frontend UI server (Dash on port 8050)
+4. Verifies both services started successfully
+5. Handles graceful shutdown on exit
 """
 
 import os
@@ -17,6 +18,13 @@ import signal
 import subprocess
 import requests
 from typing import Optional, Tuple
+import logging
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 # Configuration
 BACKEND_SCRIPT = "harvest_be.py"
@@ -307,6 +315,33 @@ def monitor_processes():
         sys.exit(0)
 
 
+def init_harvest_directories():
+    """Initialize required HARVEST directories."""
+    try:
+        from init_directories import init_harvest_directories as init_dirs
+        print("\n[0/2] Initializing HARVEST directories...")
+        success, messages = init_dirs()
+        
+        for msg in messages:
+            if "Created" in msg or "already exists" in msg:
+                print(f"  ✓ {msg}")
+            else:
+                print(f"  ⚠ {msg}")
+        
+        if not success:
+            print("\n⚠ Warning: Some directories could not be created.")
+            print("  The application may encounter issues accessing these directories.")
+            print("  Please check file permissions and ensure the installation directory is writable.\n")
+        else:
+            print("✓ All directories initialized successfully")
+        
+        return success
+    except Exception as e:
+        print(f"\n⚠ Warning: Failed to initialize directories: {e}")
+        print("  The application may encounter issues at runtime.\n")
+        return False
+
+
 def main():
     """Main entry point for the launcher."""
     global backend_process, frontend_process
@@ -321,6 +356,9 @@ def main():
         sys.exit(1)
 
     print_banner()
+    
+    # Initialize required directories
+    init_harvest_directories()
     
     # Start backend
     success, backend_process = start_backend()
