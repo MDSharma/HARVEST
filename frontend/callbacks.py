@@ -62,6 +62,231 @@ NO_UPDATE_15 = tuple([no_update] * 15)
 
 
 # -----------------------
+# Helper Functions
+# -----------------------
+
+def _create_paper_card(paper: Dict, index: int) -> dbc.Card:
+    """
+    Create a paper card component with badges, metadata, and collapsible abstract.
+    
+    Args:
+        paper: Paper dictionary with title, authors, year, doi, citations, etc.
+        index: Display index for the paper (1-based)
+    
+    Returns:
+        dbc.Card component for the paper
+    """
+    # Format authors
+    authors_text = ", ".join(paper.get('authors', [])[:3])
+    if len(paper.get('authors', [])) > 3:
+        authors_text += " et al."
+
+    # Format year
+    year_text = str(paper.get('year', 'N/A'))
+    
+    # Get citation count
+    citations = paper.get('citations', 0)
+
+    # Format DOI link
+    doi = paper.get('doi', '')
+    if doi:
+        if doi.startswith('arXiv:'):
+            arxiv_id = doi.replace('arXiv:', '')
+            doi_link = html.A(
+                doi,
+                href=f"https://arxiv.org/abs/{arxiv_id}",
+                target="_blank",
+                className="text-decoration-none"
+            )
+        elif doi.startswith('WOS:'):
+            doi_link = html.Span(doi, className="text-muted font-monospace", style={"fontSize": "0.85rem"})
+        elif doi.startswith('OpenAlex:'):
+            doi_link = html.Span(doi, className="text-muted font-monospace", style={"fontSize": "0.85rem"})
+        else:
+            doi_link = html.A(
+                doi,
+                href=f"https://doi.org/{doi}",
+                target="_blank",
+                className="text-decoration-none"
+            )
+    else:
+        doi_link = html.Span("N/A", className="text-muted")
+    
+    # Source badge with color coding
+    source = paper.get('source', 'N/A')
+    source_colors = {
+        'Semantic Scholar': 'primary',
+        'arXiv': 'success',
+        'Web of Science': 'info',
+        'OpenAlex': 'warning'
+    }
+    source_badge = dbc.Badge(
+        source,
+        color=source_colors.get(source, 'secondary'),
+        className="me-2",
+        pill=True
+    )
+    
+    # Citation badge (only if > 0)
+    citation_badge = None
+    if citations > 0:
+        # Color code by citation count
+        if citations >= 100:
+            citation_color = "danger"  # High impact
+        elif citations >= 50:
+            citation_color = "warning"  # Medium-high impact
+        elif citations >= 10:
+            citation_color = "info"  # Medium impact
+        else:
+            citation_color = "secondary"  # Low impact
+        
+        citation_badge = dbc.Badge(
+            f"📊 {citations} citations",
+            color=citation_color,
+            className="me-2",
+            pill=True
+        )
+    
+    # Year badge
+    year_badge = dbc.Badge(
+        f"📅 {year_text}",
+        color="light",
+        text_color="dark",
+        className="me-2",
+        pill=True
+    )
+    
+    # Open access badge (if available)
+    open_access_badge = None
+    if paper.get('is_open_access'):
+        open_access_badge = dbc.Badge(
+            "🔓 Open Access",
+            color="success",
+            className="me-2",
+            pill=True,
+            title="This paper is freely available"
+        )
+
+    # Create paper card with enhanced visual design
+    return dbc.Card(
+        [
+            dbc.CardBody(
+                [
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [
+                                    dbc.Checkbox(
+                                        id={"type": "paper-checkbox", "index": index},
+                                        className="form-check-input-lg",
+                                        value=False,
+                                    ),
+                                ],
+                                width="auto",
+                                className="d-flex align-items-center",
+                            ),
+                            dbc.Col(
+                                [
+                                    # Title with rank number
+                                    html.Div(
+                                        [
+                                            dbc.Badge(
+                                                f"#{index}",
+                                                color="secondary",
+                                                className="me-2",
+                                                pill=True
+                                            ),
+                                            html.Span(
+                                                paper.get('title', 'N/A'),
+                                                style={"fontWeight": "600", "fontSize": "1.05rem"}
+                                            )
+                                        ],
+                                        className="mb-2"
+                                    ),
+                                    # Badges row
+                                    html.Div(
+                                        [
+                                            source_badge,
+                                            year_badge,
+                                            citation_badge if citation_badge else None,
+                                            open_access_badge if open_access_badge else None,
+                                        ],
+                                        className="mb-2"
+                                    ),
+                                ],
+                            ),
+                        ],
+                        className="g-2",
+                    ),
+                    # Metadata section with improved styling
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.I(className="bi bi-people-fill me-2", style={"color": "#6c757d"}),
+                                    html.Span(authors_text, style={"fontSize": "0.9rem"}),
+                                ],
+                                className="mb-1"
+                            ),
+                            html.Div(
+                                [
+                                    html.I(className="bi bi-link-45deg me-2", style={"color": "#6c757d"}),
+                                    doi_link,
+                                ],
+                                className="mb-2"
+                            ),
+                        ],
+                        className="ms-5",
+                        style={"fontSize": "0.9rem", "color": "#495057"}
+                    ),
+                    # Abstract collapse with improved design
+                    dbc.Collapse(
+                        dbc.Card(
+                            dbc.CardBody(
+                                [
+                                    html.Div(
+                                        [
+                                            html.I(className="bi bi-file-text me-2"),
+                                            html.Strong("Abstract")
+                                        ],
+                                        className="mb-2"
+                                    ),
+                                    html.P(
+                                        paper.get('abstract_snippet', 'No abstract available'),
+                                        className="mb-0",
+                                        style={"fontSize": "0.9rem", "lineHeight": "1.6"}
+                                    ),
+                                ]
+                            ),
+                            color="light",
+                            className="border-0 bg-light",
+                        ),
+                        id=f"collapse-paper-{index}",
+                        is_open=False,
+                        className="ms-5 mt-2",
+                    ),
+                    dbc.Button(
+                        [
+                            html.I(className="bi bi-chevron-down me-1", id=f"chevron-paper-{index}"),
+                            html.Span("Show Abstract", id=f"text-paper-{index}")
+                        ],
+                        id=f"btn-toggle-paper-{index}",
+                        color="link",
+                        size="sm",
+                        className="mt-2 p-0 ms-5",
+                    ),
+                ]
+            )
+        ],
+        className="mb-3 shadow-sm",
+        style={
+            "borderLeft": "4px solid #007bff",
+            "transition": "box-shadow 0.2s ease-in-out"
+        }
+    )
+
+
+# -----------------------
 # Callbacks
 # -----------------------
 
@@ -372,6 +597,12 @@ def check_lit_review_auth(auth_data):
     Output("lit-search-selected-papers", "data"),
     Output("lit-search-export-controls", "style"),
     Output("lit-search-session-papers", "data"),
+    Output("all-papers-data", "data"),
+    Output("pagination-state", "data"),
+    Output("pagination-controls", "style"),
+    Output("pagination-info", "children"),
+    Output("btn-prev-page", "disabled"),
+    Output("btn-next-page", "disabled"),
     Input("btn-search-papers", "n_clicks"),
     State("lit-search-query", "value"),
     State("lit-search-sources", "value"),
@@ -408,7 +639,13 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
             None,
             [],
             {"display": "none"},
-            session_papers or []
+            session_papers or [],
+            [],
+            {},  # pagination_state
+            {"display": "none"},  # pagination-controls style
+            None,  # pagination-info
+            True,  # prev button disabled
+            True   # next button disabled
         )
     
     if not sources:
@@ -417,7 +654,13 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
             None,
             [],
             {"display": "none"},
-            session_papers or []
+            session_papers or [],
+            [],
+            {},  # pagination_state
+            {"display": "none"},  # pagination-controls style
+            None,  # pagination-info
+            True,  # prev button disabled
+            True   # next button disabled
         )
 
     try:
@@ -473,14 +716,26 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
                     None,
                     [],
                     {"display": "none"},
-                    session_papers or []
+                    session_papers or [],
+                    [],
+                    {},  # pagination_state
+                    {"display": "none"},  # pagination-controls style
+                    None,  # pagination-info
+                    True,  # prev button disabled
+                    True   # next button disabled
                 )
             return (
                 dbc.Alert(result['message'], color="danger"),
                 None,
                 [],
                 {"display": "none"},
-                session_papers or []
+                session_papers or [],
+                [],
+                {},  # pagination_state
+                {"display": "none"},  # pagination-controls style
+                None,  # pagination-info
+                True,  # prev button disabled
+                True   # next button disabled
             )
 
         papers = result['papers']
@@ -491,7 +746,13 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
                 None,
                 [],
                 {"display": "none"},
-                session_papers or []
+                session_papers or [],
+                [],
+                {},  # pagination_state
+                {"display": "none"},  # pagination-controls style
+                None,  # pagination-info
+                True,  # prev button disabled
+                True   # next button disabled
             )
 
         # Store all unique papers from session
@@ -526,7 +787,7 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
         # Store paper data for later use
         papers_data = []
         
-        # Create results table
+        # Create results table using helper function
         results_content = []
 
         for i, paper in enumerate(papers, 1):
@@ -537,120 +798,52 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
                 'title': paper.get('title', 'N/A'),
                 'authors': paper.get('authors', []),
                 'year': paper.get('year', 'N/A'),
-                'source': paper.get('source', 'N/A')
+                'source': paper.get('source', 'N/A'),
+                'citations': paper.get('citations', 0),
+                'is_open_access': paper.get('is_open_access', False),
+                'abstract_snippet': paper.get('abstract_snippet', '')
             })
             
-            # Format authors
-            authors_text = ", ".join(paper.get('authors', [])[:3])
-            if len(paper.get('authors', [])) > 3:
-                authors_text += " et al."
-
-            # Format year
-            year_text = str(paper.get('year', 'N/A'))
-
-            # Format DOI link
-            doi = paper.get('doi', '')
-            if doi:
-                if doi.startswith('arXiv:'):
-                    arxiv_id = doi.replace('arXiv:', '')
-                    doi_link = html.A(
-                        doi,
-                        href=f"https://arxiv.org/abs/{arxiv_id}",
-                        target="_blank",
-                        className="text-decoration-none"
-                    )
-                else:
-                    doi_link = html.A(
-                        doi,
-                        href=f"https://doi.org/{doi}",
-                        target="_blank",
-                        className="text-decoration-none"
-                    )
-            else:
-                doi_link = html.Span("N/A", className="text-muted")
-
-            # Create paper card with checkbox
-            paper_card = dbc.Card(
-                [
-                    dbc.CardBody(
-                        [
-                            dbc.Row(
-                                [
-                                    dbc.Col(
-                                        [
-                                            dbc.Checkbox(
-                                                id={"type": "paper-checkbox", "index": i},
-                                                className="form-check-input-lg",
-                                                value=False,
-                                            ),
-                                        ],
-                                        width="auto",
-                                        className="d-flex align-items-center",
-                                    ),
-                                    dbc.Col(
-                                        [
-                                            html.H6(
-                                                f"{i}. {paper.get('title', 'N/A')}",
-                                                className="mb-2",
-                                                style={"fontWeight": "bold"}
-                                            ),
-                                        ],
-                                    ),
-                                ],
-                                className="g-2",
-                            ),
-                            html.P(
-                                [
-                                    html.Strong("Authors: "),
-                                    authors_text,
-                                    html.Br(),
-                                    html.Strong("Year: "),
-                                    year_text,
-                                    html.Br(),
-                                    html.Strong("Source: "),
-                                    paper.get('source', 'N/A'),
-                                    html.Br(),
-                                    html.Strong("DOI: "),
-                                    doi_link,
-                                ],
-                                className="mb-2 ms-5",
-                                style={"fontSize": "0.9rem"}
-                            ),
-                            dbc.Collapse(
-                                dbc.Card(
-                                    dbc.CardBody(
-                                        [
-                                            html.Strong("Abstract:"),
-                                            html.P(
-                                                paper.get('abstract_snippet', 'No abstract available'),
-                                                className="mt-2",
-                                                style={"fontSize": "0.85rem"}
-                                            ),
-                                        ]
-                                    ),
-                                    color="light",
-                                ),
-                                id=f"collapse-paper-{i}",
-                                is_open=False,
-                                className="ms-5",
-                            ),
-                            dbc.Button(
-                                "Show Abstract",
-                                id=f"btn-toggle-paper-{i}",
-                                color="link",
-                                size="sm",
-                                className="mt-2 p-0 ms-5",
-                            ),
-                        ]
-                    )
-                ],
-                className="mb-3",
-                style={"borderLeft": "3px solid #007bff"}
-            )
-
+            # Create paper card using helper function
+            paper_card = _create_paper_card(paper, i)
             results_content.append(paper_card)
 
-        return status, html.Div(results_content), papers_data, {"display": "block"}, new_session_papers
+        # Initialize pagination state for new search
+        pagination_state = {
+            'current_page': {'web_of_science': 1, 'openalex': 1},
+            'total_results': {},
+            'last_query': query,
+            'last_sources': sources
+        }
+        
+        # Check if pagination is available
+        pageable_sources = [s for s in sources if s in ['web_of_science', 'openalex']]
+        has_pagination = len(pageable_sources) > 0
+        
+        # Pagination info - show if pagination is available
+        pagination_info = None
+        if has_pagination:
+            pagination_info = html.Div([
+                html.Small([
+                    f"Showing {len(papers)} results (Page 1)",
+                    html.Br(),
+                    f"Click 'Load Next Page' to fetch more results from {', '.join([s.replace('_', ' ').title() for s in pageable_sources])}"
+                ], className="text-muted")
+            ])
+        
+        return (
+            status,
+            html.Div(results_content),
+            papers_data,
+            {"display": "block"},
+            new_session_papers,
+            papers,
+            pagination_state,
+            {"display": "block"} if has_pagination else {"display": "none"},
+            pagination_info,
+            True,  # prev button disabled on first page
+            False if has_pagination else True  # next button enabled if pagination available
+        )
 
     except Exception as e:
         logger.error(f"Literature search error: {e}")
@@ -659,7 +852,13 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
             None,
             [],
             {"display": "none"},
-            session_papers or []
+            session_papers or [],
+            [],
+            {},  # pagination_state
+            {"display": "none"},  # pagination-controls style
+            None,  # pagination-info
+            True,  # prev button disabled
+            True   # next button disabled
         )
 
 
@@ -673,6 +872,218 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
 def clear_search_session(n_clicks):
     """Clear the search session history"""
     return [], dbc.Alert("Search session cleared", color="info", duration=3000)
+
+
+# Callback for sorting and filtering search results
+@app.callback(
+    Output("search-results", "children", allow_duplicate=True),
+    Input("result-sort-by", "value"),
+    Input("result-filter-source", "value"),
+    State("all-papers-data", "data"),
+    prevent_initial_call=True,
+)
+def sort_and_filter_results(sort_by, filter_source, all_papers):
+    """
+    Sort and filter the displayed search results without re-running the search.
+    Provides instant client-side filtering and sorting for better UX.
+    """
+    if not all_papers:
+        return no_update
+    
+    # Filter by source
+    filtered_papers = all_papers
+    if filter_source and filter_source != "all":
+        filtered_papers = [p for p in all_papers if p.get('source') == filter_source]
+    
+    # Sort papers
+    if sort_by == "citations_desc":
+        filtered_papers = sorted(filtered_papers, key=lambda x: x.get('citations', 0), reverse=True)
+    elif sort_by == "year_desc":
+        # Sort by year, treating None/missing as -1 (very old) so they appear at the bottom when sorting newest first
+        filtered_papers = sorted(filtered_papers, key=lambda x: x.get('year') if x.get('year') is not None else -1, reverse=True)
+    elif sort_by == "year_asc":
+        # Sort by year, treating None/missing as -1 (very old) so they appear at the top when sorting oldest first
+        filtered_papers = sorted(filtered_papers, key=lambda x: x.get('year') if x.get('year') is not None else -1)
+    # else: keep relevance order (original search order)
+    
+    # Re-render the paper cards with new order using helper function
+    results_content = []
+    for i, paper in enumerate(filtered_papers, 1):
+        paper_card = _create_paper_card(paper, i)
+        results_content.append(paper_card)
+    
+    if not results_content:
+        return html.Div(
+            dbc.Alert("No papers match the selected filters.", color="info", className="text-center"),
+            className="mt-3"
+        )
+    
+    return html.Div(results_content)
+
+
+# Callback for pagination (load more results)
+@app.callback(
+    Output("search-status", "children", allow_duplicate=True),
+    Output("search-results", "children", allow_duplicate=True),
+    Output("all-papers-data", "data", allow_duplicate=True),
+    Output("lit-search-session-papers", "data", allow_duplicate=True),
+    Output("pagination-state", "data", allow_duplicate=True),
+    Output("pagination-controls", "style", allow_duplicate=True),
+    Output("pagination-info", "children", allow_duplicate=True),
+    Output("btn-prev-page", "disabled", allow_duplicate=True),
+    Output("btn-next-page", "disabled", allow_duplicate=True),
+    Input("btn-next-page", "n_clicks"),
+    Input("btn-prev-page", "n_clicks"),
+    State("lit-search-query", "value"),
+    State("lit-search-sources", "value"),
+    State("lit-search-pipeline-controls", "value"),
+    State("limit-wos", "value"),
+    State("limit-openalex", "value"),
+    State("all-papers-data", "data"),
+    State("lit-search-session-papers", "data"),
+    State("pagination-state", "data"),
+    prevent_initial_call=True,
+)
+def handle_pagination(next_clicks, prev_clicks, query, sources, pipeline_controls, 
+                     wos_limit, openalex_limit, all_papers, session_papers, pagination_state):
+    """
+    Handle pagination button clicks to load additional pages from OpenAlex and Web of Science.
+    Results accumulate with deduplication applied.
+    """
+    if not ctx.triggered:
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+    
+    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # Only handle pagination for sources that support it
+    pageable_sources = [s for s in (sources or []) if s in ['web_of_science', 'openalex']]
+    if not pageable_sources:
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+    
+    try:
+        # Initialize or retrieve pagination state
+        if not pagination_state:
+            pagination_state = {
+                'current_page': {},
+                'total_results': {},
+                'last_query': query,
+                'last_sources': sources
+            }
+        
+        # Check if query or sources changed - if so, this is a new search, don't paginate
+        if pagination_state.get('last_query') != query or pagination_state.get('last_sources') != sources:
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        
+        # Determine which source to paginate based on which sources are selected
+        # For simplicity, we'll paginate the first available pageable source
+        source_to_paginate = pageable_sources[0] if pageable_sources else None
+        if not source_to_paginate:
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        
+        # Get current page for this source
+        current_page = pagination_state.get('current_page', {}).get(source_to_paginate, 1)
+        
+        # Update page number based on button clicked
+        if triggered_id == "btn-next-page":
+            new_page = current_page + 1
+        elif triggered_id == "btn-prev-page":
+            new_page = max(1, current_page - 1)
+        else:
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        
+        # Fetch new page of results
+        new_papers = []
+        if source_to_paginate == 'web_of_science':
+            limit = wos_limit if wos_limit and wos_limit > 0 else 100
+            result = literature_search.search_web_of_science(query, limit=min(limit, 100), page=new_page)
+            if isinstance(result, dict):
+                new_papers = result.get('papers', [])
+                pagination_state['total_results']['web_of_science'] = result.get('total_results', 0)
+        elif source_to_paginate == 'openalex':
+            limit = openalex_limit if openalex_limit and openalex_limit > 0 else 200
+            contact_email = literature_search._get_contact_email()
+            result = literature_search.search_openalex(query, limit=min(limit, 200), page=new_page, contact_email=contact_email)
+            if isinstance(result, dict):
+                new_papers = result.get('papers', [])
+                pagination_state['total_results']['openalex'] = result.get('total_results', 0)
+        
+        if not new_papers:
+            # No more results available
+            status_msg = dbc.Alert(f"No more results available from {source_to_paginate.replace('_', ' ').title()}.", 
+                                  color="info", duration=3000)
+            return status_msg, no_update, no_update, no_update, pagination_state, no_update, no_update, no_update, no_update
+        
+        # Combine with existing papers and deduplicate
+        combined_papers = (all_papers or []) + new_papers
+        
+        # Parse pipeline controls
+        pipeline_controls = pipeline_controls or []
+        enable_deduplication = "deduplication" in pipeline_controls
+        
+        # Deduplicate if enabled
+        if enable_deduplication:
+            unique_papers = literature_search.deduplicate_papers(combined_papers)
+        else:
+            unique_papers = combined_papers
+        
+        # Update pagination state
+        pagination_state['current_page'][source_to_paginate] = new_page
+        
+        # Calculate pagination info
+        total_results = pagination_state.get('total_results', {}).get(source_to_paginate, 0)
+        current_count = len(unique_papers)
+        
+        # Determine if there are more pages
+        per_page = 100 if source_to_paginate == 'web_of_science' else 200
+        has_more = current_count < total_results and new_page * per_page < total_results
+        
+        # Create pagination info display
+        pagination_info = html.Div([
+            html.Small([
+                f"Showing {current_count} results from {source_to_paginate.replace('_', ' ').title()}",
+                html.Br(),
+                f"(Total available: {total_results}, Page {new_page})"
+            ], className="text-muted")
+        ])
+        
+        # Render results
+        results_content = []
+        for i, paper in enumerate(unique_papers, 1):
+            paper_card = _create_paper_card(paper, i)
+            results_content.append(paper_card)
+        
+        # Update session papers
+        new_session_papers = unique_papers
+        
+        # Status message
+        status_msg = dbc.Alert(
+            f"Loaded page {new_page} from {source_to_paginate.replace('_', ' ').title()} "
+            f"({len(new_papers)} new papers, {current_count} total after deduplication)",
+            color="success", duration=4000
+        )
+        
+        # Determine button states
+        prev_disabled = new_page <= 1
+        next_disabled = not has_more
+        
+        return (
+            status_msg,
+            html.Div(results_content),
+            unique_papers,
+            new_session_papers,
+            pagination_state,
+            {"display": "block"} if total_results > 0 else {"display": "none"},
+            pagination_info,
+            prev_disabled,
+            next_disabled
+        )
+        
+    except Exception as e:
+        logger.error(f"Pagination error: {e}", exc_info=True)
+        return (
+            dbc.Alert(f"Pagination failed: {str(e)}", color="danger"),
+            no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        )
 
 
 # Callback to show/hide WoS syntax help modal
@@ -833,23 +1244,57 @@ def toggle_export_modal(export_clicks, cancel_clicks, confirm_clicks, is_open,
         if not selected_papers:
             return False, None, []
         
-        # Create DOI list display
+        # Create DOI list display with warnings for non-DOI identifiers
         doi_list_items = []
+        valid_doi_count = 0
+        invalid_identifier_count = 0
+        
         for paper in selected_papers:
             doi = paper.get('doi', 'N/A')
             title = paper.get('title', 'N/A')
-            doi_list_items.append(
-                html.Li([
-                    html.Strong(doi),
+            
+            # Check if it's a valid DOI or just an identifier
+            is_valid_doi = doi and doi != 'N/A' and not doi.startswith('WOS:') and not doi.startswith('OpenAlex:')
+            
+            if is_valid_doi:
+                valid_doi_count += 1
+                doi_list_items.append(
+                    html.Li([
+                        html.Strong(doi),
+                        html.Br(),
+                        html.Small(title, className="text-muted")
+                    ])
+                )
+            else:
+                invalid_identifier_count += 1
+                doi_list_items.append(
+                    html.Li([
+                        html.Strong(doi, style={"color": "#dc3545"}),
+                        html.Span(" (not a DOI - will be skipped)", className="small text-danger"),
+                        html.Br(),
+                        html.Small(title, className="text-muted")
+                    ])
+                )
+        
+        # Build display with warning if needed
+        display_parts = []
+        
+        if invalid_identifier_count > 0:
+            display_parts.append(
+                dbc.Alert([
+                    html.I(className="bi bi-exclamation-triangle-fill me-2"),
+                    html.Strong(f"Warning: {invalid_identifier_count} paper(s) without valid DOIs will be skipped"),
                     html.Br(),
-                    html.Small(title, className="text-muted")
-                ])
+                    html.Small("Only papers with real DOIs can be added to projects")
+                ], color="warning", className="mb-2")
             )
         
-        doi_list_display = html.Div([
-            html.H6(f"Selected DOIs ({len(selected_papers)}):"),
+        display_parts.extend([
+            html.H6(f"Selected papers ({len(selected_papers)} total, {valid_doi_count} with valid DOIs):"),
             html.Ul(doi_list_items, style={"maxHeight": "200px", "overflowY": "auto"})
         ])
+        
+        doi_list_display = html.Div(display_parts)
         
         # Get projects for dropdown
         try:
@@ -906,23 +1351,105 @@ def handle_export_confirmation(n_clicks, action, new_name, new_desc, target_proj
     if not auth_data:
         return dbc.Alert("Authentication required", color="danger")
     
-    # Use email/password from admin auth (not token-based for now)
-    # Get selected DOIs
-    selected_dois = [
-        paper['doi'] for i, paper in enumerate(papers_data)
-        if i < len(checkbox_values) and checkbox_values[i] and paper.get('doi')
-    ]
+    # Get selected DOIs and filter out non-DOI identifiers
+    selected_dois = []
+    skipped_identifiers = []
+    
+    for i, paper in enumerate(papers_data):
+        if i < len(checkbox_values) and checkbox_values[i]:
+            doi = paper.get('doi', '')
+            if doi:
+                # Skip WOS: and OpenAlex: identifiers - only accept real DOIs
+                if doi.startswith('WOS:') or doi.startswith('OpenAlex:'):
+                    skipped_identifiers.append(doi)
+                else:
+                    selected_dois.append(doi)
     
     if not selected_dois:
+        if skipped_identifiers:
+            return dbc.Alert([
+                html.Strong("No valid DOIs to export"),
+                html.Br(),
+                html.Small(f"Skipped {len(skipped_identifiers)} identifier(s) without real DOIs: {', '.join(skipped_identifiers[:3])}{'...' if len(skipped_identifiers) > 3 else ''}")
+            ], color="warning")
         return dbc.Alert("No DOIs to export", color="warning")
+    
+    # Normalize DOIs (lowercase, remove URL prefixes)
+    normalized_dois = []
+    for doi in selected_dois:
+        # Remove URL prefixes
+        doi_clean = doi.replace("https://doi.org/", "").replace("http://doi.org/", "")
+        # Convert to lowercase
+        doi_clean = doi_clean.strip().lower()
+        if doi_clean:
+            normalized_dois.append(doi_clean)
+    
+    # Validate DOIs via CrossRef API before adding to project
+    try:
+        validation_payload = {
+            "email": auth_data["email"],
+            "password": auth_data["password"],
+            "dois": normalized_dois
+        }
+        val_response = requests.post(
+            f"{API_BASE}/api/admin/validate-dois", 
+            json=validation_payload, 
+            timeout=30
+        )
+        
+        if val_response.ok:
+            validation_result = val_response.json()
+            valid_dois = validation_result.get("valid", [])
+            invalid_dois = validation_result.get("invalid", [])
+            
+            if not valid_dois:
+                invalid_msg = ", ".join([f"{inv['doi']} ({inv['reason']})" for inv in invalid_dois[:3]])
+                if len(invalid_dois) > 3:
+                    invalid_msg += "..."
+                return dbc.Alert([
+                    html.Strong("All DOIs failed validation"),
+                    html.Br(),
+                    html.Small(f"Invalid DOIs: {invalid_msg}")
+                ], color="danger")
+            
+            # Use only valid DOIs
+            selected_dois = valid_dois
+            
+            # Show warning if some DOIs were invalid
+            validation_warning = None
+            if invalid_dois:
+                validation_warning = html.Div([
+                    html.Strong(f"Note: {len(invalid_dois)} DOI(s) failed validation and were skipped"),
+                    html.Br(),
+                    html.Small(", ".join([f"{inv['doi']}" for inv in invalid_dois[:3]]) + ("..." if len(invalid_dois) > 3 else ""))
+                ], className="text-warning small mb-2")
+        else:
+            # If validation endpoint fails, proceed with normalized DOIs
+            # but show a warning
+            logger.warning(f"DOI validation failed: {val_response.status_code}")
+            validation_warning = html.Div([
+                html.Strong("Warning: Could not validate DOIs via CrossRef"),
+                html.Br(),
+                html.Small("Proceeding with normalized DOIs without validation")
+            ], className="text-warning small mb-2")
+    except Exception as e:
+        logger.error(f"DOI validation error: {e}")
+        # Proceed with normalized DOIs but show warning
+        validation_warning = html.Div([
+            html.Strong("Warning: Could not validate DOIs via CrossRef"),
+            html.Br(),
+            html.Small(f"Error: {str(e)}")
+        ], className="text-warning small mb-2")
     
     # Handle clipboard action
     if action == "clipboard":
         doi_text = "\n".join(selected_dois)
-        return dbc.Alert([
-            html.Strong("Copy these DOIs:"),
-            html.Pre(doi_text, style={"marginTop": "10px", "padding": "10px", "backgroundColor": "#f8f9fa"})
-        ], color="info")
+        result_parts = [html.Strong("Copy these DOIs:")]
+        if validation_warning:
+            result_parts.append(html.Br())
+            result_parts.append(validation_warning)
+        result_parts.append(html.Pre(doi_text, style={"marginTop": "10px", "padding": "10px", "backgroundColor": "#f8f9fa"}))
+        return dbc.Alert(result_parts, color="info")
     
     # Handle new project creation
     if action == "new":
@@ -941,7 +1468,10 @@ def handle_export_confirmation(n_clicks, action, new_name, new_desc, target_proj
             if r.ok:
                 result = r.json()
                 if result.get("ok"):
-                    return dbc.Alert(f"Project created successfully! ID: {result.get('project_id')}", color="success")
+                    result_parts = [f"Project created successfully! ID: {result.get('project_id')}"]
+                    if validation_warning:
+                        result_parts = [validation_warning, html.Br(), html.Span(result_parts[0])]
+                    return dbc.Alert(result_parts, color="success")
                 else:
                     return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger")
             else:
@@ -983,10 +1513,12 @@ def handle_export_confirmation(n_clicks, action, new_name, new_desc, target_proj
             if r.ok:
                 result = r.json()
                 if result.get("ok"):
-                    msg = f"Added {len(new_dois)} new DOI(s) to project"
+                    msg_parts = [f"Added {len(new_dois)} new DOI(s) to project"]
                     if duplicates > 0:
-                        msg += f" ({duplicates} duplicate(s) skipped)"
-                    return dbc.Alert(msg, color="success")
+                        msg_parts.append(f" ({duplicates} duplicate(s) skipped)")
+                    if validation_warning:
+                        msg_parts = [validation_warning, html.Br(), html.Span("".join(msg_parts))]
+                    return dbc.Alert(msg_parts, color="success")
                 else:
                     return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger")
             else:

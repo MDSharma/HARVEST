@@ -6,10 +6,13 @@ import re
 import json
 import requests
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 import threading
 import time
 from datetime import datetime
+import secrets
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import lru_cache
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -119,6 +122,190 @@ else:
     # In internal mode, only allow localhost origins
     CORS(app, origins=["http://localhost:*", "http://127.0.0.1:*", "http://0.0.0.0:*"])
     logger.info(f"CORS enabled for internal mode (localhost only)")
+
+# Token storage for admin sessions (in-memory)
+# Format: {token: {"email": email, "expires_at": timestamp}}
+_admin_tokens = {}
+_token_lock = threading.Lock()
+TOKEN_EXPIRATION = 86400  # 24 hours in seconds
+
+def generate_admin_token(email: str) -> str:
+    """Generate a secure random token for admin session."""
+    token = secrets.token_urlsafe(32)
+    expires_at = time.time() + TOKEN_EXPIRATION
+    with _token_lock:
+        _admin_tokens[token] = {"email": email, "expires_at": expires_at}
+    return token
+
+def verify_admin_token(token: str) -> str | None:
+    """Verify admin token and return email if valid, None otherwise."""
+    if not token:
+        return None
+    
+    with _token_lock:
+        token_data = _admin_tokens.get(token)
+        if not token_data:
+            return None
+        
+        # Check expiration
+        if time.time() > token_data["expires_at"]:
+            # Token expired, remove it
+            del _admin_tokens[token]
+            return None
+        
+        return token_data["email"]
+
+def revoke_admin_token(token: str) -> bool:
+    """Revoke an admin token."""
+    with _token_lock:
+        if token in _admin_tokens:
+            del _admin_tokens[token]
+            return True
+        return False
+
+def cleanup_expired_tokens():
+    """Clean up expired tokens (should be called periodically)."""
+    with _token_lock:
+        current_time = time.time()
+        expired_tokens = [
+            token for token, data in _admin_tokens.items()
+            if current_time > data["expires_at"]
+        ]
+        for token in expired_tokens:
+            del _admin_tokens[token]
+        if expired_tokens:
+            logger.info(f"Cleaned up {len(expired_tokens)} expired admin tokens")
+
+def verify_admin_auth(payload: dict) -> tuple[bool, str | None]:
+    """
+    Verify admin authentication from request payload.
+    Accepts either token OR email/password.
+    Returns: (is_authenticated, email)
+    """
+    # Try token-based auth first
+    token = payload.get("token", "").strip()
+    if token:
+        email = verify_admin_token(token)
+        if email:
+            return True, email
+    
+    # Fall back to email/password auth for backwards compatibility
+    email = (payload.get("email") or "").strip()
+    password = payload.get("password") or ""
+    
+    if email and password:
+        if verify_admin_password(DB_PATH, email, password) or is_admin_user(email):
+            return True, email
+    
+    return False, None
+
+# DOI Validation Cache - stores validation results to avoid redundant API calls
+# Format: {doi: {"valid": bool, "reason": str, "timestamp": float}}
+_doi_validation_cache = {}
+_doi_cache_lock = threading.Lock()
+DOI_CACHE_TTL = 3600  # 1 hour cache TTL
+
+def _validate_single_doi(doi: str) -> Tuple[str, bool, str]:
+    """
+    Validate a single DOI via CrossRef API.
+    Returns: (doi, is_valid, reason)
+    """
+    # Normalize DOI
+    doi_normalized = normalize_doi(doi)
+    if not doi_normalized:
+        return (doi, False, "Empty DOI")
+    
+    # Check format first (fast check before API call)
+    doi_pattern = r'^10\.\d{4,9}/[-._;()/:A-Za-z0-9]+$'
+    if not re.match(doi_pattern, doi_normalized):
+        return (doi, False, "Invalid DOI format")
+    
+    # Check cache first
+    with _doi_cache_lock:
+        cached = _doi_validation_cache.get(doi_normalized)
+        if cached and (time.time() - cached["timestamp"]) < DOI_CACHE_TTL:
+            return (doi, cached["valid"], cached.get("reason", ""))
+    
+    # Validate via CrossRef API
+    try:
+        headers = {"Accept": "application/json"}
+        response = requests.get(
+            f"https://api.crossref.org/works/{doi_normalized}",
+            headers=headers,
+            timeout=5
+        )
+        
+        if response.status_code == 200:
+            # Cache success
+            with _doi_cache_lock:
+                _doi_validation_cache[doi_normalized] = {
+                    "valid": True,
+                    "reason": "",
+                    "timestamp": time.time()
+                }
+            return (doi, True, "")
+        elif response.status_code == 404:
+            reason = "DOI not found in CrossRef database"
+            # Cache failure
+            with _doi_cache_lock:
+                _doi_validation_cache[doi_normalized] = {
+                    "valid": False,
+                    "reason": reason,
+                    "timestamp": time.time()
+                }
+            return (doi, False, reason)
+        else:
+            return (doi, False, f"CrossRef validation failed (HTTP {response.status_code})")
+            
+    except requests.exceptions.Timeout:
+        return (doi, False, "CrossRef API timeout")
+    except requests.exceptions.RequestException as e:
+        return (doi, False, f"Network error: {str(e)}")
+    except Exception as e:
+        return (doi, False, f"Validation error: {str(e)}")
+
+def validate_dois_concurrent(dois: List[str], max_workers: int = 10) -> Tuple[List[str], List[Dict[str, str]]]:
+    """
+    Validate multiple DOIs concurrently with caching.
+    
+    Args:
+        dois: List of DOI strings to validate
+        max_workers: Maximum number of concurrent validation threads
+        
+    Returns:
+        Tuple of (valid_dois, invalid_dois)
+        - valid_dois: List of normalized valid DOIs
+        - invalid_dois: List of dicts with {"doi": original_doi, "reason": error_message}
+    """
+    if not dois:
+        return ([], [])
+    
+    valid_dois = []
+    invalid_dois = []
+    
+    # Use ThreadPoolExecutor for concurrent validation
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all validation tasks
+        future_to_doi = {executor.submit(_validate_single_doi, doi): doi for doi in dois}
+        
+        # Process results as they complete
+        for future in as_completed(future_to_doi):
+            try:
+                original_doi, is_valid, reason = future.result()
+                if is_valid:
+                    # Add normalized version
+                    valid_dois.append(normalize_doi(original_doi))
+                else:
+                    invalid_dois.append({"doi": original_doi, "reason": reason})
+            except Exception as e:
+                original_doi = future_to_doi[future]
+                invalid_dois.append({"doi": original_doi, "reason": f"Unexpected error: {str(e)}"})
+        
+        # Add small delay to be respectful to CrossRef API (total, not per request)
+        # Since we're making concurrent requests, we add a small delay at the end
+        time.sleep(0.1)
+    
+    return (list(set(valid_dois)), invalid_dois)  # Deduplicate valid DOIs
 
 def slugify(s: str) -> str:
     """Simple slug for entity type 'value' column (lowercase, underscores)."""
@@ -447,9 +634,9 @@ def rows():
 @app.post("/api/admin/auth")
 def admin_auth():
     """
-    Authenticate admin user.
+    Authenticate admin user and return session token.
     Expected JSON: { "email": "admin@example.com", "password": "secret" }
-    Returns: { "authenticated": true/false, "is_admin": true/false }
+    Returns: { "authenticated": true/false, "token": "...", "email": "...", "expires_in": 86400 }
     """
     try:
         payload = request.get_json(force=True, silent=False)
@@ -468,10 +655,21 @@ def admin_auth():
     # Also check if email is in environment variable list
     is_env_admin = is_admin_user(email)
 
-    return jsonify({
-        "authenticated": authenticated or is_env_admin,
-        "is_admin": authenticated or is_env_admin
-    })
+    if authenticated or is_env_admin:
+        # Generate and return token
+        token = generate_admin_token(email)
+        return jsonify({
+            "authenticated": True,
+            "is_admin": True,
+            "token": token,
+            "email": email,
+            "expires_in": TOKEN_EXPIRATION
+        })
+    else:
+        return jsonify({
+            "authenticated": False,
+            "is_admin": False
+        }), 401
 
 @app.post("/api/admin/create-user")
 def admin_create_user():
@@ -550,7 +748,7 @@ def admin_update_triple(triple_id: int):
 def create_new_project():
     """
     Create a new project (admin only).
-    Expected JSON: { "email": "admin@example.com", "password": "secret",
+    Expected JSON: { "token": "...", OR "email": "admin@example.com", "password": "secret",
                      "name": "Project Name", "description": "...", "doi_list": ["10.1234/...", ...] }
     """
     try:
@@ -558,14 +756,9 @@ def create_new_project():
     except Exception:
         return jsonify({"error": "Invalid JSON"}), 400
 
-    email = (payload.get("email") or "").strip()
-    password = payload.get("password") or ""
-
-    if not email or not password:
-        return jsonify({"error": "Admin authentication required"}), 401
-
-    # Verify admin credentials
-    if not (verify_admin_password(DB_PATH, email, password) or is_admin_user(email)):
+    # Verify admin authentication (token or email/password)
+    is_authenticated, email = verify_admin_auth(payload)
+    if not is_authenticated:
         return jsonify({"error": "Invalid admin credentials"}), 403
 
     name = (payload.get("name") or "").strip()
@@ -577,19 +770,28 @@ def create_new_project():
     if not doi_list or not isinstance(doi_list, list):
         return jsonify({"error": "DOI list is required and must be an array"}), 400
 
-    # Normalize DOIs to lowercase and remove duplicates
-    normalized_dois = {}
-    for doi in doi_list:
-        doi_normalized = doi.strip().lower()
-        if doi_normalized:  # Skip empty strings
-            normalized_dois[doi_normalized] = doi_normalized
+    # Validate DOIs concurrently with caching
+    valid_dois, invalid_dois = validate_dois_concurrent(doi_list)
     
-    doi_list = list(normalized_dois.values())
+    if not valid_dois:
+        return jsonify({"error": "No valid DOIs provided", "invalid_dois": invalid_dois}), 400
 
-    project_id = create_project(DB_PATH, name, description, doi_list, email)
+    project_id = create_project(DB_PATH, name, description, valid_dois, email)
     
     if project_id > 0:
-        return jsonify({"ok": True, "project_id": project_id, "message": "Project created successfully"})
+        response_data = {
+            "ok": True, 
+            "project_id": project_id, 
+            "message": "Project created successfully",
+            "valid_count": len(valid_dois)
+        }
+        
+        # Include warning about invalid DOIs if any
+        if invalid_dois:
+            response_data["warning"] = f"{len(invalid_dois)} DOI(s) failed validation and were excluded"
+            response_data["invalid_dois"] = invalid_dois
+            
+        return jsonify(response_data)
     else:
         return jsonify({"error": "Failed to create project"}), 500
 
@@ -627,7 +829,7 @@ def get_project(project_id: int):
 def update_existing_project(project_id: int):
     """
     Update a project (admin only).
-    Expected JSON: { "email": "admin@example.com", "password": "secret",
+    Expected JSON: { "token": "...", OR "email": "admin@example.com", "password": "secret",
                      "name": "...", "description": "...", "doi_list": [...] }
     """
     try:
@@ -635,33 +837,43 @@ def update_existing_project(project_id: int):
     except Exception:
         return jsonify({"error": "Invalid JSON"}), 400
 
-    email = (payload.get("email") or "").strip()
-    password = payload.get("password") or ""
-
-    if not email or not password:
-        return jsonify({"error": "Admin authentication required"}), 401
-
-    # Verify admin credentials
-    if not (verify_admin_password(DB_PATH, email, password) or is_admin_user(email)):
+    # Verify admin authentication (token or email/password)
+    is_authenticated, email = verify_admin_auth(payload)
+    if not is_authenticated:
         return jsonify({"error": "Invalid admin credentials"}), 403
 
     name = payload.get("name")
     description = payload.get("description")
     doi_list = payload.get("doi_list")
+    invalid_dois = []
     
-    # Normalize DOI list to lowercase if provided
+    # Normalize and validate DOI list if provided
     if doi_list is not None and isinstance(doi_list, list):
-        normalized_dois = {}
-        for doi in doi_list:
-            doi_normalized = doi.strip().lower()
-            if doi_normalized:  # Skip empty strings
-                normalized_dois[doi_normalized] = doi_normalized
-        doi_list = list(normalized_dois.values())
+        valid_dois, invalid_dois = validate_dois_concurrent(doi_list)
+        doi_list = valid_dois
+        
+        # If no valid DOIs but invalid ones exist, return error
+        if not doi_list and invalid_dois:
+            return jsonify({
+                "error": "No valid DOIs provided",
+                "invalid_dois": invalid_dois
+            }), 400
 
     success = update_project(DB_PATH, project_id, name, description, doi_list)
     
     if success:
-        return jsonify({"ok": True, "message": "Project updated successfully"})
+        response_data = {
+            "ok": True, 
+            "message": "Project updated successfully"
+        }
+        
+        # Include warning about invalid DOIs if any
+        if doi_list is not None and invalid_dois:
+            response_data["warning"] = f"{len(invalid_dois)} DOI(s) failed validation and were excluded"
+            response_data["invalid_dois"] = invalid_dois
+            response_data["valid_count"] = len(doi_list)
+            
+        return jsonify(response_data)
     else:
         return jsonify({"error": "Failed to update project or project not found"}), 404
 
@@ -750,16 +962,12 @@ def add_dois_to_project(project_id: int):
     except Exception:
         return jsonify({"error": "Invalid JSON"}), 400
 
-    email = (payload.get("email") or "").strip()
-    password = payload.get("password") or ""
-    new_dois = payload.get("dois", [])
-
-    if not email or not password:
-        return jsonify({"error": "Admin authentication required"}), 401
-
-    # Verify admin credentials
-    if not (verify_admin_password(DB_PATH, email, password) or is_admin_user(email)):
+    # Verify admin authentication (token or email/password)
+    is_authenticated, email = verify_admin_auth(payload)
+    if not is_authenticated:
         return jsonify({"error": "Invalid admin credentials"}), 403
+
+    new_dois = payload.get("dois", [])
 
     if not isinstance(new_dois, list) or not new_dois:
         return jsonify({"error": "dois must be a non-empty list"}), 400
@@ -772,29 +980,46 @@ def add_dois_to_project(project_id: int):
     # Get current DOI list (already normalized to lowercase in storage)
     current_dois = project.get("doi_list", [])
     
-    # Normalize new DOIs to lowercase
-    normalized_new_dois = set()
-    for doi in new_dois:
-        doi_normalized = doi.strip().lower()
-        if doi_normalized:  # Skip empty strings
-            normalized_new_dois.add(doi_normalized)
+    # Validate new DOIs concurrently with caching
+    valid_new_dois, invalid_dois = validate_dois_concurrent(new_dois)
+    
+    # If no valid DOIs but invalid ones exist, still report them as warning
+    if not valid_new_dois:
+        if invalid_dois:
+            return jsonify({
+                "ok": True,
+                "message": "No valid DOIs to add",
+                "warning": f"{len(invalid_dois)} DOI(s) failed validation",
+                "invalid_dois": invalid_dois,
+                "added_count": 0,
+                "total_dois": len(current_dois)
+            })
+        else:
+            return jsonify({"error": "No DOIs provided"}), 400
     
     # Create set of existing DOIs for deduplication
     existing_dois_set = set(current_dois)
-    
-    # Add only new DOIs (avoid duplicates)
-    updated_dois = list(existing_dois_set | normalized_new_dois)
+    updated_dois = list(existing_dois_set | set(valid_new_dois))
     added_count = len(updated_dois) - len(current_dois)
 
     # Update project with new DOI list
     success = update_project(DB_PATH, project_id, doi_list=updated_dois)
     
     if success:
-        return jsonify({
+        response_data = {
             "ok": True, 
-            "message": f"Added {added_count} new DOIs to project",
-            "total_dois": len(updated_dois)
-        })
+            "message": f"Added {added_count} new DOI(s) to project",
+            "total_dois": len(updated_dois),
+            "added_count": added_count
+        }
+        
+        # Include warning about invalid DOIs if any
+        if invalid_dois:
+            response_data["warning"] = f"{len(invalid_dois)} DOI(s) failed validation and were excluded"
+            response_data["invalid_dois"] = invalid_dois
+            response_data["valid_count"] = len(valid_new_dois)
+            
+        return jsonify(response_data)
     else:
         return jsonify({"error": "Failed to update project"}), 500
 

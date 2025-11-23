@@ -5,9 +5,44 @@
 
 # Enhanced Semantic Search - Quick Start Guide
 
-## What's New
+## What's New (Latest Update)
 
-Your HARVEST application now has enhanced semantic search capabilities!
+### Enhanced UI and Search Quality (December 2024)
+
+**Visual Improvements:**
+- 🎨 **Color-Coded Badges**: Source, year, citations, and open access status
+  - Citations: Red (100+), Warning (50+), Info (10+), Gray (<10)
+  - Sources: Blue (Semantic Scholar), Green (arXiv), Info (WoS), Warning (OpenAlex)
+- ✨ **Better Card Design**: Shadow effects, improved spacing, icons
+- 🔍 **Improved Metadata Display**: Icons for authors, DOI links, better typography
+
+**New Features:**
+- 📊 **Sorting Controls**: 
+  - Relevance (default - semantic similarity)
+  - Citations (high to low)
+  - Year (newest/oldest first)
+  - Instant client-side sorting without re-running search
+  
+- 🎯 **Source Filtering**:
+  - Filter results by specific sources
+  - Instant client-side filtering
+  - No need to re-run search
+  
+- 💡 **Helpful Tooltips**:
+  - Source selection tooltip explains each database
+  - Pipeline controls tooltip explains each step
+  - Recommended settings clearly marked in UI
+
+**Search Quality Improvements:**
+- ✓ **Enhanced Deduplication**: Fuzzy title matching (85% similarity)
+  - Catches formatting variations (e.g., "Machine Learning" vs "machine learning")
+  - Removes punctuation differences
+  - Case-insensitive matching with word-level comparison
+  
+- ✓ **Query Expansion**: Now disabled by default for better precision
+  - Modern search engines (Semantic Scholar, OpenAlex) handle semantic similarity internally
+  - Can be re-enabled if needed via Pipeline Controls
+  - Reduces search noise and improves relevance
 
 ### Three Major Improvements
 
@@ -256,6 +291,38 @@ Results are reranked using semantic similarity:
 4. **Click "Search Papers"**
    - Results appear with execution pipeline details
    - Papers are ranked by semantic relevance
+
+### Using Sorting and Filtering (New!)
+
+After getting your results, you can refine them without re-running the search:
+
+1. **Sort Results**
+   - Click the "Sort By" dropdown
+   - Choose from:
+     - Relevance (default - based on semantic similarity to your query)
+     - Citations (high to low - shows most influential papers first)
+     - Year (newest first - shows latest research)
+     - Year (oldest first - shows foundational work)
+
+2. **Filter by Source**
+   - Click the "Filter by Source" dropdown
+   - Select a specific source to view only those results
+   - Choose "All Sources" to see everything again
+
+3. **Visual Indicators**
+   - **Source badges** show where each paper came from (color-coded)
+   - **Citation badges** show impact (color-coded by count)
+   - **Year badges** show publication date
+   - **Open access badges** show freely available papers (green)
+
+**Example Workflow:**
+1. Search for "machine learning in healthcare"
+2. Get 50 results from multiple sources
+3. Sort by "Citations (high to low)" to see most influential papers
+4. Filter by "arXiv" to see only preprints
+5. Sort by "Year (newest first)" to find latest arXiv papers
+
+This is much faster than running multiple searches!
 
 ### Cumulative Session Search
 
@@ -729,11 +796,40 @@ top_k = 10                  # Results to display
 
 ### Deduplication Algorithm
 
-Papers are deduplicated using:
+Papers are deduplicated using an enhanced fuzzy matching approach:
+
 1. **Primary key**: DOI exact match
-2. **Secondary key**: Title similarity (case-insensitive)
-3. **Priority**: Higher citation count preferred
+2. **Secondary key**: Fuzzy title similarity (Jaccard similarity with 85% threshold)
+   - Titles are normalized: lowercase, punctuation removed, common prefixes stripped
+   - Catches near-duplicates that differ slightly in formatting
+   - Example: "Machine Learning in Drug Discovery" matches "machine learning in drug discovery"
+3. **Priority**: Higher citation count preferred when duplicates found
 4. **Scope**: Across all sources and session history
+
+**Title Normalization Process:**
+- Convert to lowercase
+- Remove common prefixes ("the", "a", "an")
+- Remove punctuation
+- Normalize whitespace
+- Calculate word-level Jaccard similarity
+
+This improved deduplication catches:
+- Case variations
+- Punctuation differences
+- Minor formatting changes
+- Whitespace inconsistencies
+
+Without fuzzy matching, papers like these would be treated as separate:
+- "Machine Learning in Drug Discovery" 
+- "machine learning in drug discovery"
+- "Machine learning in drug discovery."
+
+**Configuration:**
+```python
+# Default similarity threshold: 85%
+# Can be adjusted in _titles_are_similar() function
+similarity_threshold = 0.85
+```
 
 ### Semantic Similarity
 
