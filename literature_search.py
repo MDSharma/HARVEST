@@ -664,11 +664,13 @@ def _parse_wos_xml_record(xml_string: str) -> Optional[Dict[str, Any]]:
         }
         
         # Define namespace map for WoS XML
-        # WoS uses namespaces in their XML responses
+        # WoS API may return XML with or without namespaces depending on version/configuration
+        # Namespace URL: http://scientific.thomsonreuters.com/schema/wok5.4/public/FullRecord
+        # Note: This namespace is specific to WoS API v5.4. Future API versions may use different namespaces.
         ns = {'': 'http://scientific.thomsonreuters.com/schema/wok5.4/public/FullRecord'}
         
-        # Try without namespace first (for backwards compatibility)
-        # Then try with namespace if not found
+        # Strategy: Try without namespace first (faster, most common), then with namespace as fallback
+        # This avoids the need to detect namespace presence and handles both cases efficiently
         
         # Extract summary section (titles, authors, pub_info)
         summary = root.find('.//summary', ns) or root.find('.//summary')

@@ -5,6 +5,19 @@ Test suite for Web of Science XML parsing.
 
 This test validates that the XML parsing function correctly converts
 WoS API XML responses to the expected dictionary structure.
+
+Background:
+When viewField='fullRecord' is specified, the WoS API returns XML data
+in the 'static_data' field instead of JSON. This test suite verifies
+that the _parse_wos_xml_record function properly handles various XML
+formats returned by the WoS API, including:
+- Simple records with basic metadata
+- Records with multiple authors
+- Different abstract text formats (nested vs direct)
+- Empty and malformed XML
+
+Related to bug fix for issue where records were skipped with error:
+"static_data is not a dict (type: str)"
 """
 
 import sys

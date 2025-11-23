@@ -3,8 +3,26 @@
 """
 Test suite to verify the fix for the real-world WoS bug reported in the issue.
 
-This simulates the exact scenario from the bug report where WoS returns XML
-in static_data and records were being skipped with "static_data is not a dict".
+Original Bug Report:
+--------------------
+Query: AU=(Sharma M*) AND AB=(natural and sexual*)
+API Response: 7 records found
+Expected: All 7 records harvested
+Actual: 0 records harvested, all skipped with error:
+  "WARNING: Skipping record: static_data is not a dict (type: str)"
+
+Root Cause:
+-----------
+When viewField='fullRecord' is used, the WoS API returns XML strings in the
+'static_data' field instead of JSON dictionaries. The code expected JSON and
+skipped all records.
+
+Fix:
+----
+Added _parse_wos_xml_record function to detect and parse XML strings,
+converting them to the expected dictionary structure.
+
+This test simulates the exact scenario from the bug report to verify the fix.
 """
 
 import sys
