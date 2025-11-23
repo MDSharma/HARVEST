@@ -598,6 +598,11 @@ def check_lit_review_auth(auth_data):
     Output("lit-search-export-controls", "style"),
     Output("lit-search-session-papers", "data"),
     Output("all-papers-data", "data"),
+    Output("pagination-state", "data"),
+    Output("pagination-controls", "style"),
+    Output("pagination-info", "children"),
+    Output("btn-prev-page", "disabled"),
+    Output("btn-next-page", "disabled"),
     Input("btn-search-papers", "n_clicks"),
     State("lit-search-query", "value"),
     State("lit-search-sources", "value"),
@@ -635,7 +640,12 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
             [],
             {"display": "none"},
             session_papers or [],
-            []
+            [],
+            {},  # pagination_state
+            {"display": "none"},  # pagination-controls style
+            None,  # pagination-info
+            True,  # prev button disabled
+            True   # next button disabled
         )
     
     if not sources:
@@ -645,7 +655,12 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
             [],
             {"display": "none"},
             session_papers or [],
-            []
+            [],
+            {},  # pagination_state
+            {"display": "none"},  # pagination-controls style
+            None,  # pagination-info
+            True,  # prev button disabled
+            True   # next button disabled
         )
 
     try:
@@ -702,7 +717,12 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
                     [],
                     {"display": "none"},
                     session_papers or [],
-                    []
+                    [],
+                    {},  # pagination_state
+                    {"display": "none"},  # pagination-controls style
+                    None,  # pagination-info
+                    True,  # prev button disabled
+                    True   # next button disabled
                 )
             return (
                 dbc.Alert(result['message'], color="danger"),
@@ -710,7 +730,12 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
                 [],
                 {"display": "none"},
                 session_papers or [],
-                []
+                [],
+                {},  # pagination_state
+                {"display": "none"},  # pagination-controls style
+                None,  # pagination-info
+                True,  # prev button disabled
+                True   # next button disabled
             )
 
         papers = result['papers']
@@ -722,7 +747,12 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
                 [],
                 {"display": "none"},
                 session_papers or [],
-                []
+                [],
+                {},  # pagination_state
+                {"display": "none"},  # pagination-controls style
+                None,  # pagination-info
+                True,  # prev button disabled
+                True   # next button disabled
             )
 
         # Store all unique papers from session
@@ -778,7 +808,42 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
             paper_card = _create_paper_card(paper, i)
             results_content.append(paper_card)
 
-        return status, html.Div(results_content), papers_data, {"display": "block"}, new_session_papers, papers
+        # Initialize pagination state for new search
+        pagination_state = {
+            'current_page': {'web_of_science': 1, 'openalex': 1},
+            'total_results': {},
+            'last_query': query,
+            'last_sources': sources
+        }
+        
+        # Check if pagination is available
+        pageable_sources = [s for s in sources if s in ['web_of_science', 'openalex']]
+        has_pagination = len(pageable_sources) > 0
+        
+        # Pagination info - show if pagination is available
+        pagination_info = None
+        if has_pagination:
+            pagination_info = html.Div([
+                html.Small([
+                    f"Showing {len(papers)} results (Page 1)",
+                    html.Br(),
+                    f"Click 'Load Next Page' to fetch more results from {', '.join([s.replace('_', ' ').title() for s in pageable_sources])}"
+                ], className="text-muted")
+            ])
+        
+        return (
+            status,
+            html.Div(results_content),
+            papers_data,
+            {"display": "block"},
+            new_session_papers,
+            papers,
+            pagination_state,
+            {"display": "block"} if has_pagination else {"display": "none"},
+            pagination_info,
+            True,  # prev button disabled on first page
+            False if has_pagination else True  # next button enabled if pagination available
+        )
 
     except Exception as e:
         logger.error(f"Literature search error: {e}")
@@ -788,7 +853,12 @@ def perform_literature_search(n_clicks, query, sources, pipeline_controls, build
             [],
             {"display": "none"},
             session_papers or [],
-            []
+            [],
+            {},  # pagination_state
+            {"display": "none"},  # pagination-controls style
+            None,  # pagination-info
+            True,  # prev button disabled
+            True   # next button disabled
         )
 
 
@@ -849,6 +919,171 @@ def sort_and_filter_results(sort_by, filter_source, all_papers):
         )
     
     return html.Div(results_content)
+
+
+# Callback for pagination (load more results)
+@app.callback(
+    Output("search-status", "children", allow_duplicate=True),
+    Output("search-results", "children", allow_duplicate=True),
+    Output("all-papers-data", "data", allow_duplicate=True),
+    Output("lit-search-session-papers", "data", allow_duplicate=True),
+    Output("pagination-state", "data", allow_duplicate=True),
+    Output("pagination-controls", "style", allow_duplicate=True),
+    Output("pagination-info", "children", allow_duplicate=True),
+    Output("btn-prev-page", "disabled", allow_duplicate=True),
+    Output("btn-next-page", "disabled", allow_duplicate=True),
+    Input("btn-next-page", "n_clicks"),
+    Input("btn-prev-page", "n_clicks"),
+    State("lit-search-query", "value"),
+    State("lit-search-sources", "value"),
+    State("lit-search-pipeline-controls", "value"),
+    State("limit-wos", "value"),
+    State("limit-openalex", "value"),
+    State("all-papers-data", "data"),
+    State("lit-search-session-papers", "data"),
+    State("pagination-state", "data"),
+    prevent_initial_call=True,
+)
+def handle_pagination(next_clicks, prev_clicks, query, sources, pipeline_controls, 
+                     wos_limit, openalex_limit, all_papers, session_papers, pagination_state):
+    """
+    Handle pagination button clicks to load additional pages from OpenAlex and Web of Science.
+    Results accumulate with deduplication applied.
+    """
+    if not ctx.triggered:
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+    
+    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # Only handle pagination for sources that support it
+    pageable_sources = [s for s in (sources or []) if s in ['web_of_science', 'openalex']]
+    if not pageable_sources:
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+    
+    try:
+        # Initialize or retrieve pagination state
+        if not pagination_state:
+            pagination_state = {
+                'current_page': {},
+                'total_results': {},
+                'last_query': query,
+                'last_sources': sources
+            }
+        
+        # Check if query or sources changed - if so, this is a new search, don't paginate
+        if pagination_state.get('last_query') != query or pagination_state.get('last_sources') != sources:
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        
+        # Determine which source to paginate based on which sources are selected
+        # For simplicity, we'll paginate the first available pageable source
+        source_to_paginate = pageable_sources[0] if pageable_sources else None
+        if not source_to_paginate:
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        
+        # Get current page for this source
+        current_page = pagination_state.get('current_page', {}).get(source_to_paginate, 1)
+        
+        # Update page number based on button clicked
+        if triggered_id == "btn-next-page":
+            new_page = current_page + 1
+        elif triggered_id == "btn-prev-page":
+            new_page = max(1, current_page - 1)
+        else:
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        
+        # Fetch new page of results
+        new_papers = []
+        if source_to_paginate == 'web_of_science':
+            limit = wos_limit if wos_limit and wos_limit > 0 else 100
+            result = literature_search.search_web_of_science(query, limit=min(limit, 100), page=new_page)
+            if isinstance(result, dict):
+                new_papers = result.get('papers', [])
+                pagination_state['total_results']['web_of_science'] = result.get('total_results', 0)
+        elif source_to_paginate == 'openalex':
+            limit = openalex_limit if openalex_limit and openalex_limit > 0 else 200
+            contact_email = literature_search._get_contact_email()
+            result = literature_search.search_openalex(query, limit=min(limit, 200), page=new_page, contact_email=contact_email)
+            if isinstance(result, dict):
+                new_papers = result.get('papers', [])
+                pagination_state['total_results']['openalex'] = result.get('total_results', 0)
+        
+        if not new_papers:
+            # No more results available
+            status_msg = dbc.Alert(f"No more results available from {source_to_paginate.replace('_', ' ').title()}.", 
+                                  color="info", duration=3000)
+            return status_msg, no_update, no_update, no_update, pagination_state, no_update, no_update, no_update, no_update
+        
+        # Combine with existing papers and deduplicate
+        combined_papers = (all_papers or []) + new_papers
+        
+        # Parse pipeline controls
+        pipeline_controls = pipeline_controls or []
+        enable_deduplication = "deduplication" in pipeline_controls
+        
+        # Deduplicate if enabled
+        if enable_deduplication:
+            unique_papers = literature_search.deduplicate_papers(combined_papers)
+        else:
+            unique_papers = combined_papers
+        
+        # Update pagination state
+        pagination_state['current_page'][source_to_paginate] = new_page
+        
+        # Calculate pagination info
+        total_results = pagination_state.get('total_results', {}).get(source_to_paginate, 0)
+        current_count = len(unique_papers)
+        
+        # Determine if there are more pages
+        per_page = 100 if source_to_paginate == 'web_of_science' else 200
+        has_more = current_count < total_results and new_page * per_page < total_results
+        
+        # Create pagination info display
+        pagination_info = html.Div([
+            html.Small([
+                f"Showing {current_count} results from {source_to_paginate.replace('_', ' ').title()}",
+                html.Br(),
+                f"(Total available: {total_results}, Page {new_page})"
+            ], className="text-muted")
+        ])
+        
+        # Render results
+        results_content = []
+        for i, paper in enumerate(unique_papers, 1):
+            paper_card = _create_paper_card(paper, i)
+            results_content.append(paper_card)
+        
+        # Update session papers
+        new_session_papers = unique_papers
+        
+        # Status message
+        status_msg = dbc.Alert(
+            f"Loaded page {new_page} from {source_to_paginate.replace('_', ' ').title()} "
+            f"({len(new_papers)} new papers, {current_count} total after deduplication)",
+            color="success", duration=4000
+        )
+        
+        # Determine button states
+        prev_disabled = new_page <= 1
+        next_disabled = not has_more
+        
+        return (
+            status_msg,
+            html.Div(results_content),
+            unique_papers,
+            new_session_papers,
+            pagination_state,
+            {"display": "block"} if total_results > 0 else {"display": "none"},
+            pagination_info,
+            prev_disabled,
+            next_disabled
+        )
+        
+    except Exception as e:
+        logger.error(f"Pagination error: {e}", exc_info=True)
+        return (
+            dbc.Alert(f"Pagination failed: {str(e)}", color="danger"),
+            no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        )
 
 
 # Callback to show/hide WoS syntax help modal
