@@ -1524,23 +1524,51 @@ def get_layout():
                                                                 className="mb-4"
                                                             ),
                                                         
-                                                            # ASReview iframe - proxied through Flask to avoid CORS
-                                                            html.Iframe(
-                                                                id="asreview-iframe",
-                                                                src=f"{DASH_REQUESTS_PATHNAME_PREFIX}proxy/asreview/",
-                                                                style={
-                                                                    "width": "100%",
-                                                                    "height": "800px",
-                                                                    "border": "1px solid #dee2e6",
-                                                                    "borderRadius": "4px"
-                                                                }
-                                                            ),
-                                                        
-                                                            html.Small([
-                                                                html.I(className="bi bi-info-circle me-1"),
-                                                                "ASReview service: ",
-                                                                html.Span(id="asreview-service-url", className="font-monospace text-muted"),
-                                                            ], className="d-block mt-2 text-muted"),
+                                                            # ASReview Screenshot/Preview
+                                                            # Note: Direct iframe embedding of ASReview is not possible due to
+                                                            # how the ASReview app handles routing and CORS. Instead, we show
+                                                            # a preview screenshot.
+                                                            dbc.Card([
+                                                                dbc.CardBody([
+                                                                    html.Div([
+                                                                        html.I(className="bi bi-image me-2", style={"fontSize": "1.5rem"}),
+                                                                        html.H5("ASReview Interface Preview", className="d-inline"),
+                                                                    ], className="mb-3"),
+                                                                    html.Div([
+                                                                        # Placeholder for ASReview screenshot
+                                                                        # Administrators should add an 'asreview_screenshot.png' file
+                                                                        # to the assets/ directory
+                                                                        html.Img(
+                                                                            src=app.get_asset_url("asreview_screenshot.png"),
+                                                                            alt="ASReview Interface",
+                                                                            style={
+                                                                                "width": "100%",
+                                                                                "maxWidth": "1200px",
+                                                                                "border": "1px solid #dee2e6",
+                                                                                "borderRadius": "4px",
+                                                                                "display": "block",
+                                                                                "margin": "0 auto"
+                                                                            },
+                                                                            className="mb-3",
+                                                                            # Handle missing image gracefully
+                                                                            onError="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22800%22 height=%22400%22%3E%3Crect width=%22800%22 height=%22400%22 fill=%22%23f8f9fa%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 font-family=%22Arial%22 font-size=%2220%22 fill=%22%236c757d%22 text-anchor=%22middle%22 dy=%22.3em%22%3EASReview Screenshot Not Available%3C/text%3E%3Ctext x=%2250%25%22 y=%2260%25%22 font-family=%22Arial%22 font-size=%2214%22 fill=%22%236c757d%22 text-anchor=%22middle%22 dy=%22.3em%22%3EAdd asreview_screenshot.png to assets/ directory%3C/text%3E%3C/svg%3E';"
+                                                                        ),
+                                                                        dbc.Alert([
+                                                                            html.I(className="bi bi-info-circle-fill me-2"),
+                                                                            html.Strong("Note: "),
+                                                                            "Due to ASReview's architecture, direct embedding via iframe is not supported. ",
+                                                                            "To use ASReview, please access it directly at: ",
+                                                                            html.A(
+                                                                                html.Span(id="asreview-service-url", className="font-monospace"),
+                                                                                href="#",
+                                                                                id="asreview-direct-link",
+                                                                                target="_blank",
+                                                                                rel="noopener noreferrer"
+                                                                            )
+                                                                        ], color="light", className="mb-0"),
+                                                                    ]),
+                                                                ])
+                                                            ], className="shadow-sm"),
                                                         ]
                                                     ),
                                                 

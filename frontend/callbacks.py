@@ -2712,14 +2712,85 @@ def view_project_dois(n_clicks_list, projects):
         return dbc.Alert("Project not found", color="danger")
     
     doi_list = project.get("doi_list", [])
-    doi_items = [html.Li(doi) for doi in doi_list]
+    
+    # Import PDF_STORAGE_DIR from config
+    try:
+        from config import PDF_STORAGE_DIR
+    except ImportError:
+        PDF_STORAGE_DIR = "project_pdfs"
+    
+    # Split DOIs into those with PDFs and those without
+    # Generate hash for each DOI and check if PDF file exists
+    dois_with_pdfs = []
+    dois_without_pdfs = []
+    
+    for doi in doi_list:
+        # Generate the expected PDF filename using same hash as pdf_manager
+        doi_hash = hashlib.sha256(doi.encode('utf-8')).hexdigest()[:16]
+        pdf_filename = f"{doi_hash}.pdf"
+        pdf_path = os.path.join(PDF_STORAGE_DIR, str(project_id), pdf_filename)
+        
+        if os.path.exists(pdf_path):
+            dois_with_pdfs.append(doi)
+        else:
+            dois_without_pdfs.append(doi)
+    
+    # Build the display with two sections
+    display_content = [
+        html.H6(f"DOIs in {project['name']}:", className="alert-heading"),
+        html.Hr(),
+    ]
+    
+    # Section 1: DOIs with PDFs
+    if dois_with_pdfs:
+        display_content.extend([
+            html.Div([
+                html.H6([
+                    html.I(className="bi bi-file-pdf-fill me-2", style={"color": "#28a745"}),
+                    f"DOIs with PDFs ({len(dois_with_pdfs)})"
+                ], className="mb-2", style={"color": "#28a745"}),
+                html.Ul([html.Li(doi) for doi in dois_with_pdfs], className="mb-3")
+            ])
+        ])
+    else:
+        display_content.extend([
+            html.Div([
+                html.H6([
+                    html.I(className="bi bi-file-pdf me-2", style={"color": "#6c757d"}),
+                    "DOIs with PDFs (0)"
+                ], className="mb-2", style={"color": "#6c757d"}),
+                html.P("No PDFs downloaded yet", className="text-muted small mb-3")
+            ])
+        ])
+    
+    # Section 2: DOIs without PDFs (needs manual upload)
+    if dois_without_pdfs:
+        display_content.extend([
+            html.Div([
+                html.H6([
+                    html.I(className="bi bi-exclamation-triangle-fill me-2", style={"color": "#ffc107"}),
+                    f"DOIs without PDFs - Need Manual Upload ({len(dois_without_pdfs)})"
+                ], className="mb-2", style={"color": "#ffc107"}),
+                html.Ul([html.Li(doi) for doi in dois_without_pdfs], className="mb-2"),
+                html.Small([
+                    html.I(className="bi bi-info-circle me-1"),
+                    "These papers could not be downloaded automatically. Use the 'Upload PDFs' button to manually upload them."
+                ], className="text-muted d-block")
+            ])
+        ])
+    else:
+        display_content.extend([
+            html.Div([
+                html.H6([
+                    html.I(className="bi bi-check-circle-fill me-2", style={"color": "#28a745"}),
+                    "All PDFs Downloaded!"
+                ], className="mb-2", style={"color": "#28a745"}),
+                html.P("All papers have associated PDFs", className="text-success small")
+            ])
+        ])
     
     return dbc.Alert(
-        [
-            html.H6(f"DOIs in {project['name']}:", className="alert-heading"),
-            html.Hr(),
-            html.Ul(doi_items),
-        ],
+        display_content,
         color="info",
         dismissable=True,
     )
@@ -4182,7 +4253,13 @@ def dashboard_quick_actions(lit_clicks, ann_clicks, browse_clicks, admin_clicks)
     prevent_initial_call=False
 )
 def check_literature_review_availability(n, auth_data):
-    """Check if ASReview service is available via proxy (only when authenticated)"""
+    """
+    Check if ASReview service is configured (only when authenticated).
+    
+    Note: This no longer checks service availability via proxy since ASReview
+    cannot be embedded in an iframe. Instead, it simply checks if the service
+    URL is configured and displays it for users to access directly.
+    """
     try:
         # First check if user is authenticated
         if not auth_data or not ("email" in auth_data or "token" in auth_data):
@@ -4203,64 +4280,13 @@ def check_literature_review_availability(n, auth_data):
                 "ASReview service URL not configured in config.py"
             )
         
-        # Try to check service health via proxy
-        # ASReview LAB doesn't have a standard /api/health endpoint, so we check the root
-        # We use the Flask proxy route (/proxy/asreview/) for server-to-server communication
-        # This route forwards to the external ASReview service (spark-ec4c.tail16c7f.ts.net:5123)
-        proxy_health_url = "/proxy/asreview/"
-        
-        try:
-            r = requests.get(f"http://127.0.0.1:{PORT}{proxy_health_url}", timeout=5)
-            
-            # ASReview LAB typically returns HTML for the root endpoint
-            # Only accept 2xx responses as healthy (redirects might indicate misconfiguration)
-            if 200 <= r.status_code < 300:
-                return (
-                    "",  # Clear loading spinner
-                    {"display": "block"},  # Show content
-                    {"display": "none"},  # Hide unavailable message
-                    ASREVIEW_SERVICE_URL  # Show service URL
-                )
-            else:
-                # Service returned error
-                error_detail = f"Status {r.status_code}"
-                try:
-                    error_data = r.json()
-                    error_detail = error_data.get("error", error_detail)
-                except:
-                    pass
-                
-                return (
-                    "",  # Clear loading spinner
-                    {"display": "none"},  # Hide content
-                    {"display": "block"},  # Show unavailable message
-                    f"Cannot reach ASReview service: {error_detail}"
-                )
-        
-        except requests.exceptions.ConnectionError as e:
-            logger.error(f"Cannot connect to ASReview service: {e}")
-            return (
-                "",
-                {"display": "none"},
-                {"display": "block"},
-                f"Cannot connect to ASReview service at {ASREVIEW_SERVICE_URL}"
-            )
-        except requests.exceptions.Timeout:
-            logger.error("ASReview service health check timeout")
-            return (
-                "",
-                {"display": "none"},
-                {"display": "block"},
-                "ASReview service timeout - check if service is running"
-            )
-        except Exception as e:
-            logger.error(f"Error checking ASReview health: {e}", exc_info=True)
-            return (
-                "",
-                {"display": "none"},
-                {"display": "block"},
-                f"Error checking service: {str(e)}"
-            )
+        # ASReview service is configured - show the screenshot/preview
+        return (
+            "",  # Clear loading spinner
+            {"display": "block"},  # Show content (screenshot and link)
+            {"display": "none"},  # Hide unavailable message
+            ASREVIEW_SERVICE_URL  # Show service URL
+        )
     
     except Exception as e:
         logger.error(f"Error in check_literature_review_availability: {e}", exc_info=True)
@@ -4270,6 +4296,19 @@ def check_literature_review_availability(n, auth_data):
             {"display": "block"},
             f"Internal error: {str(e)}"
         )
+
+
+# Callback to set the href for direct ASReview link
+@app.callback(
+    Output("asreview-direct-link", "href"),
+    Input("asreview-service-url", "children"),
+    prevent_initial_call=False,
+)
+def update_asreview_link(service_url):
+    """Update the href of the ASReview direct link"""
+    if service_url and service_url.startswith("http"):
+        return service_url
+    return "#"
 
 
 # Callback to load privacy policy content
