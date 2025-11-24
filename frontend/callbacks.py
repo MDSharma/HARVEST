@@ -2592,6 +2592,7 @@ def admin_logout(n_clicks):
 # Create project
 @app.callback(
     Output("project-message", "children"),
+    Output("btn-create-project", "disabled"),
     Input("btn-create-project", "n_clicks"),
     State("new-project-name", "value"),
     State("new-project-description", "value"),
@@ -2601,10 +2602,10 @@ def admin_logout(n_clicks):
 )
 def create_project_callback(n_clicks, name, description, doi_list_text, auth_data):
     if not auth_data:
-        return dbc.Alert("Please login first", color="danger")
+        return dbc.Alert("Please login first", color="danger"), False
     
     if not name or not doi_list_text:
-        return dbc.Alert("Project name and DOI list are required", color="danger")
+        return dbc.Alert("Project name and DOI list are required", color="danger"), False
     
     # Parse DOI list
     doi_list = [doi.strip() for doi in doi_list_text.split("\n") if doi.strip()]
@@ -2622,6 +2623,13 @@ def create_project_callback(n_clicks, name, description, doi_list_text, auth_dat
         }
         # Increase timeout for large DOI lists (base 30s + 0.1s per DOI, max 300s = 5 minutes)
         timeout = min(30 + (len(doi_list) * 0.1), 300)
+        
+        # Show progress message for large lists
+        if total_submitted > 50:
+            # This is a workaround - ideally we'd show a spinner during the request
+            # but Dash callbacks are synchronous
+            pass
+        
         r = requests.post(API_ADMIN_PROJECTS, json=payload, timeout=timeout)
         if r.ok:
             result = r.json()
@@ -2630,7 +2638,7 @@ def create_project_callback(n_clicks, name, description, doi_list_text, auth_dat
                 valid_count = result.get('valid_count', 0)
                 
                 # Build success message with warnings if applicable
-                message_parts = [f"Project created successfully! ID: {project_id}"]
+                message_parts = [f"✅ Project created successfully! ID: {project_id}"]
                 message_parts.append(f"Added {valid_count} valid DOI(s).")
                 
                 # Check for discrepancies
@@ -2657,19 +2665,21 @@ def create_project_callback(n_clicks, name, description, doi_list_text, auth_dat
                 
                 message_text = "\n".join(message_parts)
                 alert_color = "warning" if total_submitted != valid_count else "success"
-                return dbc.Alert(message_text, color=alert_color, style={"whiteSpace": "pre-wrap"})
+                return dbc.Alert(message_text, color=alert_color, style={"whiteSpace": "pre-wrap"}), False
             else:
-                return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger")
+                return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger"), False
         else:
-            return dbc.Alert(f"Failed: {r.status_code} - {r.text[:200]}", color="danger")
+            return dbc.Alert(f"Failed: {r.status_code} - {r.text[:200]}", color="danger"), False
     except requests.exceptions.Timeout:
         return dbc.Alert(
-            f"Request timed out while processing {total_submitted} DOIs. "
-            f"This can happen with very large DOI lists. Please try again or contact support.",
+            f"⏱️ Request timed out while validating {total_submitted} DOIs.\n\n"
+            f"This usually means the validation is taking longer than expected. "
+            f"For large DOI lists (300+), try breaking them into smaller batches of 100-200 DOIs.\n\n"
+            f"The backend may still be processing your request. Please refresh the projects list in a moment to check if it completed.",
             color="danger"
-        )
+        ), False
     except Exception as e:
-        return dbc.Alert(f"Error: {str(e)}", color="danger")
+        return dbc.Alert(f"Error: {str(e)}", color="danger"), False
 
 # Display projects list
 @app.callback(

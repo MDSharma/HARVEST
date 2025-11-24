@@ -1962,8 +1962,24 @@ def get_layout():
                                                                 ],
                                                                 className="g-3 mb-3",
                                                             ),
-                                                            dbc.Button("Create Project", id="btn-create-project", color="success", className="mb-3"),
-                                                            html.Div(id="project-message", className="mb-3"),
+                                                            html.Div([
+                                                                dbc.Button(
+                                                                    "Create Project", 
+                                                                    id="btn-create-project", 
+                                                                    color="success", 
+                                                                    className="mb-2"
+                                                                ),
+                                                                dcc.Loading(
+                                                                    id="loading-create-project",
+                                                                    type="default",
+                                                                    children=html.Div(id="project-message", className="mb-3")
+                                                                ),
+                                                                html.Small(
+                                                                    "💡 Tip: For 300+ DOIs, validation may take 1-2 minutes. "
+                                                                    "A spinner will appear while processing.",
+                                                                    className="text-muted d-block mb-2"
+                                                                ),
+                                                            ]),
                                                         
                                                             html.H6("Existing Projects", className="mb-2 mt-3"),
                                                             dbc.Button("Refresh Projects", id="btn-refresh-projects", color="secondary", size="sm", className="mb-2"),
