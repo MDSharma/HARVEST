@@ -3257,18 +3257,22 @@ def poll_pdf_download_progress(n_intervals, progress_div_ids, active_projects, a
     active_projects = active_projects if isinstance(active_projects, dict) else {}
     download_state = download_state if isinstance(download_state, dict) else {}
     
+    # Normalize keys to integers for consistent handling
+    # State store comes from JSON and has string keys, active_projects uses int keys
+    normalized_state = {int(k): v for k, v in download_state.items() if k}
+    
     # Restore active projects from download state if needed (after refresh)
-    if not active_projects and download_state:
-        for project_id, state in download_state.items():
+    if not active_projects and normalized_state:
+        for project_id, state in normalized_state.items():
             if isinstance(state, dict) and state.get("active"):
-                active_projects[int(project_id)] = True
+                active_projects[project_id] = True
     
     if not active_projects:
         return [no_update] * len(progress_div_ids), no_update, no_update, no_update
     
     # Continue polling even without auth if we have stored download states
     # (downloads were started before logout/refresh)
-    has_active = any(download_state.get(str(pid), {}).get("active") for pid in active_projects.keys())
+    has_active = any(normalized_state.get(pid, {}).get("active") for pid in active_projects.keys())
     if not auth_data and not has_active:
         return [no_update] * len(progress_div_ids), True, {}, {}  # Disable polling if not authenticated and no active downloads
     
@@ -3276,8 +3280,21 @@ def poll_pdf_download_progress(n_intervals, progress_div_ids, active_projects, a
     
     # Dictionary to store content for each active project
     progress_contents = {}
-    updated_state_store = dict(download_state)  # Copy existing state
+    updated_state_store = {}  # Will use int keys consistently
     projects_to_remove = []
+    
+    # Fetch download config once per poll (not per project) - cache for display
+    config_info = None
+    try:
+        config_resp = requests.get(f"{API_BASE}/api/pdf-download-config", timeout=3)
+        if config_resp.ok:
+            config_data = config_resp.json()
+            sources = config_data.get("sources", [])
+            enabled_sources = [s for s in sources if s.get("enabled") and s.get("available")]
+            if enabled_sources:
+                config_info = enabled_sources
+    except Exception as e:
+        print(f"[Frontend] Could not fetch PDF config: {e}")
     
     # Poll each active project
     for project_id in list(active_projects.keys()):
@@ -3308,8 +3325,8 @@ def poll_pdf_download_progress(n_intervals, progress_div_ids, active_projects, a
             
             print(f"[Frontend] PDF Download: Project {project_id} - Status={status}, Progress={current}/{total}")
             
-            # Update download state for this project
-            updated_state_store[str(project_id)] = {
+            # Update download state for this project (use int keys for consistency)
+            updated_state_store[project_id] = {
                 "project_id": project_id,
                 "active": status == "running",
                 "status": status,
@@ -3368,29 +3385,19 @@ def poll_pdf_download_progress(n_intervals, progress_div_ids, active_projects, a
                         ),
                     ])
                 
-                # Fetch and display download configuration (only once per poll, not per project)
-                if project_id == list(active_projects.keys())[0]:  # Only fetch for first project
-                    try:
-                        config_resp = requests.get(f"{API_BASE}/api/pdf-download-config", timeout=3)
-                        if config_resp.ok:
-                            config_data = config_resp.json()
-                            sources = config_data.get("sources", [])
-                            enabled_sources = [s for s in sources if s.get("enabled") and s.get("available")]
-                            
-                            if enabled_sources:
-                                progress_content.extend([
-                                    html.Br(),
-                                    html.Br(),
-                                    html.Strong("Active download mechanisms: "),
-                                    html.Br(),
-                                ])
-                                for src in enabled_sources:
-                                    progress_content.extend([
-                                        f"  • {src['name']}: {src['description']}",
-                                        html.Br(),
-                                    ])
-                    except Exception as e:
-                        print(f"[Frontend] Could not fetch PDF config: {e}")
+                # Add download configuration info (fetched once at start of poll)
+                if config_info:
+                    progress_content.extend([
+                        html.Br(),
+                        html.Br(),
+                        html.Strong("Active download mechanisms: "),
+                        html.Br(),
+                    ])
+                    for src in config_info:
+                        progress_content.extend([
+                            f"  • {src['name']}: {src['description']}",
+                            html.Br(),
+                        ])
                 
                 # Build the alert components
                 alert_children = [
