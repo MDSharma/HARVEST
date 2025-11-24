@@ -30,6 +30,7 @@ PUBLISHER_PREFIXES = {
     '10.1007': 'Springer',
     '10.1002': 'Wiley',
     '10.1093': 'Oxford University Press',
+    '10.1098': 'Royal Society',
     '10.1371': 'PLOS',
     '10.1073': 'PNAS',  # Proceedings of the National Academy of Sciences
     '10.1177': 'SAGE Publications',
@@ -693,6 +694,22 @@ def try_publisher_direct(doi: str, timeout: int = 15) -> Tuple[bool, str]:
             # PNAS pattern: https://www.pnas.org/doi/pdf/{doi}?download=true
             # Example: 10.1073/pnas.0905754106 -> https://www.pnas.org/doi/pdf/10.1073/pnas.0905754106?download=true
             pdf_url = f"https://www.pnas.org/doi/pdf/{doi}?download=true"
+            return True, pdf_url
+
+        # Nature Publishing Group (includes Scientific Reports, Nature Communications, etc.)
+        elif prefix == '10.1038':
+            # Nature pattern: https://www.nature.com/articles/{article_id}.pdf
+            # Example: 10.1038/s41598-024-71792-7 -> https://www.nature.com/articles/s41598-024-71792-7.pdf
+            # Extract article ID from DOI (everything after the prefix/)
+            article_id = doi.split('/', 1)[1] if '/' in doi else doi
+            pdf_url = f"https://www.nature.com/articles/{article_id}.pdf"
+            return True, pdf_url
+
+        # Royal Society
+        elif prefix == '10.1098':
+            # Royal Society pattern: https://royalsocietypublishing.org/doi/reader/{doi}
+            # Example: 10.1098/rspb.2012.2113 -> https://royalsocietypublishing.org/doi/reader/10.1098/rspb.2012.2113
+            pdf_url = f"https://royalsocietypublishing.org/doi/reader/{doi}"
             return True, pdf_url
 
         # ArXiv (handle arXiv DOIs) - use enhanced version instead
