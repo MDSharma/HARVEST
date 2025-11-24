@@ -3121,22 +3121,24 @@ def handle_edit_dois_modal(edit_clicks_list, close_clicks, add_clicks, remove_cl
     Output("pdf-download-state-store", "data"),
     Input({"type": "download-project-pdfs", "index": ALL}, "n_clicks"),
     State("admin-auth-store", "data"),
+    State("pdf-download-project-id", "data"),
+    State("pdf-download-state-store", "data"),
     prevent_initial_call=True,
 )
-def start_download_project_pdfs(n_clicks_list, auth_data):
-    """Start PDF download and enable progress polling"""
+def start_download_project_pdfs(n_clicks_list, auth_data, current_active_projects, current_state_store):
+    """Start PDF download and enable progress polling - supports multiple concurrent downloads"""
     if not any(n_clicks_list):
         return no_update, no_update, no_update
     
     if not auth_data:
         print("[Frontend] PDF Download: No auth data")
-        return None, True, None
+        return no_update, no_update, no_update
     
     email = auth_data.get("email")
     password = auth_data.get("password")
     if not email or not password:
         print("[Frontend] PDF Download: Missing credentials")
-        return None, True, None
+        return no_update, no_update, no_update
     
     # Find which button was clicked
     trigger = ctx.triggered_id
@@ -3146,6 +3148,10 @@ def start_download_project_pdfs(n_clicks_list, auth_data):
     project_id = trigger["index"]
     
     print(f"[Frontend] PDF Download: Starting download for project {project_id}")
+    
+    # Initialize tracking structures if needed
+    active_projects = current_active_projects if isinstance(current_active_projects, dict) else {}
+    state_store = current_state_store if isinstance(current_state_store, dict) else {}
     
     try:
         # Call backend to start download
@@ -3162,8 +3168,11 @@ def start_download_project_pdfs(n_clicks_list, auth_data):
             data = r.json()
             print(f"[Frontend] PDF Download: Download started - {data.get('total_dois', 0)} DOIs")
             
-            # Initialize download state for persistence across refresh
-            initial_download_state = {
+            # Add this project to active projects tracking
+            active_projects[project_id] = True
+            
+            # Initialize download state for this project
+            state_store[project_id] = {
                 "project_id": project_id,
                 "active": True,
                 "status": "running",
@@ -3171,17 +3180,17 @@ def start_download_project_pdfs(n_clicks_list, auth_data):
                 "total": data.get('total_dois', 0)
             }
             
-            # Return: project_id (to track), enable interval, initial state
-            # The polling callback will update the progress div
-            return project_id, False, initial_download_state
+            # Return: updated active projects dict, enable interval, updated state store
+            # The polling callback will update the progress divs for all active projects
+            return active_projects, False, state_store
         else:
             error_msg = r.json().get("error", "Unknown error") if r.headers.get("content-type") == "application/json" else f"HTTP {r.status_code}"
             print(f"[Frontend] PDF Download: Failed to start - {error_msg}")
-            return None, True, None
+            return no_update, no_update, no_update
             
     except Exception as e:
         print(f"[Frontend] PDF Download: Error starting download - {str(e)}")
-        return None, True, None
+        return no_update, no_update, no_update
 
 # Restore PDF download polling on page load if there's an active download
 @app.callback(
@@ -3191,33 +3200,40 @@ def start_download_project_pdfs(n_clicks_list, auth_data):
     prevent_initial_call='initial_duplicate',
 )
 def restore_pdf_download_polling(download_state):
-    """Restore polling on page load if there's an active download in progress"""
-    if download_state and download_state.get("active") and download_state.get("project_id"):
-        project_id = download_state.get("project_id")
-        print(f"[Frontend] PDF Download: Restoring polling for project {project_id} after refresh")
-        # Enable polling and set project_id
-        return False, project_id
+    """Restore polling on page load if there are active downloads in progress"""
+    if download_state and isinstance(download_state, dict):
+        # Check if any projects are active
+        active_projects = {}
+        for project_id, state in download_state.items():
+            if isinstance(state, dict) and state.get("active"):
+                active_projects[int(project_id)] = True
+                print(f"[Frontend] PDF Download: Restoring polling for project {project_id} after refresh")
+        
+        if active_projects:
+            # Enable polling and return active projects dict
+            return False, active_projects
     
-    # No active download, keep polling disabled
+    # No active downloads, keep polling disabled
     return no_update, no_update
 
-def _build_progress_outputs(progress_div_ids, active_project_id, content):
+def _build_progress_outputs(progress_div_ids, active_projects_content):
     """
     Helper function to build output list for ALL pattern-matching outputs.
-    Only the progress div matching active_project_id gets content, others get empty div.
+    Supports multiple concurrent downloads by matching project IDs.
     
     Args:
         progress_div_ids: List of progress div ID dicts from State
-        active_project_id: The project ID that should show content
-        content: The content to display for the active project (dash component or HTML element)
+        active_projects_content: Dict mapping project_id -> content (dash component or HTML element)
+                                 e.g., {7: dbc.Alert(...), 8: dbc.Alert(...)}
     
     Returns:
         List of outputs for each progress div
     """
     outputs = []
     for div_id in progress_div_ids:
-        if div_id["index"] == active_project_id:
-            outputs.append(content)
+        project_id = div_id["index"]
+        if project_id in active_projects_content:
+            outputs.append(active_projects_content[project_id])
         else:
             outputs.append(html.Div())  # Empty div for non-active projects
     return outputs
@@ -3235,232 +3251,269 @@ def _build_progress_outputs(progress_div_ids, active_project_id, content):
     State("pdf-download-state-store", "data"),
     prevent_initial_call=True,
 )
-def poll_pdf_download_progress(n_intervals, progress_div_ids, project_id, auth_data, download_state):
-    """Poll the backend for PDF download progress - persists across refresh"""
-    # Use stored project_id if current one is None (after refresh)
-    if not project_id and download_state and download_state.get("project_id"):
-        project_id = download_state.get("project_id")
+def poll_pdf_download_progress(n_intervals, progress_div_ids, active_projects, auth_data, download_state):
+    """Poll the backend for PDF download progress - supports multiple concurrent downloads"""
+    # Initialize tracking structures if needed
+    active_projects = active_projects if isinstance(active_projects, dict) else {}
+    download_state = download_state if isinstance(download_state, dict) else {}
     
-    if not project_id:
+    # Restore active projects from download state if needed (after refresh)
+    if not active_projects and download_state:
+        for project_id, state in download_state.items():
+            if isinstance(state, dict) and state.get("active"):
+                active_projects[int(project_id)] = True
+    
+    if not active_projects:
         return [no_update] * len(progress_div_ids), no_update, no_update, no_update
     
-    # Continue polling even without auth if we have a stored download state
-    # (download was started before logout/refresh)
-    if not auth_data and not (download_state and download_state.get("active")):
-        return [no_update] * len(progress_div_ids), True, None, None  # Disable polling if not authenticated and no active download
+    # Continue polling even without auth if we have stored download states
+    # (downloads were started before logout/refresh)
+    has_active = any(download_state.get(str(pid), {}).get("active") for pid in active_projects.keys())
+    if not auth_data and not has_active:
+        return [no_update] * len(progress_div_ids), True, {}, {}  # Disable polling if not authenticated and no active downloads
     
-    print(f"[Frontend] PDF Download: Polling progress for project {project_id} (interval {n_intervals})")
+    print(f"[Frontend] PDF Download: Polling progress for {len(active_projects)} project(s) (interval {n_intervals})")
     
-    try:
-        # Get progress from backend
-        r = requests.get(
-            f"{API_BASE}/api/admin/projects/{project_id}/download-pdfs/status",
-            timeout=5
-        )
-        
-        if r.status_code == 404:
-            # Not started or no progress info
-            print(f"[Frontend] PDF Download: No progress info for project {project_id}")
-            # Clear all progress divs
-            return [html.Div()] * len(progress_div_ids), True, None, None
-        
-        if not r.ok:
-            print(f"[Frontend] PDF Download: Error fetching progress - {r.status_code}")
-            return [no_update] * len(progress_div_ids), no_update, no_update, no_update  # Keep polling
-        
-        data = r.json()
-        status = data.get("status")
-        total = data.get("total", 0)
-        current = data.get("current", 0)
-        current_doi = data.get("current_doi", "")
-        current_source = data.get("current_source", "")
-        
-        print(f"[Frontend] PDF Download: Status={status}, Progress={current}/{total}, Source={current_source}")
-        
-        # Update download state to persist across refresh
-        new_download_state = {
-            "project_id": project_id,
-            "active": status == "running",
-            "status": status,
-            "current": current,
-            "total": total
-        }
-        
-        if status == "running":
-            # Check if download is stale
-            is_stale = data.get("is_stale", False)
-            time_since_update = data.get("time_since_update_seconds", 0)
-            
-            # Show progress
-            # Format the source name for display
-            source_display = ""
-            if current_source:
-                source_map = {
-                    "unpaywall": "Unpaywall",
-                    "unpywall": "Unpywall",
-                    "metapub": "Metapub",
-                    "habanero": "Habanero",
-                    "habanero_proxy": "Habanero (via proxy)",
-                    "cached": "Cached",
-                    "none": "All sources attempted"
-                }
-                source_display = source_map.get(current_source, current_source)
-            
-            # Build progress text content
-            progress_content = [
-                html.Strong(f"Progress: {current} / {total} DOIs processed"),
-                html.Br(),
-                html.Strong("Currently processing: "), current_doi or "...",
-            ]
-            
-            # Add source information if available
-            if source_display:
-                progress_content.extend([
-                    html.Br(),
-                    html.Strong("Last source used: "),
-                    source_display
-                ])
-            
-            # Add stale warning if applicable
-            if is_stale:
-                progress_content.extend([
-                    html.Br(),
-                    html.Br(),
-                    html.Div([
-                        html.I(className="bi bi-exclamation-triangle-fill me-2", style={"color": "#ffc107"}),
-                        html.Strong("⚠️ Download appears stale", style={"color": "#ffc107"}),
-                    ]),
-                    html.Br(),
-                    html.Small(
-                        f"No updates for {time_since_update} seconds. The download may have been interrupted by a server restart.",
-                        className="text-muted"
-                    ),
-                ])
-            
-            # Fetch and display download configuration
-            try:
-                config_resp = requests.get(f"{API_BASE}/api/pdf-download-config", timeout=3)
-                if config_resp.ok:
-                    config_data = config_resp.json()
-                    sources = config_data.get("sources", [])
-                    enabled_sources = [s for s in sources if s.get("enabled") and s.get("available")]
-                    
-                    if enabled_sources:
-                        progress_content.extend([
-                            html.Br(),
-                            html.Br(),
-                            html.Strong("Active download mechanisms: "),
-                            html.Br(),
-                        ])
-                        for src in enabled_sources:
-                            progress_content.extend([
-                                f"  • {src['name']}: {src['description']}",
-                                html.Br(),
-                            ])
-            except Exception as e:
-                print(f"[Frontend] Could not fetch PDF config: {e}")
-            
-            # Build the alert components
-            alert_children = [
-                html.H6("PDF Download In Progress", className="alert-heading"),
-                html.Hr(),
-                html.P(progress_content),
-                dbc.Progress(value=current, max=total, striped=True, animated=True, className="mb-2"),
-                html.P([
-                    html.Strong("Downloaded: "), str(data.get("downloaded_count", 0)),
-                    html.Br(),
-                    html.Strong("Need Manual Upload: "), str(data.get("needs_upload_count", 0)),
-                    html.Br(),
-                    html.Strong("Errors: "), str(data.get("errors_count", 0)),
-                ], className="mb-2"),
-            ]
-            
-            # Note: Force Restart button is now in the Projects card for better accessibility
-            # It was removed from here because the progress card can disappear on page refresh
-            
-            progress_message = dbc.Alert(
-                alert_children,
-                color="warning" if is_stale else "info",
-                dismissable=False
+    # Dictionary to store content for each active project
+    progress_contents = {}
+    updated_state_store = dict(download_state)  # Copy existing state
+    projects_to_remove = []
+    
+    # Poll each active project
+    for project_id in list(active_projects.keys()):
+        try:
+            # Get progress from backend
+            r = requests.get(
+                f"{API_BASE}/api/admin/projects/{project_id}/download-pdfs/status",
+                timeout=5
             )
             
-            # Build outputs for ALL progress divs (only active project gets content)
-            progress_outputs = _build_progress_outputs(progress_div_ids, project_id, progress_message)
-            return progress_outputs, False, project_id, new_download_state  # Keep polling
-        
-        elif status == "completed":
-            print(f"[Frontend] PDF Download: Completed!")
-            # Show final report
-            full_results = data.get("full_results", {})
-            downloaded = full_results.get("downloaded", [])
-            needs_upload = full_results.get("needs_upload", [])
-            errors = full_results.get("errors", [])
+            if r.status_code == 404:
+                # Not started or no progress info
+                print(f"[Frontend] PDF Download: No progress info for project {project_id}")
+                # Mark for removal
+                projects_to_remove.append(project_id)
+                continue
             
-            report_items = [
-                html.H6("PDF Download Complete!", className="alert-heading"),
-                html.Hr(),
-                html.P([
-                    html.Strong("Total DOIs: "), str(total),
+            if not r.ok:
+                print(f"[Frontend] PDF Download: Error fetching progress for project {project_id} - {r.status_code}")
+                continue  # Keep polling this project
+            
+            data = r.json()
+            status = data.get("status")
+            total = data.get("total", 0)
+            current = data.get("current", 0)
+            current_doi = data.get("current_doi", "")
+            current_source = data.get("current_source", "")
+            
+            print(f"[Frontend] PDF Download: Project {project_id} - Status={status}, Progress={current}/{total}")
+            
+            # Update download state for this project
+            updated_state_store[str(project_id)] = {
+                "project_id": project_id,
+                "active": status == "running",
+                "status": status,
+                "current": current,
+                "total": total
+            }
+            
+            if status == "running":
+                # Check if download is stale
+                is_stale = data.get("is_stale", False)
+                time_since_update = data.get("time_since_update_seconds", 0)
+                
+                # Show progress
+                # Format the source name for display
+                source_display = ""
+                if current_source:
+                    source_map = {
+                        "unpaywall": "Unpaywall",
+                        "unpywall": "Unpywall",
+                        "metapub": "Metapub",
+                        "habanero": "Habanero",
+                        "habanero_proxy": "Habanero (via proxy)",
+                        "cached": "Cached",
+                        "none": "All sources attempted"
+                    }
+                    source_display = source_map.get(current_source, current_source)
+                
+                # Build progress text content
+                progress_content = [
+                    html.Strong(f"Progress: {current} / {total} DOIs processed"),
                     html.Br(),
-                    html.Strong("Downloaded: "), str(len(downloaded)),
-                    html.Br(),
-                    html.Strong("Need Manual Upload: "), str(len(needs_upload)),
-                    html.Br(),
-                    html.Strong("Errors: "), str(len(errors)),
-                ]),
-            ]
+                    html.Strong("Currently processing: "), current_doi or "...",
+                ]
+                
+                # Add source information if available
+                if source_display:
+                    progress_content.extend([
+                        html.Br(),
+                        html.Strong("Last source used: "),
+                        source_display
+                    ])
+                
+                # Add stale warning if applicable
+                if is_stale:
+                    progress_content.extend([
+                        html.Br(),
+                        html.Br(),
+                        html.Div([
+                            html.I(className="bi bi-exclamation-triangle-fill me-2", style={"color": "#ffc107"}),
+                            html.Strong("⚠️ Download appears stale", style={"color": "#ffc107"}),
+                        ]),
+                        html.Br(),
+                        html.Small(
+                            f"No updates for {time_since_update} seconds. The download may have been interrupted by a server restart.",
+                            className="text-muted"
+                        ),
+                    ])
+                
+                # Fetch and display download configuration (only once per poll, not per project)
+                if project_id == list(active_projects.keys())[0]:  # Only fetch for first project
+                    try:
+                        config_resp = requests.get(f"{API_BASE}/api/pdf-download-config", timeout=3)
+                        if config_resp.ok:
+                            config_data = config_resp.json()
+                            sources = config_data.get("sources", [])
+                            enabled_sources = [s for s in sources if s.get("enabled") and s.get("available")]
+                            
+                            if enabled_sources:
+                                progress_content.extend([
+                                    html.Br(),
+                                    html.Br(),
+                                    html.Strong("Active download mechanisms: "),
+                                    html.Br(),
+                                ])
+                                for src in enabled_sources:
+                                    progress_content.extend([
+                                        f"  • {src['name']}: {src['description']}",
+                                        html.Br(),
+                                    ])
+                    except Exception as e:
+                        print(f"[Frontend] Could not fetch PDF config: {e}")
+                
+                # Build the alert components
+                alert_children = [
+                    html.H6("PDF Download In Progress", className="alert-heading"),
+                    html.Hr(),
+                    html.P(progress_content),
+                    dbc.Progress(value=current, max=total, striped=True, animated=True, className="mb-2"),
+                    html.P([
+                        html.Strong("Downloaded: "), str(data.get("downloaded_count", 0)),
+                        html.Br(),
+                        html.Strong("Need Manual Upload: "), str(data.get("needs_upload_count", 0)),
+                        html.Br(),
+                        html.Strong("Errors: "), str(data.get("errors_count", 0)),
+                    ], className="mb-2"),
+                ]
+                
+                # Note: Force Restart button is in the Projects card (button row), not here
+                
+                progress_message = dbc.Alert(
+                    alert_children,
+                    color="warning" if is_stale else "info",
+                    dismissable=False
+                )
+                
+                progress_contents[project_id] = progress_message
+                # Keep this project active
             
-            if downloaded:
-                report_items.append(html.H6("Successfully Downloaded:", className="mt-2"))
-                download_list_items = []
-                for item in downloaded[:10]:
-                    # Handle both formats: 4-tuple (doi, filename, msg, source) or 3-tuple (doi, filename, msg)
-                    if len(item) >= 4:
-                        doi, filename, msg, source = item[0], item[1], item[2], item[3]
-                        download_list_items.append(html.Li(f"{doi} → {filename} (via {source})"))
-                    elif len(item) >= 3:
-                        doi, filename, msg = item[0], item[1], item[2]
-                        download_list_items.append(html.Li(f"{doi} → {filename}"))
-                    else:
-                        # Unexpected format, log and skip
-                        print(f"[Frontend] PDF Download: Unexpected item format: {item}")
-                        continue
-                report_items.append(html.Ul(download_list_items))
-                if len(downloaded) > 10:
-                    report_items.append(html.P(f"... and {len(downloaded) - 10} more", className="text-muted"))
+            elif status == "completed":
+                print(f"[Frontend] PDF Download: Project {project_id} completed!")
+                # Show final report
+                full_results = data.get("full_results", {})
+                downloaded = full_results.get("downloaded", [])
+                needs_upload = full_results.get("needs_upload", [])
+                errors = full_results.get("errors", [])
+                
+                report_items = [
+                    html.H6("PDF Download Complete!", className="alert-heading"),
+                    html.Hr(),
+                    html.P([
+                        html.Strong("Total DOIs: "), str(total),
+                        html.Br(),
+                        html.Strong("Downloaded: "), str(len(downloaded)),
+                        html.Br(),
+                        html.Strong("Need Manual Upload: "), str(len(needs_upload)),
+                        html.Br(),
+                        html.Strong("Errors: "), str(len(errors)),
+                    ]),
+                ]
+                
+                if downloaded:
+                    report_items.append(html.H6("Successfully Downloaded:", className="mt-2"))
+                    download_list_items = []
+                    for item in downloaded[:10]:
+                        # Handle both formats: 4-tuple (doi, filename, msg, source) or 3-tuple (doi, filename, msg)
+                        if len(item) >= 4:
+                            doi, filename, msg, source = item[0], item[1], item[2], item[3]
+                            download_list_items.append(html.Li(f"{doi} → {filename} (via {source})"))
+                        elif len(item) >= 3:
+                            doi, filename, msg = item[0], item[1], item[2]
+                            download_list_items.append(html.Li(f"{doi} → {filename}"))
+                        else:
+                            # Unexpected format, log and skip
+                            print(f"[Frontend] PDF Download: Unexpected item format: {item}")
+                            continue
+                    report_items.append(html.Ul(download_list_items))
+                    if len(downloaded) > 10:
+                        report_items.append(html.P(f"... and {len(downloaded) - 10} more", className="text-muted"))
+                
+                if needs_upload:
+                    report_items.append(html.H6("Needs Manual Upload:", className="mt-2 text-warning"))
+                    report_items.append(html.Ul([html.Li(f"{doi} → {filename} ({reason})") for doi, filename, reason in needs_upload[:10]]))
+                    if len(needs_upload) > 10:
+                        report_items.append(html.P(f"... and {len(needs_upload) - 10} more", className="text-muted"))
+                
+                if errors:
+                    report_items.append(html.H6("Errors:", className="mt-2 text-danger"))
+                    report_items.append(html.Ul([html.Li(f"{doi}: {error}") for doi, error in errors[:5]]))
+                
+                report_items.append(html.Hr())
+                report_items.append(html.P(f"PDFs stored in: {data.get('project_dir', 'N/A')}", className="small text-muted"))
+                
+                completed_alert = dbc.Alert(report_items, color="success", dismissable=True)
+                progress_contents[project_id] = completed_alert
+                # Mark for removal from active tracking
+                projects_to_remove.append(project_id)
             
-            if needs_upload:
-                report_items.append(html.H6("Needs Manual Upload:", className="mt-2 text-warning"))
-                report_items.append(html.Ul([html.Li(f"{doi} → {filename} ({reason})") for doi, filename, reason in needs_upload[:10]]))
-                if len(needs_upload) > 10:
-                    report_items.append(html.P(f"... and {len(needs_upload) - 10} more", className="text-muted"))
+            elif status == "error":
+                error_message = data.get("error_message", "Unknown error")
+                print(f"[Frontend] PDF Download: Project {project_id} error - {error_message}")
+                error_alert = dbc.Alert(f"Download error: {error_message}", color="danger", dismissable=True)
+                progress_contents[project_id] = error_alert
+                # Mark for removal from active tracking
+                projects_to_remove.append(project_id)
             
-            if errors:
-                report_items.append(html.H6("Errors:", className="mt-2 text-danger"))
-                report_items.append(html.Ul([html.Li(f"{doi}: {error}") for doi, error in errors[:5]]))
-            
-            report_items.append(html.Hr())
-            report_items.append(html.P(f"PDFs stored in: {data.get('project_dir', 'N/A')}", className="small text-muted"))
-            
-            completed_alert = dbc.Alert(report_items, color="success", dismissable=True)
-            progress_outputs = _build_progress_outputs(progress_div_ids, project_id, completed_alert)
-            return progress_outputs, True, None, None  # Disable polling, clear state
-        
-        elif status == "error":
-            error_message = data.get("error_message", "Unknown error")
-            print(f"[Frontend] PDF Download: Error - {error_message}")
-            error_alert = dbc.Alert(f"Download error: {error_message}", color="danger", dismissable=True)
-            progress_outputs = _build_progress_outputs(progress_div_ids, project_id, error_alert)
-            return progress_outputs, True, None, None  # Disable polling, clear state
-        
-        else:
-            # Unknown status
-            return [no_update] * len(progress_div_ids), no_update, no_update, no_update
-            
-    except Exception as e:
-        print(f"[Frontend] PDF Download: Error polling - {str(e)}")
-        # Don't disable polling on error, might be temporary
-        return [no_update] * len(progress_div_ids), no_update, no_update, no_update
+            else:
+                # Unknown status, keep polling
+                print(f"[Frontend] PDF Download: Project {project_id} unknown status: {status}")
+                
+        except Exception as e:
+            print(f"[Frontend] PDF Download: Error polling project {project_id} - {str(e)}")
+            # Don't remove on error, might be temporary
+            continue
+    
+    # Remove completed/error projects from active tracking
+    updated_active_projects = dict(active_projects)
+    for project_id in projects_to_remove:
+        if project_id in updated_active_projects:
+            del updated_active_projects[project_id]
+        # Keep state for completed/error to show final message
+        # State will be cleared when user navigates away or dismisses alert
+    
+    # Build outputs for ALL progress divs
+    progress_outputs = _build_progress_outputs(progress_div_ids, progress_contents)
+    
+    # Disable polling if no active projects remain
+    should_disable_polling = len(updated_active_projects) == 0
+    
+    return (
+        progress_outputs,
+        should_disable_polling,
+        updated_active_projects if not should_disable_polling else {},
+        updated_state_store
+    )
 
 
 # Handle Force Restart Download button click
@@ -3470,20 +3523,22 @@ def poll_pdf_download_progress(n_intervals, progress_div_ids, project_id, auth_d
     Output("pdf-download-state-store", "data", allow_duplicate=True),
     Input({"type": "force-restart-download", "index": ALL}, "n_clicks"),
     State("admin-auth-store", "data"),
+    State("pdf-download-project-id", "data"),
+    State("pdf-download-state-store", "data"),
     prevent_initial_call=True,
 )
-def force_restart_download(n_clicks_list, auth_data):
-    """Force restart a stale PDF download"""
+def force_restart_download(n_clicks_list, auth_data, current_active_projects, current_state_store):
+    """Force restart a stale PDF download - supports multiple concurrent downloads"""
     if not any(n_clicks_list):
         return no_update, no_update, no_update
     
     if not auth_data:
-        return True, None, None
+        return no_update, no_update, no_update
     
     email = auth_data.get("email")
     password = auth_data.get("password")
     if not email or not password:
-        return True, None, None
+        return no_update, no_update, no_update
     
     # Find which button was clicked
     trigger = ctx.triggered_id
@@ -3493,6 +3548,10 @@ def force_restart_download(n_clicks_list, auth_data):
     project_id = trigger["index"]
     
     print(f"[Frontend] Force Restart: Starting force restart for project {project_id}")
+    
+    # Initialize tracking structures if needed
+    active_projects = current_active_projects if isinstance(current_active_projects, dict) else {}
+    state_store = current_state_store if isinstance(current_state_store, dict) else {}
     
     try:
         # Call backend to start download with force_restart flag
@@ -3506,8 +3565,11 @@ def force_restart_download(n_clicks_list, auth_data):
             data = r.json()
             print(f"[Frontend] Force Restart: Download restarted - {data.get('total_dois', 0)} DOIs")
             
-            # Initialize download state for persistence across refresh
-            initial_download_state = {
+            # Add this project to active projects tracking
+            active_projects[project_id] = True
+            
+            # Initialize download state for this project
+            state_store[project_id] = {
                 "project_id": project_id,
                 "active": True,
                 "status": "running",
@@ -3515,16 +3577,16 @@ def force_restart_download(n_clicks_list, auth_data):
                 "total": data.get('total_dois', 0)
             }
             
-            # Enable polling and return state - the polling callback will update the progress div
-            return False, project_id, initial_download_state
+            # Enable polling and return updated state
+            return False, active_projects, state_store
         else:
             error_msg = r.json().get("error", "Unknown error") if r.headers.get("content-type") == "application/json" else f"HTTP {r.status_code}"
             print(f"[Frontend] Force Restart: Failed - {error_msg}")
-            return True, None, None
+            return no_update, no_update, no_update
             
     except Exception as e:
         print(f"[Frontend] Force Restart: Error - {str(e)}")
-        return True, None, None
+        return no_update, no_update, no_update
 
 
 # Handle Delete project button click - opens modal
