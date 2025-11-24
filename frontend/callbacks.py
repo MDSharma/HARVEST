@@ -2710,8 +2710,8 @@ def display_projects_list(refresh_clicks, project_message, delete_clicks, auth_d
                 # Check if download is stale for this project
                 is_stale = False
                 try:
-                    progress_url = f"{API_BASE}/api/admin/projects/{project_id}/download-pdfs/status"
-                    progress_resp = requests.get(progress_url, timeout=2)
+                    status_url = f"{API_BASE}/api/admin/projects/{project_id}/download-pdfs/status"
+                    progress_resp = requests.get(status_url, timeout=2)
                     if progress_resp.ok:
                         progress_data = progress_resp.json()
                         # Only show force restart button if download is running and stale
@@ -3259,7 +3259,8 @@ def poll_pdf_download_progress(n_intervals, progress_div_ids, active_projects, a
     
     # Normalize keys to integers for consistent handling
     # State store comes from JSON and has string keys, active_projects uses int keys
-    normalized_state = {int(k): v for k, v in download_state.items() if k}
+    # Filter out empty/None keys to handle edge cases
+    normalized_state = {int(k): v for k, v in download_state.items() if k not in (None, '')}
     
     # Restore active projects from download state if needed (after refresh)
     if not active_projects and normalized_state:
@@ -3326,6 +3327,7 @@ def poll_pdf_download_progress(n_intervals, progress_div_ids, active_projects, a
             print(f"[Frontend] PDF Download: Project {project_id} - Status={status}, Progress={current}/{total}")
             
             # Update download state for this project (use int keys for consistency)
+            # Note: project_id is stored in both key and value for clarity and backend compatibility
             updated_state_store[project_id] = {
                 "project_id": project_id,
                 "active": status == "running",
