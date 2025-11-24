@@ -2609,6 +2609,9 @@ def create_project_callback(n_clicks, name, description, doi_list_text, auth_dat
     # Parse DOI list
     doi_list = [doi.strip() for doi in doi_list_text.split("\n") if doi.strip()]
     
+    # Count total DOIs submitted
+    total_submitted = len(doi_list)
+    
     try:
         payload = {
             "email": auth_data["email"],
@@ -2617,15 +2620,54 @@ def create_project_callback(n_clicks, name, description, doi_list_text, auth_dat
             "description": description or "",
             "doi_list": doi_list
         }
-        r = requests.post(API_ADMIN_PROJECTS, json=payload, timeout=10)
+        # Increase timeout for large DOI lists (base 30s + 0.1s per DOI, max 300s = 5 minutes)
+        timeout = min(30 + (len(doi_list) * 0.1), 300)
+        r = requests.post(API_ADMIN_PROJECTS, json=payload, timeout=timeout)
         if r.ok:
             result = r.json()
             if result.get("ok"):
-                return dbc.Alert(f"Project created successfully! ID: {result.get('project_id')}", color="success")
+                project_id = result.get('project_id')
+                valid_count = result.get('valid_count', 0)
+                
+                # Build success message with warnings if applicable
+                message_parts = [f"Project created successfully! ID: {project_id}"]
+                message_parts.append(f"Added {valid_count} valid DOI(s).")
+                
+                # Check for discrepancies
+                if total_submitted != valid_count:
+                    excluded_count = total_submitted - valid_count
+                    message_parts.append(f"⚠️ {excluded_count} DOI(s) were excluded (duplicates or invalid).")
+                
+                # Show details about invalid DOIs if provided
+                if result.get("warning"):
+                    message_parts.append(result.get("warning"))
+                
+                if result.get("invalid_dois"):
+                    invalid_dois = result.get("invalid_dois", [])
+                    if len(invalid_dois) <= 5:
+                        # Show all if few
+                        details = "\n".join([f"  • {item.get('doi', '')}: {item.get('reason', '')}" 
+                                           for item in invalid_dois])
+                        message_parts.append(f"Invalid DOIs:\n{details}")
+                    else:
+                        # Show first 5 if many
+                        details = "\n".join([f"  • {item.get('doi', '')}: {item.get('reason', '')}" 
+                                           for item in invalid_dois[:5]])
+                        message_parts.append(f"Invalid DOIs (showing first 5 of {len(invalid_dois)}):\n{details}")
+                
+                message_text = "\n".join(message_parts)
+                alert_color = "warning" if total_submitted != valid_count else "success"
+                return dbc.Alert(message_text, color=alert_color, style={"whiteSpace": "pre-wrap"})
             else:
                 return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger")
         else:
             return dbc.Alert(f"Failed: {r.status_code} - {r.text[:200]}", color="danger")
+    except requests.exceptions.Timeout:
+        return dbc.Alert(
+            f"Request timed out while processing {total_submitted} DOIs. "
+            f"This can happen with very large DOI lists. Please try again or contact support.",
+            color="danger"
+        )
     except Exception as e:
         return dbc.Alert(f"Error: {str(e)}", color="danger")
 
@@ -2880,10 +2922,36 @@ def handle_edit_dois_modal(edit_clicks_list, close_clicks, add_clicks, remove_cl
                 "password": auth_data.get("password"),
                 "dois": dois_to_add
             }
-            r = requests.post(f"{API_ADMIN_PROJECTS}/{current_project_id}/add-dois", json=payload, timeout=10)
+            # Scale timeout based on number of DOIs being added
+            timeout = min(30 + (len(dois_to_add) * 0.1), 300)
+            r = requests.post(f"{API_ADMIN_PROJECTS}/{current_project_id}/add-dois", json=payload, timeout=timeout)
             
             if r.ok:
                 result = r.json()
+                
+                # Build message with warnings if applicable
+                message_parts = [result.get("message", "DOIs added successfully")]
+                added_count = result.get("added_count", 0)
+                
+                # Check for warnings about invalid DOIs
+                if result.get("warning"):
+                    message_parts.append(f"⚠️ {result.get('warning')}")
+                
+                # Show details about invalid DOIs if provided
+                if result.get("invalid_dois"):
+                    invalid_dois = result.get("invalid_dois", [])
+                    if len(invalid_dois) <= 3:
+                        details = "\n".join([f"  • {item.get('doi', '')}: {item.get('reason', '')}" 
+                                           for item in invalid_dois])
+                        message_parts.append(f"Invalid DOIs:\n{details}")
+                    else:
+                        details = "\n".join([f"  • {item.get('doi', '')}: {item.get('reason', '')}" 
+                                           for item in invalid_dois[:3]])
+                        message_parts.append(f"Invalid DOIs (showing first 3 of {len(invalid_dois)}):\n{details}")
+                
+                message_text = "\n".join(message_parts)
+                alert_color = "warning" if result.get("invalid_dois") else "success"
+                
                 # Refresh project list
                 projects_r = requests.get(API_PROJECTS, timeout=5)
                 if projects_r.ok:
@@ -2900,14 +2968,21 @@ def handle_edit_dois_modal(edit_clicks_list, close_clicks, add_clicks, remove_cl
                         ], color="info")
                         
                         return True, current_project_id, project_info, doi_items, "", no_update, no_update, \
-                               dbc.Alert(result.get("message", "DOIs added successfully"), color="success", dismissable=True)
+                               dbc.Alert(message_text, color=alert_color, dismissable=True, style={"whiteSpace": "pre-wrap"})
                 
                 return True, current_project_id, no_update, no_update, "", no_update, no_update, \
-                       dbc.Alert(result.get("message", "DOIs added successfully"), color="success", dismissable=True)
+                       dbc.Alert(message_text, color=alert_color, dismissable=True, style={"whiteSpace": "pre-wrap"})
             else:
                 error_msg = r.json().get("error", f"Failed: {r.status_code}")
                 return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
                        dbc.Alert(f"Error: {error_msg}", color="danger", dismissable=True)
+        except requests.exceptions.Timeout:
+            return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                   dbc.Alert(
+                       f"Request timed out while processing {len(dois_to_add)} DOIs. "
+                       f"Please try again or contact support.",
+                       color="danger", dismissable=True
+                   )
         except Exception as e:
             return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
                    dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True)
