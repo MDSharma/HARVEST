@@ -41,6 +41,8 @@ from harvest_store import (
     update_pdf_download_progress,
     get_pdf_download_progress,
     cleanup_old_pdf_download_progress,
+    is_download_stale,
+    reset_stale_download,
     create_batches,
     get_project_batches,
     get_batch_dois,
@@ -1344,7 +1346,10 @@ def _run_pdf_download_task(project_id: int, doi_list: List[str], project_dir: st
 def download_project_pdfs(project_id: int):
     """
     Start PDF download for all DOIs in a project (admin only).
-    Expected JSON: { "email": "admin@example.com", "password": "secret" }
+    Expected JSON: { "email": "admin@example.com", "password": "secret", "force_restart": false }
+    
+    If force_restart is true, will reset any stale downloads and start fresh.
+    
     Returns: Immediate response, use /download-pdfs/status to check progress
     """
     try:
@@ -1355,6 +1360,7 @@ def download_project_pdfs(project_id: int):
 
     email = (payload.get("email") or "").strip()
     password = payload.get("password") or ""
+    force_restart = payload.get("force_restart", False)
 
     if not email or not password:
         print(f"[PDF Download] Missing authentication for project {project_id}")
@@ -1368,8 +1374,22 @@ def download_project_pdfs(project_id: int):
     # Check if download is already running for this project (check database)
     progress = get_pdf_download_progress(DB_PATH, project_id)
     if progress and progress.get("status") == "running":
-        print(f"[PDF Download] Download already in progress for project {project_id}")
-        return jsonify({"error": "Download already in progress for this project"}), 409
+        # Check if the download is stale (not updated recently)
+        if is_download_stale(DB_PATH, project_id, stale_threshold_seconds=300):
+            print(f"[PDF Download] Detected stale download for project {project_id}, resetting...")
+            reset_stale_download(DB_PATH, project_id)
+            # Re-fetch progress after reset
+            progress = get_pdf_download_progress(DB_PATH, project_id)
+        elif force_restart:
+            print(f"[PDF Download] Force restart requested for project {project_id}")
+            reset_stale_download(DB_PATH, project_id)
+            progress = get_pdf_download_progress(DB_PATH, project_id)
+        else:
+            print(f"[PDF Download] Download already in progress for project {project_id}")
+            return jsonify({
+                "error": "Download already in progress for this project",
+                "hint": "If the download appears stuck, you can force restart it by setting 'force_restart': true"
+            }), 409
     
     # Get project
     project = get_project_by_id(DB_PATH, project_id)
@@ -1422,6 +1442,7 @@ def get_pdf_download_status(project_id: int):
     """
     Get the current status of PDF download for a project from database.
     Returns progress information if download is in progress or completed.
+    Also includes information about whether the download is stale.
     """
     print(f"[PDF Download Status] Checking status for project {project_id}")
     
@@ -1432,6 +1453,15 @@ def get_pdf_download_status(project_id: int):
     
     print(f"[PDF Download Status] Project {project_id}: status={progress.get('status')}, "
           f"current={progress.get('current')}/{progress.get('total')}")
+    
+    # Check if download is stale (for running downloads only)
+    is_stale = False
+    time_since_update = None
+    if progress.get("status") == "running":
+        is_stale = is_download_stale(DB_PATH, project_id, stale_threshold_seconds=300)
+        import time
+        updated_at = progress.get("updated_at", 0)
+        time_since_update = int(time.time() - updated_at)
     
     # Get active download mechanisms
     try:
@@ -1446,7 +1476,7 @@ def get_pdf_download_status(project_id: int):
         mechanisms_info = []
     
     # Return current progress
-    return jsonify({
+    response = {
         "ok": True,
         "status": progress.get("status"),
         "total": progress.get("total", 0),
@@ -1467,7 +1497,16 @@ def get_pdf_download_status(project_id: int):
             "needs_upload": progress.get("needs_upload", []),
             "errors": progress.get("errors", [])
         } if progress.get("status") == "completed" else None
-    })
+    }
+    
+    # Add stale detection info for running downloads
+    if progress.get("status") == "running":
+        response["is_stale"] = is_stale
+        response["time_since_update_seconds"] = time_since_update
+        if is_stale:
+            response["warning"] = "Download appears to be stale (not updated recently). You can force restart it."
+    
+    return jsonify(response)
 
 @app.get("/api/pdf-download-config")
 def get_pdf_download_config():
