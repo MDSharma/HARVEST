@@ -3007,7 +3007,9 @@ def handle_edit_dois_modal(edit_clicks_list, close_clicks, add_clicks, remove_cl
                 "dois": dois_to_remove,
                 "delete_pdfs": delete_pdfs
             }
-            r = requests.post(f"{API_ADMIN_PROJECTS}/{current_project_id}/remove-dois", json=payload, timeout=10)
+            # Scale timeout based on number of DOIs being removed
+            timeout = min(30 + (len(dois_to_remove) * 0.1), 300)
+            r = requests.post(f"{API_ADMIN_PROJECTS}/{current_project_id}/remove-dois", json=payload, timeout=timeout)
             
             if r.ok:
                 result = r.json()
@@ -3039,6 +3041,13 @@ def handle_edit_dois_modal(edit_clicks_list, close_clicks, add_clicks, remove_cl
                 error_msg = r.json().get("error", f"Failed: {r.status_code}")
                 return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
                        dbc.Alert(f"Error: {error_msg}", color="danger", dismissable=True)
+        except requests.exceptions.Timeout:
+            return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                   dbc.Alert(
+                       f"Request timed out while processing {len(dois_to_remove)} DOIs. "
+                       f"Please try again or contact support.",
+                       color="danger", dismissable=True
+                   )
         except Exception as e:
             return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
                    dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True)
