@@ -43,11 +43,24 @@ from frontend.layout import (
 # Import literature search module
 import literature_search
 
-# Import PDF storage configuration
+# Import PDF storage configuration and utilities
 try:
     from config import PDF_STORAGE_DIR
 except ImportError:
     PDF_STORAGE_DIR = "project_pdfs"
+
+# Import PDF manager utilities for DOI hash generation
+try:
+    from pdf_manager import generate_doi_hash, get_project_pdf_dir
+except ImportError:
+    # Fallback implementations if pdf_manager is not available
+    def generate_doi_hash(doi: str) -> str:
+        """Generate a hash from DOI for file naming"""
+        return hashlib.sha256(doi.encode('utf-8')).hexdigest()[:16]
+    
+    def get_project_pdf_dir(project_id: int, base_dir: str = "project_pdfs") -> str:
+        """Get the directory path for a project's PDFs"""
+        return os.path.join(base_dir, f"project_{project_id}")
 
 logger = logging.getLogger(__name__)
 
@@ -2719,12 +2732,14 @@ def view_project_dois(n_clicks_list, projects):
     dois_with_pdfs = []
     dois_without_pdfs = []
     
+    # Get the correct project PDF directory (format: project_pdfs/project_{id}/)
+    project_pdf_dir = get_project_pdf_dir(project_id, PDF_STORAGE_DIR)
+    
     for doi in doi_list:
         # Generate the expected PDF filename using same hash algorithm as pdf_manager.py
-        # See pdf_manager.generate_doi_hash() and harvest_store.generate_doi_hash()
-        doi_hash = hashlib.sha256(doi.encode('utf-8')).hexdigest()[:16]
+        doi_hash = generate_doi_hash(doi)
         pdf_filename = f"{doi_hash}.pdf"
-        pdf_path = os.path.join(PDF_STORAGE_DIR, str(project_id), pdf_filename)
+        pdf_path = os.path.join(project_pdf_dir, pdf_filename)
         
         if os.path.exists(pdf_path):
             dois_with_pdfs.append(doi)
