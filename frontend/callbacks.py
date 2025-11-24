@@ -2721,7 +2721,6 @@ def display_projects_list(refresh_clicks, project_message, delete_clicks, auth_d
                     # Log error but continue - download status check is not critical for listing projects
                     if ENABLE_DEBUG_LOGGING:
                         logger.debug(f"Could not check download status for project {project_id}: {e}")
-                    pass
                 
                 # Build button list for this project
                 button_list = [
@@ -3210,7 +3209,7 @@ def _build_progress_outputs(progress_div_ids, active_project_id, content):
     Args:
         progress_div_ids: List of progress div ID dicts from State
         active_project_id: The project ID that should show content
-        content: The content to display for the active project
+        content: The content to display for the active project (dash component or HTML element)
     
     Returns:
         List of outputs for each progress div
