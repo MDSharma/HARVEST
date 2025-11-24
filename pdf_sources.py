@@ -719,18 +719,18 @@ def try_publisher_direct(doi: str, timeout: int = 15) -> Tuple[bool, str]:
 
         # Oxford Academic (Oxford University Press)
         elif prefix == '10.1093':
-            # Oxford Academic has a more complex pattern that includes the article ID in the path
-            # Example: 10.1093/nar/gkaa1100 -> https://academic.oup.com/nar/article-pdf/49/D1/D480/35364077/gkaa1100.pdf
-            # However, the article-pdf path requires volume/issue/page info which we don't have from just the DOI
-            # We'll try the simpler direct download pattern that sometimes works
-            # Note: This may not work for all Oxford papers, but it's worth trying
+            # Oxford Academic has complex URLs that include volume/issue/page info
+            # Example full path: https://academic.oup.com/nar/article-pdf/49/D1/D480/35364077/gkaa1100.pdf
+            # However, we can't derive that from just the DOI, so we try a simpler pattern
+            # that may work for some Oxford papers via their PDF service
             if '/' in doi:
                 parts = doi.split('/')
-                if len(parts) >= 3:
+                # DOI format: 10.1093/journal/article_id
+                if len(parts) == 3:
                     journal = parts[1]
                     article_id = parts[2]
-                    # Try the direct PDF download endpoint
-                    pdf_url = f"https://academic.oup.com/{journal}/article-pdf/doi/{doi}/{article_id}.pdf"
+                    # Try the PDF service endpoint which sometimes redirects correctly
+                    pdf_url = f"https://academic.oup.com/{journal}/article-pdf/{article_id}"
                     return True, pdf_url
             return False, "Invalid Oxford DOI format"
 
@@ -738,9 +738,10 @@ def try_publisher_direct(doi: str, timeout: int = 15) -> Tuple[bool, str]:
         elif prefix == '10.7554':
             # eLife pattern: https://elifesciences.org/articles/{article_id}.pdf
             # Example: 10.7554/eLife.56612 -> https://elifesciences.org/articles/56612.pdf
-            # Extract article ID (the part after eLife.)
-            if 'eLife.' in doi:
-                article_id = doi.split('eLife.')[1]
+            # Extract numeric article ID (the part after eLife.)
+            match = re.search(r'eLife\.(\d+)', doi)
+            if match:
+                article_id = match.group(1)
                 pdf_url = f"https://elifesciences.org/articles/{article_id}.pdf"
                 return True, pdf_url
             return False, "Invalid eLife DOI format"
