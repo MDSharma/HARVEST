@@ -2705,6 +2705,56 @@ def display_projects_list(refresh_clicks, project_message, delete_clicks, auth_d
             project_items = []
             for p in projects:
                 doi_count = len(p.get("doi_list", []))
+                project_id = p["id"]
+                
+                # Check if download is stale for this project
+                is_stale = False
+                try:
+                    progress_url = f"{API_BASE}/api/projects/{project_id}/pdf-download-progress"
+                    progress_resp = requests.get(progress_url, timeout=2)
+                    if progress_resp.ok:
+                        progress_data = progress_resp.json()
+                        # Only show force restart button if download is running and stale
+                        if progress_data.get("status") == "running":
+                            is_stale = progress_data.get("is_stale", False)
+                except Exception as e:
+                    # Silently ignore errors checking download status
+                    pass
+                
+                # Build button list for this project
+                button_list = [
+                    dbc.Button("View DOIs", id={"type": "view-project-dois", "index": project_id}, 
+                             color="info", size="sm", outline=True),
+                    dbc.Button("Edit DOIs", id={"type": "edit-project-dois", "index": project_id}, 
+                             color="primary", size="sm", outline=True),
+                    dbc.Button("Download PDFs", id={"type": "download-project-pdfs", "index": project_id}, 
+                             color="success", size="sm", outline=True),
+                ]
+                
+                # Add Force Restart button if download is stale
+                if is_stale:
+                    button_list.append(
+                        dbc.Button(
+                            [
+                                html.I(className="bi bi-arrow-clockwise me-1"),
+                                "Force Restart"
+                            ],
+                            id={"type": "force-restart-download", "index": project_id},
+                            color="warning",
+                            size="sm",
+                            outline=True,
+                            title="Download appears stale. Click to restart from beginning."
+                        )
+                    )
+                
+                # Add remaining buttons
+                button_list.extend([
+                    dbc.Button("Upload PDFs", id={"type": "upload-project-pdfs", "index": project_id}, 
+                             color="warning", size="sm", outline=True),
+                    dbc.Button("Delete", id={"type": "delete-project", "index": project_id}, 
+                             color="danger", size="sm", outline=True),
+                ])
+                
                 card = dbc.Card(
                     [
                         dbc.CardBody(
@@ -2716,21 +2766,10 @@ def display_projects_list(refresh_clicks, project_message, delete_clicks, auth_d
                                     html.Br(),
                                     html.Strong("Created by: "), p.get("created_by", "Unknown"),
                                     html.Br(),
-                                    html.Strong("ID: "), str(p["id"])
+                                    html.Strong("ID: "), str(project_id)
                                 ], className="card-text small text-muted mb-2"),
                                 dbc.ButtonGroup(
-                                    [
-                                        dbc.Button("View DOIs", id={"type": "view-project-dois", "index": p["id"]}, 
-                                                 color="info", size="sm", outline=True),
-                                        dbc.Button("Edit DOIs", id={"type": "edit-project-dois", "index": p["id"]}, 
-                                                 color="primary", size="sm", outline=True),
-                                        dbc.Button("Download PDFs", id={"type": "download-project-pdfs", "index": p["id"]}, 
-                                                 color="success", size="sm", outline=True),
-                                        dbc.Button("Upload PDFs", id={"type": "upload-project-pdfs", "index": p["id"]}, 
-                                                 color="warning", size="sm", outline=True),
-                                        dbc.Button("Delete", id={"type": "delete-project", "index": p["id"]}, 
-                                                 color="danger", size="sm", outline=True),
-                                    ],
+                                    button_list,
                                     size="sm",
                                 ),
                             ]
@@ -3317,27 +3356,8 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data, download_stat
                 ], className="mb-2"),
             ]
             
-            # Add force restart button if stale
-            if is_stale:
-                alert_children.append(html.Hr())
-                alert_children.append(
-                    dbc.Button(
-                        [
-                            html.I(className="bi bi-arrow-clockwise me-2"),
-                            "Force Restart Download"
-                        ],
-                        id={"type": "force-restart-download", "index": project_id},
-                        color="warning",
-                        size="sm",
-                        className="mt-2"
-                    )
-                )
-                alert_children.append(
-                    html.Small(
-                        " This will reset the download and start fresh from the beginning.",
-                        className="text-muted d-block mt-2"
-                    )
-                )
+            # Note: Force Restart button is now in the Projects card for better accessibility
+            # It was removed from here because the progress card can disappear on page refresh
             
             progress_message = dbc.Alert(
                 alert_children,
