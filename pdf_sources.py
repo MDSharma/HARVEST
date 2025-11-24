@@ -703,8 +703,8 @@ def try_publisher_direct(doi: str, timeout: int = 15) -> Tuple[bool, str]:
             # Extract article ID from DOI (everything after the prefix/)
             if '/' in doi:
                 article_id = doi.split('/', 1)[1]
-                # Validate that we have a proper article ID (typically starts with 's' for subject codes or 'nature' for Nature journal)
-                if article_id and (article_id.startswith('s') or article_id.startswith('nature')):
+                # Basic validation - just ensure we got something after the slash
+                if article_id:
                     pdf_url = f"https://www.nature.com/articles/{article_id}.pdf"
                     return True, pdf_url
             return False, "Invalid Nature DOI format"
