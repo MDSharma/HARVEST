@@ -3229,6 +3229,10 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data, download_stat
         }
         
         if status == "running":
+            # Check if download is stale
+            is_stale = data.get("is_stale", False)
+            time_since_update = data.get("time_since_update_seconds", 0)
+            
             # Show progress
             # Format the source name for display
             source_display = ""
@@ -3259,6 +3263,22 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data, download_stat
                     source_display
                 ])
             
+            # Add stale warning if applicable
+            if is_stale:
+                progress_content.extend([
+                    html.Br(),
+                    html.Br(),
+                    html.Div([
+                        html.I(className="bi bi-exclamation-triangle-fill me-2", style={"color": "#ffc107"}),
+                        html.Strong("⚠️ Download appears stale", style={"color": "#ffc107"}),
+                    ]),
+                    html.Br(),
+                    html.Small(
+                        f"No updates for {time_since_update} seconds. The download may have been interrupted by a server restart.",
+                        className="text-muted"
+                    ),
+                ])
+            
             # Fetch and display download configuration
             try:
                 config_resp = requests.get(f"{API_BASE}/api/pdf-download-config", timeout=3)
@@ -3282,21 +3302,46 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data, download_stat
             except Exception as e:
                 print(f"[Frontend] Could not fetch PDF config: {e}")
             
+            # Build the alert components
+            alert_children = [
+                html.H6("PDF Download In Progress", className="alert-heading"),
+                html.Hr(),
+                html.P(progress_content),
+                dbc.Progress(value=current, max=total, striped=True, animated=True, className="mb-2"),
+                html.P([
+                    html.Strong("Downloaded: "), str(data.get("downloaded_count", 0)),
+                    html.Br(),
+                    html.Strong("Need Manual Upload: "), str(data.get("needs_upload_count", 0)),
+                    html.Br(),
+                    html.Strong("Errors: "), str(data.get("errors_count", 0)),
+                ], className="mb-2"),
+            ]
+            
+            # Add force restart button if stale
+            if is_stale:
+                alert_children.append(html.Hr())
+                alert_children.append(
+                    dbc.Button(
+                        [
+                            html.I(className="bi bi-arrow-clockwise me-2"),
+                            "Force Restart Download"
+                        ],
+                        id={"type": "force-restart-download", "index": project_id},
+                        color="warning",
+                        size="sm",
+                        className="mt-2"
+                    )
+                )
+                alert_children.append(
+                    html.Small(
+                        " This will reset the download and start fresh from the beginning.",
+                        className="text-muted d-block mt-2"
+                    )
+                )
+            
             progress_message = dbc.Alert(
-                [
-                    html.H6("PDF Download In Progress", className="alert-heading"),
-                    html.Hr(),
-                    html.P(progress_content),
-                    dbc.Progress(value=current, max=total, striped=True, animated=True, className="mb-2"),
-                    html.P([
-                        html.Strong("Downloaded: "), str(data.get("downloaded_count", 0)),
-                        html.Br(),
-                        html.Strong("Need Manual Upload: "), str(data.get("needs_upload_count", 0)),
-                        html.Br(),
-                        html.Strong("Errors: "), str(data.get("errors_count", 0)),
-                    ], className="mb-0"),
-                ],
-                color="info",
+                alert_children,
+                color="warning" if is_stale else "info",
                 dismissable=False
             )
             return progress_message, False, project_id, new_download_state  # Keep polling
@@ -3370,6 +3415,94 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data, download_stat
         print(f"[Frontend] PDF Download: Error polling - {str(e)}")
         # Don't disable polling on error, might be temporary
         return no_update, no_update, no_update, no_update
+
+
+# Handle Force Restart Download button click
+@app.callback(
+    Output("pdf-download-progress-container", "children", allow_duplicate=True),
+    Output("pdf-download-progress-interval", "disabled", allow_duplicate=True),
+    Output("pdf-download-project-id", "data", allow_duplicate=True),
+    Output("pdf-download-state-store", "data", allow_duplicate=True),
+    Input({"type": "force-restart-download", "index": ALL}, "n_clicks"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def force_restart_download(n_clicks_list, auth_data):
+    """Force restart a stale PDF download"""
+    if not any(n_clicks_list):
+        return no_update, no_update, no_update, no_update
+    
+    if not auth_data:
+        return dbc.Alert("Please login first", color="danger"), True, None, None
+    
+    email = auth_data.get("email")
+    password = auth_data.get("password")
+    if not email or not password:
+        return dbc.Alert("Please login first", color="danger"), True, None, None
+    
+    # Find which button was clicked
+    trigger = ctx.triggered_id
+    if not trigger:
+        return no_update, no_update, no_update, no_update
+    
+    project_id = trigger["index"]
+    
+    print(f"[Frontend] Force Restart: Starting force restart for project {project_id}")
+    
+    try:
+        # Call backend to start download with force_restart flag
+        r = requests.post(
+            f"{API_BASE}/api/admin/projects/{project_id}/download-pdfs",
+            json={"email": email, "password": password, "force_restart": True},
+            timeout=10
+        )
+        
+        if r.ok:
+            data = r.json()
+            print(f"[Frontend] Force Restart: Download restarted - {data.get('total_dois', 0)} DOIs")
+            
+            # Show initial message and enable polling
+            initial_message = dbc.Alert(
+                [
+                    html.H6("PDF Download Restarted", className="alert-heading"),
+                    html.Hr(),
+                    html.P([
+                        html.I(className="bi bi-arrow-clockwise me-2"),
+                        f"Force restarted download for {data.get('total_dois', 0)} DOIs..."
+                    ]),
+                    html.Div([
+                        dbc.Spinner(size="sm"),
+                        html.Span(" Progress updates will appear below...", style={"margin-left": "10px"})
+                    ], style={"display": "flex", "align-items": "center"})
+                ],
+                color="info",
+                dismissable=False
+            )
+            
+            # Initialize download state
+            initial_download_state = {
+                "project_id": project_id,
+                "active": True,
+                "status": "running",
+                "current": 0,
+                "total": data.get('total_dois', 0)
+            }
+            
+            return initial_message, False, project_id, initial_download_state
+        else:
+            error_msg = r.json().get("error", "Unknown error") if r.headers.get("content-type") == "application/json" else f"HTTP {r.status_code}"
+            hint = r.json().get("hint", "") if r.headers.get("content-type") == "application/json" else ""
+            
+            full_error = f"Force restart failed: {error_msg}"
+            if hint:
+                full_error += f"\n\n{hint}"
+            
+            print(f"[Frontend] Force Restart: Failed - {error_msg}")
+            return dbc.Alert(full_error, color="danger", dismissable=True, style={"whiteSpace": "pre-wrap"}), True, None, None
+            
+    except Exception as e:
+        print(f"[Frontend] Force Restart: Error - {str(e)}")
+        return dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True), True, None, None
 
 
 # Handle Delete project button click - opens modal
