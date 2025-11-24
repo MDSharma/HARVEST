@@ -74,7 +74,7 @@ NO_UPDATE_15 = tuple([no_update] * 15)
 
 def _create_paper_card(paper: Dict, index: int) -> dbc.Card:
     """
-    Create a paper card component with badges, metadata, and collapsible abstract.
+    Create a paper card component with badges, metadata, and abstract displayed side-by-side.
     
     Args:
         paper: Paper dictionary with title, authors, year, doi, citations, etc.
@@ -174,113 +174,114 @@ def _create_paper_card(paper: Dict, index: int) -> dbc.Card:
             title="This paper is freely available"
         )
 
-    # Create paper card with enhanced visual design
+    # Create paper card with two-column layout: metadata on left, abstract on right
     return dbc.Card(
         [
             dbc.CardBody(
                 [
                     dbc.Row(
                         [
+                            # Left column: Checkbox and metadata
                             dbc.Col(
                                 [
-                                    dbc.Checkbox(
-                                        id={"type": "paper-checkbox", "index": index},
-                                        className="form-check-input-lg",
-                                        value=False,
-                                    ),
-                                ],
-                                width="auto",
-                                className="d-flex align-items-center",
-                            ),
-                            dbc.Col(
-                                [
-                                    # Title with rank number
-                                    html.Div(
+                                    # Top row with checkbox and title
+                                    dbc.Row(
                                         [
-                                            dbc.Badge(
-                                                f"#{index}",
-                                                color="secondary",
-                                                className="me-2",
-                                                pill=True
+                                            dbc.Col(
+                                                [
+                                                    dbc.Checkbox(
+                                                        id={"type": "paper-checkbox", "index": index},
+                                                        className="form-check-input-lg",
+                                                        value=False,
+                                                    ),
+                                                ],
+                                                width="auto",
+                                                className="d-flex align-items-start pt-1",
                                             ),
-                                            html.Span(
-                                                paper.get('title', 'N/A'),
-                                                style={"fontWeight": "600", "fontSize": "1.05rem"}
-                                            )
+                                            dbc.Col(
+                                                [
+                                                    # Title with rank number
+                                                    html.Div(
+                                                        [
+                                                            dbc.Badge(
+                                                                f"#{index}",
+                                                                color="secondary",
+                                                                className="me-2",
+                                                                pill=True
+                                                            ),
+                                                            html.Span(
+                                                                paper.get('title', 'N/A'),
+                                                                style={"fontWeight": "600", "fontSize": "1.05rem"}
+                                                            )
+                                                        ],
+                                                        className="mb-2"
+                                                    ),
+                                                    # Badges row
+                                                    html.Div(
+                                                        [
+                                                            source_badge,
+                                                            year_badge,
+                                                            citation_badge if citation_badge else None,
+                                                            open_access_badge if open_access_badge else None,
+                                                        ],
+                                                        className="mb-2"
+                                                    ),
+                                                    # Metadata section with improved styling
+                                                    html.Div(
+                                                        [
+                                                            html.Div(
+                                                                [
+                                                                    html.I(className="bi bi-people-fill me-2", style={"color": "#6c757d"}),
+                                                                    html.Span(authors_text, style={"fontSize": "0.9rem"}),
+                                                                ],
+                                                                className="mb-1"
+                                                            ),
+                                                            html.Div(
+                                                                [
+                                                                    html.I(className="bi bi-link-45deg me-2", style={"color": "#6c757d"}),
+                                                                    doi_link,
+                                                                ],
+                                                                className="mb-2"
+                                                            ),
+                                                        ],
+                                                        style={"fontSize": "0.9rem", "color": "#495057"}
+                                                    ),
+                                                ],
+                                            ),
                                         ],
-                                        className="mb-2"
+                                        className="g-2",
                                     ),
-                                    # Badges row
+                                ],
+                                md=6,
+                                className="border-end",
+                            ),
+                            # Right column: Abstract
+                            dbc.Col(
+                                [
                                     html.Div(
                                         [
-                                            source_badge,
-                                            year_badge,
-                                            citation_badge if citation_badge else None,
-                                            open_access_badge if open_access_badge else None,
-                                        ],
-                                        className="mb-2"
-                                    ),
-                                ],
-                            ),
-                        ],
-                        className="g-2",
-                    ),
-                    # Metadata section with improved styling
-                    html.Div(
-                        [
-                            html.Div(
-                                [
-                                    html.I(className="bi bi-people-fill me-2", style={"color": "#6c757d"}),
-                                    html.Span(authors_text, style={"fontSize": "0.9rem"}),
-                                ],
-                                className="mb-1"
-                            ),
-                            html.Div(
-                                [
-                                    html.I(className="bi bi-link-45deg me-2", style={"color": "#6c757d"}),
-                                    doi_link,
-                                ],
-                                className="mb-2"
-                            ),
-                        ],
-                        className="ms-5",
-                        style={"fontSize": "0.9rem", "color": "#495057"}
-                    ),
-                    # Abstract collapse with improved design
-                    dbc.Collapse(
-                        dbc.Card(
-                            dbc.CardBody(
-                                [
-                                    html.Div(
-                                        [
-                                            html.I(className="bi bi-file-text me-2"),
-                                            html.Strong("Abstract")
+                                            html.I(className="bi bi-file-text me-2", style={"color": "#6c757d"}),
+                                            html.Strong("Abstract", style={"fontSize": "0.95rem"})
                                         ],
                                         className="mb-2"
                                     ),
                                     html.P(
                                         paper.get('abstract_snippet', 'No abstract available'),
                                         className="mb-0",
-                                        style={"fontSize": "0.9rem", "lineHeight": "1.6"}
+                                        style={
+                                            "fontSize": "0.85rem", 
+                                            "lineHeight": "1.6",
+                                            "color": "#495057",
+                                            "maxHeight": "200px",
+                                            "overflowY": "auto"
+                                        }
                                     ),
-                                ]
+                                ],
+                                md=6,
+                                className="ps-3",
                             ),
-                            color="light",
-                            className="border-0 bg-light",
-                        ),
-                        id=f"collapse-paper-{index}",
-                        is_open=False,
-                        className="ms-5 mt-2",
-                    ),
-                    dbc.Button(
-                        [
-                            html.I(className="bi bi-chevron-down me-1", id=f"chevron-paper-{index}"),
-                            html.Span("Show Abstract", id=f"text-paper-{index}")
                         ],
-                        id=f"btn-toggle-paper-{index}",
-                        color="link",
-                        size="sm",
-                        className="mt-2 p-0 ms-5",
+                        className="g-0",
                     ),
                 ]
             )
@@ -1151,21 +1152,6 @@ def toggle_pipeline_collapse(n_clicks, is_open):
         chevron_class = "bi bi-chevron-down" if new_state else "bi bi-chevron-right"
         return new_state, chevron_class + " " + "text-muted" + " " + "float-end"
     return is_open, "bi bi-chevron-right text-muted float-end"
-
-
-# Callbacks for paper abstract toggling
-for i in range(1, 11):
-    @app.callback(
-        Output(f"collapse-paper-{i}", "is_open"),
-        Output(f"btn-toggle-paper-{i}", "children"),
-        Input(f"btn-toggle-paper-{i}", "n_clicks"),
-        State(f"collapse-paper-{i}", "is_open"),
-        prevent_initial_call=True,
-    )
-    def toggle_collapse(n, is_open, idx=i):
-        if n:
-            return not is_open, "Hide Abstract" if not is_open else "Show Abstract"
-        return is_open, "Show Abstract"
 
 
 # Callbacks for selecting/deselecting all papers
