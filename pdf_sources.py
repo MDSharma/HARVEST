@@ -701,9 +701,13 @@ def try_publisher_direct(doi: str, timeout: int = 15) -> Tuple[bool, str]:
             # Nature pattern: https://www.nature.com/articles/{article_id}.pdf
             # Example: 10.1038/s41598-024-71792-7 -> https://www.nature.com/articles/s41598-024-71792-7.pdf
             # Extract article ID from DOI (everything after the prefix/)
-            article_id = doi.split('/', 1)[1] if '/' in doi else doi
-            pdf_url = f"https://www.nature.com/articles/{article_id}.pdf"
-            return True, pdf_url
+            if '/' in doi:
+                article_id = doi.split('/', 1)[1]
+                # Validate that we have a proper article ID (typically starts with 's' for subject codes or 'nature' for Nature journal)
+                if article_id and (article_id.startswith('s') or article_id.startswith('nature')):
+                    pdf_url = f"https://www.nature.com/articles/{article_id}.pdf"
+                    return True, pdf_url
+            return False, "Invalid Nature DOI format"
 
         # Royal Society
         elif prefix == '10.1098':
