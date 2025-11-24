@@ -30,11 +30,14 @@ PUBLISHER_PREFIXES = {
     '10.1007': 'Springer',
     '10.1002': 'Wiley',
     '10.1093': 'Oxford University Press',
+    '10.1098': 'Royal Society',
     '10.1371': 'PLOS',
+    '10.1073': 'PNAS',  # Proceedings of the National Academy of Sciences
     '10.1177': 'SAGE Publications',
     '10.1080': 'Taylor & Francis',
     '10.3389': 'Frontiers',
     '10.1186': 'BioMed Central',
+    '10.7554': 'eLife',
 }
 
 
@@ -686,6 +689,62 @@ def try_publisher_direct(doi: str, timeout: int = 15) -> Tuple[bool, str]:
             # BMC pattern: https://link.springer.com/content/pdf/{doi}.pdf
             pdf_url = f"https://link.springer.com/content/pdf/{doi}.pdf"
             return True, pdf_url
+
+        # PNAS (Proceedings of the National Academy of Sciences)
+        elif prefix == '10.1073':
+            # PNAS pattern: https://www.pnas.org/doi/pdf/{doi}?download=true
+            # Example: 10.1073/pnas.0905754106 -> https://www.pnas.org/doi/pdf/10.1073/pnas.0905754106?download=true
+            pdf_url = f"https://www.pnas.org/doi/pdf/{doi}?download=true"
+            return True, pdf_url
+
+        # Nature Publishing Group (includes Scientific Reports, Nature Communications, etc.)
+        elif prefix == '10.1038':
+            # Nature pattern: https://www.nature.com/articles/{article_id}.pdf
+            # Example: 10.1038/s41598-024-71792-7 -> https://www.nature.com/articles/s41598-024-71792-7.pdf
+            # Extract article ID from DOI (everything after the prefix/)
+            if '/' in doi:
+                article_id = doi.split('/', 1)[1]
+                # Basic validation - just ensure we got something after the slash
+                if article_id:
+                    pdf_url = f"https://www.nature.com/articles/{article_id}.pdf"
+                    return True, pdf_url
+            return False, "Invalid Nature DOI format"
+
+        # Royal Society
+        elif prefix == '10.1098':
+            # Royal Society pattern: https://royalsocietypublishing.org/doi/reader/{doi}
+            # Example: 10.1098/rspb.2012.2113 -> https://royalsocietypublishing.org/doi/reader/10.1098/rspb.2012.2113
+            pdf_url = f"https://royalsocietypublishing.org/doi/reader/{doi}"
+            return True, pdf_url
+
+        # Oxford Academic (Oxford University Press)
+        elif prefix == '10.1093':
+            # Oxford Academic has complex URLs that include volume/issue/page info
+            # Example full path: https://academic.oup.com/nar/article-pdf/49/D1/D480/35364077/gkaa1100.pdf
+            # However, we can't derive that from just the DOI, so we try a simpler pattern
+            # that may work for some Oxford papers via their PDF service
+            if '/' in doi:
+                parts = doi.split('/')
+                # DOI format: 10.1093/journal/article_id
+                if len(parts) == 3:
+                    journal = parts[1]
+                    article_id = parts[2]
+                    # Try the PDF service endpoint which sometimes redirects correctly
+                    pdf_url = f"https://academic.oup.com/{journal}/article-pdf/{article_id}"
+                    return True, pdf_url
+            return False, "Invalid Oxford DOI format"
+
+        # eLife
+        elif prefix == '10.7554':
+            # eLife pattern: https://elifesciences.org/articles/{article_id}.pdf
+            # Example: 10.7554/eLife.56612 -> https://elifesciences.org/articles/56612.pdf
+            # Extract numeric article ID (the part after eLife.)
+            match = re.search(r'eLife\.(\d+)', doi)
+            if match:
+                article_id = match.group(1)
+                pdf_url = f"https://elifesciences.org/articles/{article_id}.pdf"
+                return True, pdf_url
+            return False, "Invalid eLife DOI format"
 
         # ArXiv (handle arXiv DOIs) - use enhanced version instead
         if 'arxiv' in doi.lower():

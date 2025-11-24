@@ -2705,6 +2705,57 @@ def display_projects_list(refresh_clicks, project_message, delete_clicks, auth_d
             project_items = []
             for p in projects:
                 doi_count = len(p.get("doi_list", []))
+                project_id = p["id"]
+                
+                # Check if download is stale for this project
+                is_stale = False
+                try:
+                    progress_url = f"{API_BASE}/api/projects/{project_id}/pdf-download-progress"
+                    progress_resp = requests.get(progress_url, timeout=2)
+                    if progress_resp.ok:
+                        progress_data = progress_resp.json()
+                        # Only show force restart button if download is running and stale
+                        if progress_data.get("status") == "running":
+                            is_stale = progress_data.get("is_stale", False)
+                except Exception as e:
+                    # Log error but continue - download status check is not critical for listing projects
+                    if ENABLE_DEBUG_LOGGING:
+                        logger.debug(f"Could not check download status for project {project_id}: {e}")
+                
+                # Build button list for this project
+                button_list = [
+                    dbc.Button("View DOIs", id={"type": "view-project-dois", "index": project_id}, 
+                             color="info", size="sm", outline=True),
+                    dbc.Button("Edit DOIs", id={"type": "edit-project-dois", "index": project_id}, 
+                             color="primary", size="sm", outline=True),
+                    dbc.Button("Download PDFs", id={"type": "download-project-pdfs", "index": project_id}, 
+                             color="success", size="sm", outline=True),
+                ]
+                
+                # Add Force Restart button if download is stale
+                if is_stale:
+                    button_list.append(
+                        dbc.Button(
+                            [
+                                html.I(className="bi bi-arrow-clockwise me-1"),
+                                "Force Restart"
+                            ],
+                            id={"type": "force-restart-download", "index": project_id},
+                            color="warning",
+                            size="sm",
+                            outline=True,
+                            title="Download appears stale. Click to restart from beginning."
+                        )
+                    )
+                
+                # Add remaining buttons
+                button_list.extend([
+                    dbc.Button("Upload PDFs", id={"type": "upload-project-pdfs", "index": project_id}, 
+                             color="warning", size="sm", outline=True),
+                    dbc.Button("Delete", id={"type": "delete-project", "index": project_id}, 
+                             color="danger", size="sm", outline=True),
+                ])
+                
                 card = dbc.Card(
                     [
                         dbc.CardBody(
@@ -2716,21 +2767,10 @@ def display_projects_list(refresh_clicks, project_message, delete_clicks, auth_d
                                     html.Br(),
                                     html.Strong("Created by: "), p.get("created_by", "Unknown"),
                                     html.Br(),
-                                    html.Strong("ID: "), str(p["id"])
+                                    html.Strong("ID: "), str(project_id)
                                 ], className="card-text small text-muted mb-2"),
                                 dbc.ButtonGroup(
-                                    [
-                                        dbc.Button("View DOIs", id={"type": "view-project-dois", "index": p["id"]}, 
-                                                 color="info", size="sm", outline=True),
-                                        dbc.Button("Edit DOIs", id={"type": "edit-project-dois", "index": p["id"]}, 
-                                                 color="primary", size="sm", outline=True),
-                                        dbc.Button("Download PDFs", id={"type": "download-project-pdfs", "index": p["id"]}, 
-                                                 color="success", size="sm", outline=True),
-                                        dbc.Button("Upload PDFs", id={"type": "upload-project-pdfs", "index": p["id"]}, 
-                                                 color="warning", size="sm", outline=True),
-                                        dbc.Button("Delete", id={"type": "delete-project", "index": p["id"]}, 
-                                                 color="danger", size="sm", outline=True),
-                                    ],
+                                    button_list,
                                     size="sm",
                                 ),
                             ]
@@ -2738,7 +2778,17 @@ def display_projects_list(refresh_clicks, project_message, delete_clicks, auth_d
                     ],
                     className="mb-2",
                 )
-                project_items.append(card)
+                
+                # Add inline progress container for this project
+                project_container = html.Div([
+                    card,
+                    html.Div(
+                        id={"type": "project-pdf-progress", "index": project_id},
+                        className="mb-2"
+                    )
+                ])
+                
+                project_items.append(project_container)
             
             return html.Div(project_items)
         else:
@@ -3066,7 +3116,6 @@ def handle_edit_dois_modal(edit_clicks_list, close_clicks, add_clicks, remove_cl
 
 # Handle Download PDFs button click - Start download and enable progress polling
 @app.callback(
-    Output("pdf-download-progress-container", "children"),
     Output("pdf-download-project-id", "data"),
     Output("pdf-download-progress-interval", "disabled"),
     Output("pdf-download-state-store", "data"),
@@ -3077,22 +3126,22 @@ def handle_edit_dois_modal(edit_clicks_list, close_clicks, add_clicks, remove_cl
 def start_download_project_pdfs(n_clicks_list, auth_data):
     """Start PDF download and enable progress polling"""
     if not any(n_clicks_list):
-        return no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update
     
     if not auth_data:
         print("[Frontend] PDF Download: No auth data")
-        return dbc.Alert("Please login first", color="danger"), None, True, None
+        return None, True, None
     
     email = auth_data.get("email")
     password = auth_data.get("password")
     if not email or not password:
         print("[Frontend] PDF Download: Missing credentials")
-        return dbc.Alert("Please login first", color="danger"), None, True, None
+        return None, True, None
     
     # Find which button was clicked
     trigger = ctx.triggered_id
     if not trigger:
-        return no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update
     
     project_id = trigger["index"]
     
@@ -3113,21 +3162,6 @@ def start_download_project_pdfs(n_clicks_list, auth_data):
             data = r.json()
             print(f"[Frontend] PDF Download: Download started - {data.get('total_dois', 0)} DOIs")
             
-            # Show initial message and enable polling
-            initial_message = dbc.Alert(
-                [
-                    html.H6("PDF Download Started", className="alert-heading"),
-                    html.Hr(),
-                    html.P(f"Downloading PDFs for {data.get('total_dois', 0)} DOIs..."),
-                    html.Div([
-                        dbc.Spinner(size="sm"),
-                        html.Span(" Progress updates will appear below...", style={"margin-left": "10px"})
-                    ], style={"display": "flex", "align-items": "center"})
-                ],
-                color="info",
-                dismissable=False
-            )
-            
             # Initialize download state for persistence across refresh
             initial_download_state = {
                 "project_id": project_id,
@@ -3137,16 +3171,17 @@ def start_download_project_pdfs(n_clicks_list, auth_data):
                 "total": data.get('total_dois', 0)
             }
             
-            # Return: message, project_id (to track), enable interval, initial state
-            return initial_message, project_id, False, initial_download_state
+            # Return: project_id (to track), enable interval, initial state
+            # The polling callback will update the progress div
+            return project_id, False, initial_download_state
         else:
             error_msg = r.json().get("error", "Unknown error") if r.headers.get("content-type") == "application/json" else f"HTTP {r.status_code}"
             print(f"[Frontend] PDF Download: Failed to start - {error_msg}")
-            return dbc.Alert(f"Download failed: {error_msg}", color="danger", dismissable=True), None, True, None
+            return None, True, None
             
     except Exception as e:
         print(f"[Frontend] PDF Download: Error starting download - {str(e)}")
-        return dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True), None, True, None
+        return None, True, None
 
 # Restore PDF download polling on page load if there's an active download
 @app.callback(
@@ -3166,31 +3201,53 @@ def restore_pdf_download_polling(download_state):
     # No active download, keep polling disabled
     return no_update, no_update
 
+def _build_progress_outputs(progress_div_ids, active_project_id, content):
+    """
+    Helper function to build output list for ALL pattern-matching outputs.
+    Only the progress div matching active_project_id gets content, others get empty div.
+    
+    Args:
+        progress_div_ids: List of progress div ID dicts from State
+        active_project_id: The project ID that should show content
+        content: The content to display for the active project (dash component or HTML element)
+    
+    Returns:
+        List of outputs for each progress div
+    """
+    outputs = []
+    for div_id in progress_div_ids:
+        if div_id["index"] == active_project_id:
+            outputs.append(content)
+        else:
+            outputs.append(html.Div())  # Empty div for non-active projects
+    return outputs
+
 # Poll for PDF download progress
 @app.callback(
-    Output("pdf-download-progress-container", "children", allow_duplicate=True),
+    Output({"type": "project-pdf-progress", "index": ALL}, "children", allow_duplicate=True),
     Output("pdf-download-progress-interval", "disabled", allow_duplicate=True),
     Output("pdf-download-project-id", "data", allow_duplicate=True),
     Output("pdf-download-state-store", "data", allow_duplicate=True),
     Input("pdf-download-progress-interval", "n_intervals"),
+    State({"type": "project-pdf-progress", "index": ALL}, "id"),
     State("pdf-download-project-id", "data"),
     State("admin-auth-store", "data"),
     State("pdf-download-state-store", "data"),
     prevent_initial_call=True,
 )
-def poll_pdf_download_progress(n_intervals, project_id, auth_data, download_state):
+def poll_pdf_download_progress(n_intervals, progress_div_ids, project_id, auth_data, download_state):
     """Poll the backend for PDF download progress - persists across refresh"""
     # Use stored project_id if current one is None (after refresh)
     if not project_id and download_state and download_state.get("project_id"):
         project_id = download_state.get("project_id")
     
     if not project_id:
-        return no_update, no_update, no_update, no_update
+        return [no_update] * len(progress_div_ids), no_update, no_update, no_update
     
     # Continue polling even without auth if we have a stored download state
     # (download was started before logout/refresh)
     if not auth_data and not (download_state and download_state.get("active")):
-        return no_update, True, None, None  # Disable polling if not authenticated and no active download
+        return [no_update] * len(progress_div_ids), True, None, None  # Disable polling if not authenticated and no active download
     
     print(f"[Frontend] PDF Download: Polling progress for project {project_id} (interval {n_intervals})")
     
@@ -3204,11 +3261,12 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data, download_stat
         if r.status_code == 404:
             # Not started or no progress info
             print(f"[Frontend] PDF Download: No progress info for project {project_id}")
-            return no_update, True, None, None  # Disable polling and clear state
+            # Clear all progress divs
+            return [html.Div()] * len(progress_div_ids), True, None, None
         
         if not r.ok:
             print(f"[Frontend] PDF Download: Error fetching progress - {r.status_code}")
-            return no_update, no_update, no_update, no_update  # Keep polling
+            return [no_update] * len(progress_div_ids), no_update, no_update, no_update  # Keep polling
         
         data = r.json()
         status = data.get("status")
@@ -3317,34 +3375,18 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data, download_stat
                 ], className="mb-2"),
             ]
             
-            # Add force restart button if stale
-            if is_stale:
-                alert_children.append(html.Hr())
-                alert_children.append(
-                    dbc.Button(
-                        [
-                            html.I(className="bi bi-arrow-clockwise me-2"),
-                            "Force Restart Download"
-                        ],
-                        id={"type": "force-restart-download", "index": project_id},
-                        color="warning",
-                        size="sm",
-                        className="mt-2"
-                    )
-                )
-                alert_children.append(
-                    html.Small(
-                        " This will reset the download and start fresh from the beginning.",
-                        className="text-muted d-block mt-2"
-                    )
-                )
+            # Note: Force Restart button is now in the Projects card for better accessibility
+            # It was removed from here because the progress card can disappear on page refresh
             
             progress_message = dbc.Alert(
                 alert_children,
                 color="warning" if is_stale else "info",
                 dismissable=False
             )
-            return progress_message, False, project_id, new_download_state  # Keep polling
+            
+            # Build outputs for ALL progress divs (only active project gets content)
+            progress_outputs = _build_progress_outputs(progress_div_ids, project_id, progress_message)
+            return progress_outputs, False, project_id, new_download_state  # Keep polling
         
         elif status == "completed":
             print(f"[Frontend] PDF Download: Completed!")
@@ -3400,26 +3442,29 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data, download_stat
             report_items.append(html.Hr())
             report_items.append(html.P(f"PDFs stored in: {data.get('project_dir', 'N/A')}", className="small text-muted"))
             
-            return dbc.Alert(report_items, color="success", dismissable=True), True, None, None  # Disable polling, clear state
+            completed_alert = dbc.Alert(report_items, color="success", dismissable=True)
+            progress_outputs = _build_progress_outputs(progress_div_ids, project_id, completed_alert)
+            return progress_outputs, True, None, None  # Disable polling, clear state
         
         elif status == "error":
             error_message = data.get("error_message", "Unknown error")
             print(f"[Frontend] PDF Download: Error - {error_message}")
-            return dbc.Alert(f"Download error: {error_message}", color="danger", dismissable=True), True, None, None  # Disable polling, clear state
+            error_alert = dbc.Alert(f"Download error: {error_message}", color="danger", dismissable=True)
+            progress_outputs = _build_progress_outputs(progress_div_ids, project_id, error_alert)
+            return progress_outputs, True, None, None  # Disable polling, clear state
         
         else:
             # Unknown status
-            return no_update, no_update, no_update, no_update
+            return [no_update] * len(progress_div_ids), no_update, no_update, no_update
             
     except Exception as e:
         print(f"[Frontend] PDF Download: Error polling - {str(e)}")
         # Don't disable polling on error, might be temporary
-        return no_update, no_update, no_update, no_update
+        return [no_update] * len(progress_div_ids), no_update, no_update, no_update
 
 
 # Handle Force Restart Download button click
 @app.callback(
-    Output("pdf-download-progress-container", "children", allow_duplicate=True),
     Output("pdf-download-progress-interval", "disabled", allow_duplicate=True),
     Output("pdf-download-project-id", "data", allow_duplicate=True),
     Output("pdf-download-state-store", "data", allow_duplicate=True),
@@ -3430,20 +3475,20 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data, download_stat
 def force_restart_download(n_clicks_list, auth_data):
     """Force restart a stale PDF download"""
     if not any(n_clicks_list):
-        return no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update
     
     if not auth_data:
-        return dbc.Alert("Please login first", color="danger"), True, None, None
+        return True, None, None
     
     email = auth_data.get("email")
     password = auth_data.get("password")
     if not email or not password:
-        return dbc.Alert("Please login first", color="danger"), True, None, None
+        return True, None, None
     
     # Find which button was clicked
     trigger = ctx.triggered_id
     if not trigger:
-        return no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update
     
     project_id = trigger["index"]
     
@@ -3461,25 +3506,7 @@ def force_restart_download(n_clicks_list, auth_data):
             data = r.json()
             print(f"[Frontend] Force Restart: Download restarted - {data.get('total_dois', 0)} DOIs")
             
-            # Show initial message and enable polling
-            initial_message = dbc.Alert(
-                [
-                    html.H6("PDF Download Restarted", className="alert-heading"),
-                    html.Hr(),
-                    html.P([
-                        html.I(className="bi bi-arrow-clockwise me-2"),
-                        f"Force restarted download for {data.get('total_dois', 0)} DOIs..."
-                    ]),
-                    html.Div([
-                        dbc.Spinner(size="sm"),
-                        html.Span(" Progress updates will appear below...", style={"margin-left": "10px"})
-                    ], style={"display": "flex", "align-items": "center"})
-                ],
-                color="info",
-                dismissable=False
-            )
-            
-            # Initialize download state
+            # Initialize download state for persistence across refresh
             initial_download_state = {
                 "project_id": project_id,
                 "active": True,
@@ -3488,21 +3515,16 @@ def force_restart_download(n_clicks_list, auth_data):
                 "total": data.get('total_dois', 0)
             }
             
-            return initial_message, False, project_id, initial_download_state
+            # Enable polling and return state - the polling callback will update the progress div
+            return False, project_id, initial_download_state
         else:
             error_msg = r.json().get("error", "Unknown error") if r.headers.get("content-type") == "application/json" else f"HTTP {r.status_code}"
-            hint = r.json().get("hint", "") if r.headers.get("content-type") == "application/json" else ""
-            
-            full_error = f"Force restart failed: {error_msg}"
-            if hint:
-                full_error += f"\n\n{hint}"
-            
             print(f"[Frontend] Force Restart: Failed - {error_msg}")
-            return dbc.Alert(full_error, color="danger", dismissable=True, style={"whiteSpace": "pre-wrap"}), True, None, None
+            return True, None, None
             
     except Exception as e:
         print(f"[Frontend] Force Restart: Error - {str(e)}")
-        return dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True), True, None, None
+        return True, None, None
 
 
 # Handle Delete project button click - opens modal

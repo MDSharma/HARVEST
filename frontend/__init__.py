@@ -38,6 +38,17 @@ import dash_bootstrap_components as dbc
 # Setup logging
 logger = logging.getLogger(__name__)
 
+# Set NCBI_API_KEY environment variable BEFORE any imports that use metapub
+# This prevents "NCBI_API_KEY was not set" warning from metapub library
+# Must be done before importing config and other modules that might import pdf_manager
+try:
+    from config import NCBI_API_KEY
+    if NCBI_API_KEY:
+        os.environ['NCBI_API_KEY'] = NCBI_API_KEY
+except ImportError:
+    # Config not available - NCBI_API_KEY will need to be set via environment variable
+    pass
+
 # Import configuration
 try:
     from config import (
