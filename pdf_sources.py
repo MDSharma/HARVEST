@@ -31,6 +31,7 @@ PUBLISHER_PREFIXES = {
     '10.1002': 'Wiley',
     '10.1093': 'Oxford University Press',
     '10.1371': 'PLOS',
+    '10.1073': 'PNAS',  # Proceedings of the National Academy of Sciences
     '10.1177': 'SAGE Publications',
     '10.1080': 'Taylor & Francis',
     '10.3389': 'Frontiers',
@@ -685,6 +686,13 @@ def try_publisher_direct(doi: str, timeout: int = 15) -> Tuple[bool, str]:
         elif prefix == '10.1186':
             # BMC pattern: https://link.springer.com/content/pdf/{doi}.pdf
             pdf_url = f"https://link.springer.com/content/pdf/{doi}.pdf"
+            return True, pdf_url
+
+        # PNAS (Proceedings of the National Academy of Sciences)
+        elif prefix == '10.1073':
+            # PNAS pattern: https://www.pnas.org/doi/pdf/{doi}?download=true
+            # Example: 10.1073/pnas.0905754106 -> https://www.pnas.org/doi/pdf/10.1073/pnas.0905754106?download=true
+            pdf_url = f"https://www.pnas.org/doi/pdf/{doi}?download=true"
             return True, pdf_url
 
         # ArXiv (handle arXiv DOIs) - use enhanced version instead
