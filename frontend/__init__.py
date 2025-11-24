@@ -46,7 +46,7 @@ try:
     if NCBI_API_KEY:
         os.environ['NCBI_API_KEY'] = NCBI_API_KEY
 except ImportError:
-    # If config not available, try environment variable
+    # Config not available - NCBI_API_KEY will need to be set via environment variable
     pass
 
 # Import configuration
