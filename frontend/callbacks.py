@@ -2710,7 +2710,7 @@ def display_projects_list(refresh_clicks, project_message, delete_clicks, auth_d
                 # Check if download is stale for this project
                 is_stale = False
                 try:
-                    progress_url = f"{API_BASE}/api/projects/{project_id}/pdf-download-progress"
+                    progress_url = f"{API_BASE}/api/admin/projects/{project_id}/download-pdfs/status"
                     progress_resp = requests.get(progress_url, timeout=2)
                     if progress_resp.ok:
                         progress_data = progress_resp.json()
