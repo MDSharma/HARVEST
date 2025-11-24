@@ -43,11 +43,24 @@ from frontend.layout import (
 # Import literature search module
 import literature_search
 
-# Import PDF storage configuration
+# Import PDF storage configuration and utilities
 try:
     from config import PDF_STORAGE_DIR
 except ImportError:
     PDF_STORAGE_DIR = "project_pdfs"
+
+# Import PDF manager utilities for DOI hash generation
+try:
+    from pdf_manager import generate_doi_hash, get_project_pdf_dir
+except ImportError:
+    # Fallback implementations if pdf_manager is not available
+    def generate_doi_hash(doi: str) -> str:
+        """Generate a hash from DOI for file naming"""
+        return hashlib.sha256(doi.encode('utf-8')).hexdigest()[:16]
+    
+    def get_project_pdf_dir(project_id: int, base_dir: str = "project_pdfs") -> str:
+        """Get the directory path for a project's PDFs"""
+        return os.path.join(base_dir, f"project_{project_id}")
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +87,7 @@ NO_UPDATE_15 = tuple([no_update] * 15)
 
 def _create_paper_card(paper: Dict, index: int) -> dbc.Card:
     """
-    Create a paper card component with badges, metadata, and collapsible abstract.
+    Create a paper card component with badges, metadata, and abstract displayed side-by-side.
     
     Args:
         paper: Paper dictionary with title, authors, year, doi, citations, etc.
@@ -174,113 +187,114 @@ def _create_paper_card(paper: Dict, index: int) -> dbc.Card:
             title="This paper is freely available"
         )
 
-    # Create paper card with enhanced visual design
+    # Create paper card with two-column layout: metadata on left, abstract on right
     return dbc.Card(
         [
             dbc.CardBody(
                 [
                     dbc.Row(
                         [
+                            # Left column: Checkbox and metadata
                             dbc.Col(
                                 [
-                                    dbc.Checkbox(
-                                        id={"type": "paper-checkbox", "index": index},
-                                        className="form-check-input-lg",
-                                        value=False,
-                                    ),
-                                ],
-                                width="auto",
-                                className="d-flex align-items-center",
-                            ),
-                            dbc.Col(
-                                [
-                                    # Title with rank number
-                                    html.Div(
+                                    # Top row with checkbox and title
+                                    dbc.Row(
                                         [
-                                            dbc.Badge(
-                                                f"#{index}",
-                                                color="secondary",
-                                                className="me-2",
-                                                pill=True
+                                            dbc.Col(
+                                                [
+                                                    dbc.Checkbox(
+                                                        id={"type": "paper-checkbox", "index": index},
+                                                        className="form-check-input-lg",
+                                                        value=False,
+                                                    ),
+                                                ],
+                                                width="auto",
+                                                className="d-flex align-items-start pt-1",
                                             ),
-                                            html.Span(
-                                                paper.get('title', 'N/A'),
-                                                style={"fontWeight": "600", "fontSize": "1.05rem"}
-                                            )
+                                            dbc.Col(
+                                                [
+                                                    # Title with rank number
+                                                    html.Div(
+                                                        [
+                                                            dbc.Badge(
+                                                                f"#{index}",
+                                                                color="secondary",
+                                                                className="me-2",
+                                                                pill=True
+                                                            ),
+                                                            html.Span(
+                                                                paper.get('title', 'N/A'),
+                                                                style={"fontWeight": "600", "fontSize": "1.05rem"}
+                                                            )
+                                                        ],
+                                                        className="mb-2"
+                                                    ),
+                                                    # Badges row
+                                                    html.Div(
+                                                        [
+                                                            source_badge,
+                                                            year_badge,
+                                                            citation_badge if citation_badge else None,
+                                                            open_access_badge if open_access_badge else None,
+                                                        ],
+                                                        className="mb-2"
+                                                    ),
+                                                    # Metadata section with improved styling
+                                                    html.Div(
+                                                        [
+                                                            html.Div(
+                                                                [
+                                                                    html.I(className="bi bi-people-fill me-2", style={"color": "#6c757d"}),
+                                                                    html.Span(authors_text, style={"fontSize": "0.9rem"}),
+                                                                ],
+                                                                className="mb-1"
+                                                            ),
+                                                            html.Div(
+                                                                [
+                                                                    html.I(className="bi bi-link-45deg me-2", style={"color": "#6c757d"}),
+                                                                    doi_link,
+                                                                ],
+                                                                className="mb-2"
+                                                            ),
+                                                        ],
+                                                        style={"fontSize": "0.9rem", "color": "#495057"}
+                                                    ),
+                                                ],
+                                            ),
                                         ],
-                                        className="mb-2"
+                                        className="g-2",
                                     ),
-                                    # Badges row
+                                ],
+                                md=6,
+                                className="border-end",
+                            ),
+                            # Right column: Abstract
+                            dbc.Col(
+                                [
                                     html.Div(
                                         [
-                                            source_badge,
-                                            year_badge,
-                                            citation_badge if citation_badge else None,
-                                            open_access_badge if open_access_badge else None,
-                                        ],
-                                        className="mb-2"
-                                    ),
-                                ],
-                            ),
-                        ],
-                        className="g-2",
-                    ),
-                    # Metadata section with improved styling
-                    html.Div(
-                        [
-                            html.Div(
-                                [
-                                    html.I(className="bi bi-people-fill me-2", style={"color": "#6c757d"}),
-                                    html.Span(authors_text, style={"fontSize": "0.9rem"}),
-                                ],
-                                className="mb-1"
-                            ),
-                            html.Div(
-                                [
-                                    html.I(className="bi bi-link-45deg me-2", style={"color": "#6c757d"}),
-                                    doi_link,
-                                ],
-                                className="mb-2"
-                            ),
-                        ],
-                        className="ms-5",
-                        style={"fontSize": "0.9rem", "color": "#495057"}
-                    ),
-                    # Abstract collapse with improved design
-                    dbc.Collapse(
-                        dbc.Card(
-                            dbc.CardBody(
-                                [
-                                    html.Div(
-                                        [
-                                            html.I(className="bi bi-file-text me-2"),
-                                            html.Strong("Abstract")
+                                            html.I(className="bi bi-file-text me-2", style={"color": "#6c757d"}),
+                                            html.Strong("Abstract", style={"fontSize": "0.95rem"})
                                         ],
                                         className="mb-2"
                                     ),
                                     html.P(
                                         paper.get('abstract_snippet', 'No abstract available'),
                                         className="mb-0",
-                                        style={"fontSize": "0.9rem", "lineHeight": "1.6"}
+                                        style={
+                                            "fontSize": "0.85rem", 
+                                            "lineHeight": "1.6",
+                                            "color": "#495057",
+                                            "maxHeight": "200px",
+                                            "overflowY": "auto"
+                                        }
                                     ),
-                                ]
+                                ],
+                                md=6,
+                                className="ps-3",
                             ),
-                            color="light",
-                            className="border-0 bg-light",
-                        ),
-                        id=f"collapse-paper-{index}",
-                        is_open=False,
-                        className="ms-5 mt-2",
-                    ),
-                    dbc.Button(
-                        [
-                            html.I(className="bi bi-chevron-down me-1", id=f"chevron-paper-{index}"),
-                            html.Span("Show Abstract", id=f"text-paper-{index}")
                         ],
-                        id=f"btn-toggle-paper-{index}",
-                        color="link",
-                        size="sm",
-                        className="mt-2 p-0 ms-5",
+                        className="g-0",
                     ),
                 ]
             )
@@ -1151,21 +1165,6 @@ def toggle_pipeline_collapse(n_clicks, is_open):
         chevron_class = "bi bi-chevron-down" if new_state else "bi bi-chevron-right"
         return new_state, chevron_class + " " + "text-muted" + " " + "float-end"
     return is_open, "bi bi-chevron-right text-muted float-end"
-
-
-# Callbacks for paper abstract toggling
-for i in range(1, 11):
-    @app.callback(
-        Output(f"collapse-paper-{i}", "is_open"),
-        Output(f"btn-toggle-paper-{i}", "children"),
-        Input(f"btn-toggle-paper-{i}", "n_clicks"),
-        State(f"collapse-paper-{i}", "is_open"),
-        prevent_initial_call=True,
-    )
-    def toggle_collapse(n, is_open, idx=i):
-        if n:
-            return not is_open, "Hide Abstract" if not is_open else "Show Abstract"
-        return is_open, "Show Abstract"
 
 
 # Callbacks for selecting/deselecting all papers
@@ -2593,6 +2592,7 @@ def admin_logout(n_clicks):
 # Create project
 @app.callback(
     Output("project-message", "children"),
+    Output("btn-create-project", "disabled"),
     Input("btn-create-project", "n_clicks"),
     State("new-project-name", "value"),
     State("new-project-description", "value"),
@@ -2602,13 +2602,16 @@ def admin_logout(n_clicks):
 )
 def create_project_callback(n_clicks, name, description, doi_list_text, auth_data):
     if not auth_data:
-        return dbc.Alert("Please login first", color="danger")
+        return dbc.Alert("Please login first", color="danger"), False
     
     if not name or not doi_list_text:
-        return dbc.Alert("Project name and DOI list are required", color="danger")
+        return dbc.Alert("Project name and DOI list are required", color="danger"), False
     
     # Parse DOI list
     doi_list = [doi.strip() for doi in doi_list_text.split("\n") if doi.strip()]
+    
+    # Count total DOIs submitted
+    total_submitted = len(doi_list)
     
     try:
         payload = {
@@ -2618,17 +2621,65 @@ def create_project_callback(n_clicks, name, description, doi_list_text, auth_dat
             "description": description or "",
             "doi_list": doi_list
         }
-        r = requests.post(API_ADMIN_PROJECTS, json=payload, timeout=10)
+        # Increase timeout for large DOI lists (base 30s + 0.1s per DOI, max 300s = 5 minutes)
+        timeout = min(30 + (len(doi_list) * 0.1), 300)
+        
+        # Show progress message for large lists
+        if total_submitted > 50:
+            # This is a workaround - ideally we'd show a spinner during the request
+            # but Dash callbacks are synchronous
+            pass
+        
+        r = requests.post(API_ADMIN_PROJECTS, json=payload, timeout=timeout)
         if r.ok:
             result = r.json()
             if result.get("ok"):
-                return dbc.Alert(f"Project created successfully! ID: {result.get('project_id')}", color="success")
+                project_id = result.get('project_id')
+                valid_count = result.get('valid_count', 0)
+                
+                # Build success message with warnings if applicable
+                message_parts = [f"✅ Project created successfully! ID: {project_id}"]
+                message_parts.append(f"Added {valid_count} valid DOI(s).")
+                
+                # Check for discrepancies
+                if total_submitted != valid_count:
+                    excluded_count = total_submitted - valid_count
+                    message_parts.append(f"⚠️ {excluded_count} DOI(s) were excluded (duplicates or invalid).")
+                
+                # Show details about invalid DOIs if provided
+                if result.get("warning"):
+                    message_parts.append(result.get("warning"))
+                
+                if result.get("invalid_dois"):
+                    invalid_dois = result.get("invalid_dois", [])
+                    if len(invalid_dois) <= 5:
+                        # Show all if few
+                        details = "\n".join([f"  • {item.get('doi', '')}: {item.get('reason', '')}" 
+                                           for item in invalid_dois])
+                        message_parts.append(f"Invalid DOIs:\n{details}")
+                    else:
+                        # Show first 5 if many
+                        details = "\n".join([f"  • {item.get('doi', '')}: {item.get('reason', '')}" 
+                                           for item in invalid_dois[:5]])
+                        message_parts.append(f"Invalid DOIs (showing first 5 of {len(invalid_dois)}):\n{details}")
+                
+                message_text = "\n".join(message_parts)
+                alert_color = "warning" if total_submitted != valid_count else "success"
+                return dbc.Alert(message_text, color=alert_color, style={"whiteSpace": "pre-wrap"}), False
             else:
-                return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger")
+                return dbc.Alert(f"Failed: {result.get('error', 'Unknown error')}", color="danger"), False
         else:
-            return dbc.Alert(f"Failed: {r.status_code} - {r.text[:200]}", color="danger")
+            return dbc.Alert(f"Failed: {r.status_code} - {r.text[:200]}", color="danger"), False
+    except requests.exceptions.Timeout:
+        return dbc.Alert(
+            f"⏱️ Request timed out while validating {total_submitted} DOIs.\n\n"
+            f"This usually means the validation is taking longer than expected. "
+            f"For large DOI lists (300+), try breaking them into smaller batches of 100-200 DOIs.\n\n"
+            f"The backend may still be processing your request. Please refresh the projects list in a moment to check if it completed.",
+            color="danger"
+        ), False
     except Exception as e:
-        return dbc.Alert(f"Error: {str(e)}", color="danger")
+        return dbc.Alert(f"Error: {str(e)}", color="danger"), False
 
 # Display projects list
 @app.callback(
@@ -2733,12 +2784,14 @@ def view_project_dois(n_clicks_list, projects):
     dois_with_pdfs = []
     dois_without_pdfs = []
     
+    # Get the correct project PDF directory (format: project_pdfs/project_{id}/)
+    project_pdf_dir = get_project_pdf_dir(project_id, PDF_STORAGE_DIR)
+    
     for doi in doi_list:
         # Generate the expected PDF filename using same hash algorithm as pdf_manager.py
-        # See pdf_manager.generate_doi_hash() and harvest_store.generate_doi_hash()
-        doi_hash = hashlib.sha256(doi.encode('utf-8')).hexdigest()[:16]
+        doi_hash = generate_doi_hash(doi)
         pdf_filename = f"{doi_hash}.pdf"
-        pdf_path = os.path.join(PDF_STORAGE_DIR, str(project_id), pdf_filename)
+        pdf_path = os.path.join(project_pdf_dir, pdf_filename)
         
         if os.path.exists(pdf_path):
             dois_with_pdfs.append(doi)
@@ -2879,10 +2932,36 @@ def handle_edit_dois_modal(edit_clicks_list, close_clicks, add_clicks, remove_cl
                 "password": auth_data.get("password"),
                 "dois": dois_to_add
             }
-            r = requests.post(f"{API_ADMIN_PROJECTS}/{current_project_id}/add-dois", json=payload, timeout=10)
+            # Scale timeout based on number of DOIs being added
+            timeout = min(30 + (len(dois_to_add) * 0.1), 300)
+            r = requests.post(f"{API_ADMIN_PROJECTS}/{current_project_id}/add-dois", json=payload, timeout=timeout)
             
             if r.ok:
                 result = r.json()
+                
+                # Build message with warnings if applicable
+                message_parts = [result.get("message", "DOIs added successfully")]
+                added_count = result.get("added_count", 0)
+                
+                # Check for warnings about invalid DOIs
+                if result.get("warning"):
+                    message_parts.append(f"⚠️ {result.get('warning')}")
+                
+                # Show details about invalid DOIs if provided
+                if result.get("invalid_dois"):
+                    invalid_dois = result.get("invalid_dois", [])
+                    if len(invalid_dois) <= 3:
+                        details = "\n".join([f"  • {item.get('doi', '')}: {item.get('reason', '')}" 
+                                           for item in invalid_dois])
+                        message_parts.append(f"Invalid DOIs:\n{details}")
+                    else:
+                        details = "\n".join([f"  • {item.get('doi', '')}: {item.get('reason', '')}" 
+                                           for item in invalid_dois[:3]])
+                        message_parts.append(f"Invalid DOIs (showing first 3 of {len(invalid_dois)}):\n{details}")
+                
+                message_text = "\n".join(message_parts)
+                alert_color = "warning" if result.get("invalid_dois") else "success"
+                
                 # Refresh project list
                 projects_r = requests.get(API_PROJECTS, timeout=5)
                 if projects_r.ok:
@@ -2899,14 +2978,21 @@ def handle_edit_dois_modal(edit_clicks_list, close_clicks, add_clicks, remove_cl
                         ], color="info")
                         
                         return True, current_project_id, project_info, doi_items, "", no_update, no_update, \
-                               dbc.Alert(result.get("message", "DOIs added successfully"), color="success", dismissable=True)
+                               dbc.Alert(message_text, color=alert_color, dismissable=True, style={"whiteSpace": "pre-wrap"})
                 
                 return True, current_project_id, no_update, no_update, "", no_update, no_update, \
-                       dbc.Alert(result.get("message", "DOIs added successfully"), color="success", dismissable=True)
+                       dbc.Alert(message_text, color=alert_color, dismissable=True, style={"whiteSpace": "pre-wrap"})
             else:
                 error_msg = r.json().get("error", f"Failed: {r.status_code}")
                 return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
                        dbc.Alert(f"Error: {error_msg}", color="danger", dismissable=True)
+        except requests.exceptions.Timeout:
+            return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                   dbc.Alert(
+                       f"Request timed out while processing {len(dois_to_add)} DOIs. "
+                       f"Please try again or contact support.",
+                       color="danger", dismissable=True
+                   )
         except Exception as e:
             return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
                    dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True)
@@ -2931,7 +3017,9 @@ def handle_edit_dois_modal(edit_clicks_list, close_clicks, add_clicks, remove_cl
                 "dois": dois_to_remove,
                 "delete_pdfs": delete_pdfs
             }
-            r = requests.post(f"{API_ADMIN_PROJECTS}/{current_project_id}/remove-dois", json=payload, timeout=10)
+            # Scale timeout based on number of DOIs being removed
+            timeout = min(30 + (len(dois_to_remove) * 0.1), 300)
+            r = requests.post(f"{API_ADMIN_PROJECTS}/{current_project_id}/remove-dois", json=payload, timeout=timeout)
             
             if r.ok:
                 result = r.json()
@@ -2963,6 +3051,13 @@ def handle_edit_dois_modal(edit_clicks_list, close_clicks, add_clicks, remove_cl
                 error_msg = r.json().get("error", f"Failed: {r.status_code}")
                 return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
                        dbc.Alert(f"Error: {error_msg}", color="danger", dismissable=True)
+        except requests.exceptions.Timeout:
+            return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
+                   dbc.Alert(
+                       f"Request timed out while processing {len(dois_to_remove)} DOIs. "
+                       f"Please try again or contact support.",
+                       color="danger", dismissable=True
+                   )
         except Exception as e:
             return True, current_project_id, no_update, no_update, no_update, no_update, no_update, \
                    dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True)
@@ -3134,6 +3229,10 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data, download_stat
         }
         
         if status == "running":
+            # Check if download is stale
+            is_stale = data.get("is_stale", False)
+            time_since_update = data.get("time_since_update_seconds", 0)
+            
             # Show progress
             # Format the source name for display
             source_display = ""
@@ -3164,6 +3263,22 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data, download_stat
                     source_display
                 ])
             
+            # Add stale warning if applicable
+            if is_stale:
+                progress_content.extend([
+                    html.Br(),
+                    html.Br(),
+                    html.Div([
+                        html.I(className="bi bi-exclamation-triangle-fill me-2", style={"color": "#ffc107"}),
+                        html.Strong("⚠️ Download appears stale", style={"color": "#ffc107"}),
+                    ]),
+                    html.Br(),
+                    html.Small(
+                        f"No updates for {time_since_update} seconds. The download may have been interrupted by a server restart.",
+                        className="text-muted"
+                    ),
+                ])
+            
             # Fetch and display download configuration
             try:
                 config_resp = requests.get(f"{API_BASE}/api/pdf-download-config", timeout=3)
@@ -3187,21 +3302,46 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data, download_stat
             except Exception as e:
                 print(f"[Frontend] Could not fetch PDF config: {e}")
             
+            # Build the alert components
+            alert_children = [
+                html.H6("PDF Download In Progress", className="alert-heading"),
+                html.Hr(),
+                html.P(progress_content),
+                dbc.Progress(value=current, max=total, striped=True, animated=True, className="mb-2"),
+                html.P([
+                    html.Strong("Downloaded: "), str(data.get("downloaded_count", 0)),
+                    html.Br(),
+                    html.Strong("Need Manual Upload: "), str(data.get("needs_upload_count", 0)),
+                    html.Br(),
+                    html.Strong("Errors: "), str(data.get("errors_count", 0)),
+                ], className="mb-2"),
+            ]
+            
+            # Add force restart button if stale
+            if is_stale:
+                alert_children.append(html.Hr())
+                alert_children.append(
+                    dbc.Button(
+                        [
+                            html.I(className="bi bi-arrow-clockwise me-2"),
+                            "Force Restart Download"
+                        ],
+                        id={"type": "force-restart-download", "index": project_id},
+                        color="warning",
+                        size="sm",
+                        className="mt-2"
+                    )
+                )
+                alert_children.append(
+                    html.Small(
+                        " This will reset the download and start fresh from the beginning.",
+                        className="text-muted d-block mt-2"
+                    )
+                )
+            
             progress_message = dbc.Alert(
-                [
-                    html.H6("PDF Download In Progress", className="alert-heading"),
-                    html.Hr(),
-                    html.P(progress_content),
-                    dbc.Progress(value=current, max=total, striped=True, animated=True, className="mb-2"),
-                    html.P([
-                        html.Strong("Downloaded: "), str(data.get("downloaded_count", 0)),
-                        html.Br(),
-                        html.Strong("Need Manual Upload: "), str(data.get("needs_upload_count", 0)),
-                        html.Br(),
-                        html.Strong("Errors: "), str(data.get("errors_count", 0)),
-                    ], className="mb-0"),
-                ],
-                color="info",
+                alert_children,
+                color="warning" if is_stale else "info",
                 dismissable=False
             )
             return progress_message, False, project_id, new_download_state  # Keep polling
@@ -3275,6 +3415,94 @@ def poll_pdf_download_progress(n_intervals, project_id, auth_data, download_stat
         print(f"[Frontend] PDF Download: Error polling - {str(e)}")
         # Don't disable polling on error, might be temporary
         return no_update, no_update, no_update, no_update
+
+
+# Handle Force Restart Download button click
+@app.callback(
+    Output("pdf-download-progress-container", "children", allow_duplicate=True),
+    Output("pdf-download-progress-interval", "disabled", allow_duplicate=True),
+    Output("pdf-download-project-id", "data", allow_duplicate=True),
+    Output("pdf-download-state-store", "data", allow_duplicate=True),
+    Input({"type": "force-restart-download", "index": ALL}, "n_clicks"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def force_restart_download(n_clicks_list, auth_data):
+    """Force restart a stale PDF download"""
+    if not any(n_clicks_list):
+        return no_update, no_update, no_update, no_update
+    
+    if not auth_data:
+        return dbc.Alert("Please login first", color="danger"), True, None, None
+    
+    email = auth_data.get("email")
+    password = auth_data.get("password")
+    if not email or not password:
+        return dbc.Alert("Please login first", color="danger"), True, None, None
+    
+    # Find which button was clicked
+    trigger = ctx.triggered_id
+    if not trigger:
+        return no_update, no_update, no_update, no_update
+    
+    project_id = trigger["index"]
+    
+    print(f"[Frontend] Force Restart: Starting force restart for project {project_id}")
+    
+    try:
+        # Call backend to start download with force_restart flag
+        r = requests.post(
+            f"{API_BASE}/api/admin/projects/{project_id}/download-pdfs",
+            json={"email": email, "password": password, "force_restart": True},
+            timeout=10
+        )
+        
+        if r.ok:
+            data = r.json()
+            print(f"[Frontend] Force Restart: Download restarted - {data.get('total_dois', 0)} DOIs")
+            
+            # Show initial message and enable polling
+            initial_message = dbc.Alert(
+                [
+                    html.H6("PDF Download Restarted", className="alert-heading"),
+                    html.Hr(),
+                    html.P([
+                        html.I(className="bi bi-arrow-clockwise me-2"),
+                        f"Force restarted download for {data.get('total_dois', 0)} DOIs..."
+                    ]),
+                    html.Div([
+                        dbc.Spinner(size="sm"),
+                        html.Span(" Progress updates will appear below...", style={"margin-left": "10px"})
+                    ], style={"display": "flex", "align-items": "center"})
+                ],
+                color="info",
+                dismissable=False
+            )
+            
+            # Initialize download state
+            initial_download_state = {
+                "project_id": project_id,
+                "active": True,
+                "status": "running",
+                "current": 0,
+                "total": data.get('total_dois', 0)
+            }
+            
+            return initial_message, False, project_id, initial_download_state
+        else:
+            error_msg = r.json().get("error", "Unknown error") if r.headers.get("content-type") == "application/json" else f"HTTP {r.status_code}"
+            hint = r.json().get("hint", "") if r.headers.get("content-type") == "application/json" else ""
+            
+            full_error = f"Force restart failed: {error_msg}"
+            if hint:
+                full_error += f"\n\n{hint}"
+            
+            print(f"[Frontend] Force Restart: Failed - {error_msg}")
+            return dbc.Alert(full_error, color="danger", dismissable=True, style={"whiteSpace": "pre-wrap"}), True, None, None
+            
+    except Exception as e:
+        print(f"[Frontend] Force Restart: Error - {str(e)}")
+        return dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True), True, None, None
 
 
 # Handle Delete project button click - opens modal

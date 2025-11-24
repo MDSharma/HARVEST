@@ -776,6 +776,75 @@ def cleanup_old_pdf_download_progress(db_path: str, max_age_seconds: int = 3600)
         return 0
 
 
+def is_download_stale(db_path: str, project_id: int, stale_threshold_seconds: int = 300) -> bool:
+    """
+    Check if a download is stale (not updated recently despite being 'running').
+    A download is considered stale if status is 'running' but updated_at is older than threshold.
+    
+    Args:
+        db_path: Path to database
+        project_id: Project ID
+        stale_threshold_seconds: How long without updates before considering stale (default 5 minutes)
+    
+    Returns:
+        True if download is stale, False otherwise
+    """
+    try:
+        import time
+        progress = get_pdf_download_progress(db_path, project_id)
+        
+        if not progress:
+            return False
+        
+        if progress.get("status") != "running":
+            return False
+        
+        # Check if updated_at is older than threshold
+        updated_at = progress.get("updated_at", 0)
+        current_time = time.time()
+        time_since_update = current_time - updated_at
+        
+        return time_since_update > stale_threshold_seconds
+    except Exception as e:
+        print(f"Failed to check if download is stale: {e}")
+        return False
+
+
+def reset_stale_download(db_path: str, project_id: int) -> bool:
+    """
+    Reset a stale download to allow it to be restarted.
+    Changes status from 'running' to 'interrupted' so it can be resumed.
+    
+    Args:
+        db_path: Path to database
+        project_id: Project ID
+    
+    Returns:
+        True if reset successful, False otherwise
+    """
+    try:
+        import time
+        conn = get_conn(db_path)
+        cur = conn.cursor()
+        
+        cur.execute("""
+            UPDATE pdf_download_progress 
+            SET status = 'interrupted', updated_at = ?
+            WHERE project_id = ? AND status = 'running'
+        """, (time.time(), project_id))
+        
+        updated = cur.rowcount > 0
+        conn.close()
+        
+        if updated:
+            print(f"[PDF Download] Reset stale download for project {project_id}")
+        
+        return updated
+    except Exception as e:
+        print(f"Failed to reset stale download: {e}")
+        return False
+
+
 # ============================================================================
 # DOI Batch Management Functions
 # ============================================================================
