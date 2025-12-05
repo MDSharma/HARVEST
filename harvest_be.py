@@ -2864,6 +2864,318 @@ def export_review_results(project_id):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+# =============================================================================
+# Trait Extraction API Endpoints
+# =============================================================================
+
+@app.post("/api/trait-extraction/upload-pdfs")
+def upload_extraction_pdfs():
+    """
+    Upload PDFs for trait extraction.
+    Extracts text and creates documents in trait_documents table.
+    """
+    # Check admin authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        from trait_extraction.store import create_document
+        from werkzeug.utils import secure_filename
+        import PyMuPDF  # fitz
+        
+        if 'files' not in request.files:
+            return jsonify({"error": "No files provided"}), 400
+        
+        files = request.files.getlist('files')
+        project_id = request.form.get('project_id')
+        
+        if project_id:
+            try:
+                project_id = int(project_id)
+            except ValueError:
+                return jsonify({"error": "Invalid project_id"}), 400
+        
+        # Create documents directory if not exists
+        docs_dir = "trait_extraction/documents"
+        os.makedirs(docs_dir, exist_ok=True)
+        
+        uploaded = []
+        errors = []
+        
+        for file in files:
+            if file.filename == '':
+                continue
+            
+            if not file.filename.endswith('.pdf'):
+                errors.append({"file": file.filename, "error": "Only PDF files are supported"})
+                continue
+            
+            try:
+                # Save file
+                filename = secure_filename(file.filename)
+                file_path = os.path.join(docs_dir, filename)
+                file.save(file_path)
+                
+                # Extract text from PDF
+                doc = PyMuPDF.open(file_path)
+                text_content = ""
+                for page in doc:
+                    text_content += page.get_text()
+                doc.close()
+                
+                # Create document record
+                doc_id = create_document(
+                    DB_PATH,
+                    project_id,
+                    file_path,
+                    text_content,
+                    doi=None,
+                    doi_hash=None
+                )
+                
+                uploaded.append({
+                    "id": doc_id,
+                    "filename": filename,
+                    "text_length": len(text_content)
+                })
+                
+            except Exception as e:
+                logger.error(f"Failed to process {file.filename}: {e}")
+                errors.append({"file": file.filename, "error": str(e)})
+        
+        return jsonify({
+            "ok": True,
+            "uploaded": uploaded,
+            "errors": errors,
+            "total_uploaded": len(uploaded),
+            "total_errors": len(errors)
+        })
+        
+    except Exception as e:
+        logger.error(f"Upload failed: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.get("/api/trait-extraction/documents")
+def list_extraction_documents():
+    """List documents for trait extraction"""
+    # Check admin authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        from trait_extraction.store import list_documents
+        
+        project_id = request.args.get('project_id', type=int)
+        status = request.args.get('status')
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 50, type=int)
+        
+        documents, total = list_documents(DB_PATH, project_id, status, page, per_page)
+        
+        return jsonify({
+            "ok": True,
+            "documents": documents,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": (total + per_page - 1) // per_page
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to list documents: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.get("/api/trait-extraction/models")
+def list_extraction_models():
+    """List available extraction models"""
+    # Check admin authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        from trait_extraction.config import TraitExtractionConfig
+        
+        config = TraitExtractionConfig()
+        profiles = config.list_model_profiles()
+        
+        return jsonify({
+            "ok": True,
+            "models": profiles,
+            "execution_mode": "local" if config.local_mode else "remote",
+            "remote_url": config.remote_url if not config.local_mode else None
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to list models: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.post("/api/trait-extraction/jobs")
+def create_extraction_job_endpoint():
+    """Create a new extraction job"""
+    # Check admin authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        from trait_extraction.service import TraitExtractionService
+        
+        if not request.json:
+            return jsonify({"error": "Request body must be JSON"}), 400
+        
+        document_ids = request.json.get('document_ids', [])
+        model_profile = request.json.get('model_profile', 'spacy_bio')
+        project_id = request.json.get('project_id')
+        created_by = request.json.get('created_by', request.json.get('admin_email'))
+        
+        if not document_ids:
+            return jsonify({"error": "document_ids required"}), 400
+        
+        # Initialize service
+        service = TraitExtractionService(DB_PATH)
+        
+        # Start extraction (runs in background for large jobs)
+        result = service.extract_triples_from_documents(
+            document_ids,
+            model_profile,
+            project_id,
+            created_by
+        )
+        
+        return jsonify({
+            "ok": True,
+            "job": result
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to create extraction job: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.get("/api/trait-extraction/jobs")
+def list_extraction_jobs_endpoint():
+    """List extraction jobs"""
+    # Check admin authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        from trait_extraction.store import list_extraction_jobs
+        
+        project_id = request.args.get('project_id', type=int)
+        status = request.args.get('status')
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 50, type=int)
+        
+        jobs, total = list_extraction_jobs(DB_PATH, project_id, status, page, per_page)
+        
+        return jsonify({
+            "ok": True,
+            "jobs": jobs,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": (total + per_page - 1) // per_page
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to list jobs: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.get("/api/trait-extraction/jobs/<int:job_id>")
+def get_extraction_job_endpoint(job_id: int):
+    """Get extraction job status"""
+    # Check admin authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        from trait_extraction.store import get_extraction_job
+        
+        job = get_extraction_job(DB_PATH, job_id)
+        
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
+        
+        return jsonify({
+            "ok": True,
+            "job": job
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to get job: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.get("/api/trait-extraction/triples")
+def list_extraction_triples_endpoint():
+    """List extracted triples with filtering"""
+    # Check admin authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        from trait_extraction.store import list_extracted_triples
+        
+        document_id = request.args.get('document_id', type=int)
+        job_id = request.args.get('job_id', type=int)
+        status = request.args.get('status')
+        min_confidence = request.args.get('min_confidence', 0.0, type=float)
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 50, type=int)
+        
+        triples, total = list_extracted_triples(
+            DB_PATH, document_id, job_id, status, min_confidence, page, per_page
+        )
+        
+        return jsonify({
+            "ok": True,
+            "triples": triples,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": (total + per_page - 1) // per_page
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to list triples: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.patch("/api/trait-extraction/triples/<int:triple_id>")
+def update_extraction_triple_endpoint(triple_id: int):
+    """Update a triple (status or edits)"""
+    # Check admin authentication
+    if not check_admin_status(DB_PATH, request):
+        return jsonify({"error": "Unauthorized. Admin authentication required."}), 401
+    
+    try:
+        from trait_extraction.store import update_triple_status
+        
+        if not request.json:
+            return jsonify({"error": "Request body must be JSON"}), 400
+        
+        status = request.json.get('status')
+        edits = request.json.get('edits', {})
+        
+        if not status:
+            return jsonify({"error": "status required"}), 400
+        
+        update_triple_status(DB_PATH, triple_id, status, edits)
+        
+        return jsonify({
+            "ok": True,
+            "message": "Triple updated successfully"
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to update triple: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     # Cleanup old progress entries on startup (older than 1 hour)
     print("[PDF Download] Cleaning up old progress entries...")
