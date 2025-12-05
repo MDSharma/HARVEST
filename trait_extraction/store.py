@@ -4,20 +4,15 @@
 Database operations for trait extraction module
 """
 
-import sqlite3
 import json
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 import logging
 
+# Import get_conn from harvest_store to avoid duplication
+from harvest_store import get_conn
+
 logger = logging.getLogger(__name__)
-
-
-def get_conn(db_path: str) -> sqlite3.Connection:
-    """Get database connection with foreign keys enabled"""
-    conn = sqlite3.connect(db_path, isolation_level=None, check_same_thread=False)
-    conn.execute("PRAGMA foreign_keys = ON;")
-    return conn
 
 
 # Document operations

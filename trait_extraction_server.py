@@ -17,6 +17,7 @@ With authentication:
 import os
 import logging
 from typing import List, Dict, Any, Optional
+import secrets
 from fastapi import FastAPI, HTTPException, Depends, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
@@ -108,7 +109,8 @@ def verify_api_key(credentials: Optional[HTTPAuthorizationCredentials] = Securit
     if API_KEY:
         if not credentials:
             raise HTTPException(status_code=401, detail="Missing authentication")
-        if credentials.credentials != API_KEY:
+        # Use secrets.compare_digest to prevent timing attacks
+        if not secrets.compare_digest(credentials.credentials, API_KEY):
             raise HTTPException(status_code=403, detail="Invalid API key")
     return True
 

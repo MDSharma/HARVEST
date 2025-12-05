@@ -93,6 +93,8 @@ class TraitExtractionService:
             
             # Process documents
             total_triples = 0
+            all_triples_to_insert = []  # Collect all triples for batch insert
+            
             for i, doc_id in enumerate(document_ids):
                 # Get document
                 doc = get_document(self.db_path, doc_id)
@@ -111,7 +113,7 @@ class TraitExtractionService:
                 # Run extraction
                 results = adapter.extract_triples([text])
                 
-                # Normalize and store triples
+                # Normalize and collect triples for batch insert
                 if results and len(results) > 0:
                     raw_triples = results[0]  # First document's results
                     
@@ -127,8 +129,7 @@ class TraitExtractionService:
                             "doi_hash": doc.get("doi_hash")
                         })
                         
-                        # Insert triple
-                        insert_extracted_triples(self.db_path, [normalized])
+                        all_triples_to_insert.append(normalized)
                         total_triples += 1
                 
                 # Update progress
@@ -136,6 +137,10 @@ class TraitExtractionService:
                 update_extraction_job(self.db_path, job_id, {
                     "progress": progress
                 })
+            
+            # Batch insert all triples at once for efficiency
+            if all_triples_to_insert:
+                insert_extracted_triples(self.db_path, all_triples_to_insert)
             
             # Mark as completed
             update_extraction_job(self.db_path, job_id, {

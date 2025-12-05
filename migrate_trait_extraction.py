@@ -16,7 +16,7 @@ from datetime import datetime
 
 def get_conn(db_path: str) -> sqlite3.Connection:
     """Get database connection with foreign keys enabled"""
-    conn = sqlite3.Connection(db_path, isolation_level=None, check_same_thread=False)
+    conn = sqlite3.connect(db_path, isolation_level=None, check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn
 
