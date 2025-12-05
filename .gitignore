@@ -10,3 +10,11 @@ project_pdfs/
 .cache/
 *_original.py
 *_old_backup.py
+
+# Trait extraction model cache and documents
+trait_extraction/models_cache/
+trait_extraction/documents/
+*.pt
+*.bin
+*.safetensors
+*.onnx

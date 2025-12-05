@@ -204,3 +204,38 @@ PARTNER_LOGOS = [
 # Debug Configuration
 # Enable verbose logging for troubleshooting (DO NOT enable in production - fills logs!)
 ENABLE_DEBUG_LOGGING = False  # Set to True only for debugging specific issues
+
+# Trait Extraction Configuration
+# NLP-based trait extraction using multiple backends (LasUIE, Hugging Face, spaCy, AllenNLP)
+# Can run locally or on a remote GPU server
+ENABLE_TRAIT_EXTRACTION = True  # Enable trait extraction feature
+
+# Execution Mode
+# True: Run extraction models locally (requires local installation of NLP libraries)
+# False: Call remote extraction server via API (recommended for GPU-intensive models)
+TRAIT_EXTRACTION_LOCAL_MODE = True  # Set to False to use remote server
+
+# Remote Server Configuration (used when LOCAL_MODE=False)
+# URL of the remote trait extraction server
+# Example: "http://gpu-server.example.com:8000"
+TRAIT_EXTRACTION_URL = ""  # Enter remote server URL here
+
+# API Key for remote server authentication (optional)
+# Set this if your remote server requires authentication
+TRAIT_EXTRACTION_API_KEY = ""  # Enter API key here if required
+
+# Timeout settings for remote API calls (in seconds)
+TRAIT_EXTRACTION_TIMEOUT = 300  # Request timeout (5 minutes default)
+TRAIT_EXTRACTION_CONNECTION_TIMEOUT = 30  # Connection timeout (30 seconds default)
+
+# Model cache directory
+# Directory where downloaded models are cached
+TRAIT_EXTRACTION_MODELS_CACHE = "trait_extraction/models_cache"
+
+# Training settings
+TRAIT_EXTRACTION_ENABLE_TRAINING = True  # Enable model training/fine-tuning
+TRAIT_EXTRACTION_TRAINING_BATCH_SIZE = 4  # Batch size for training
+TRAIT_EXTRACTION_TRAINING_EPOCHS = 3  # Number of training epochs
+
+# Confidence threshold for extracted triples
+TRAIT_EXTRACTION_MIN_CONFIDENCE = 0.5  # Minimum confidence score (0.0 to 1.0)
