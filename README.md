@@ -214,6 +214,29 @@ The Literature Review feature uses ASReview, an AI-powered active learning tool,
 - `ASREVIEW_SERVICE_URL` configured in config.py
 - Admin authentication
 
+### Trait Extraction
+
+The Trait Extraction feature uses state-of-the-art NLP models to automatically extract biological entity-relation triples from scientific literature. See **[docs/TRAIT_EXTRACTION.md](docs/TRAIT_EXTRACTION.md)** for detailed documentation.
+
+**Quick Start:**
+1. Run migration: `python migrate_trait_extraction.py`
+2. Configure in `config.py` (local or remote execution mode)
+3. Use API endpoints to upload PDFs and run extraction jobs
+4. Review and validate extracted triples via API
+
+**Key Features:**
+- Multiple NLP backends (spaCy, Hugging Face Transformers, LasUIE, AllenNLP)
+- Local or remote GPU execution
+- Interactive triple validation
+- Model fine-tuning support
+- Confidence scoring and filtering
+- RESTful API for programmatic access
+
+**Requirements:**
+- For local mode: NLP libraries installed (`pip install spacy transformers torch`)
+- For remote mode: Remote extraction server deployed (see TRAIT_EXTRACTION.md)
+- Admin authentication
+
 ### For Annotators
 
 1. Enter your email address (required for attribution)
