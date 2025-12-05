@@ -31,10 +31,10 @@ sentence-transformers>=2.2.2  # For semantic reranking of search results
 # Trait Extraction Dependencies
 # NLP libraries for information extraction
 spacy>=3.7.0  # Fast production-ready NLP
-transformers>=4.35.0  # Hugging Face Transformers for pre-trained models
-torch>=2.0.0  # PyTorch (required by transformers and spaCy)
+transformers>=4.48.0  # Hugging Face Transformers for pre-trained models (>=4.48.0 fixes CVEs)
+torch>=2.6.0  # PyTorch (required by transformers and spaCy) (>=2.6.0 fixes CVEs)
 allennlp>=2.10.0  # AllenNLP for advanced NLP tasks
 allennlp-models>=2.10.0  # Pre-trained AllenNLP models
-fastapi>=0.104.0  # For remote extraction server
+fastapi>=0.109.1  # For remote extraction server (>=0.109.1 fixes ReDoS)
 uvicorn>=0.24.0  # ASGI server for FastAPI
 datasets>=2.14.0  # Hugging Face datasets for training
