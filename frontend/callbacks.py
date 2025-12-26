@@ -568,14 +568,18 @@ def populate_verified_email(otp_session):
 
 @app.callback(
     Output("annotator-id-display", "children"),
-    Input("contributor-email", "value"),
+    Input("otp-session-store", "data"),
+    State("contributor-email", "value"),
     prevent_initial_call=False,
 )
-def show_annotator_id(email_value):
-    """Display hashed annotator ID when email is present/verified."""
-    if not email_value:
+def show_annotator_id(otp_session, email_value):
+    """Display hashed annotator ID only after email verification."""
+    if not otp_session or not otp_session.get("session_id") or not otp_session.get("email"):
         return ""
-    annotator_id = hashlib.sha256((EMAIL_HASH_SALT + email_value).encode()).hexdigest()[:16]
+    email = otp_session.get("email") or email_value
+    if not email:
+        return ""
+    annotator_id = hashlib.sha256((EMAIL_HASH_SALT + email).encode()).hexdigest()[:16]
     return f"Annotator ID: {annotator_id}"
 
 
@@ -2016,9 +2020,10 @@ def populate_browse_project_filter(load_trigger, refresh_click, tab_value):
     State("browse-contributor-filter", "value"),
     State("browse-field-config", "data"),
     State("admin-auth-store", "data"),
+    State("admin-unmask-store", "data"),
     prevent_initial_call=False,
 )
-def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, contributor_filter, visible_fields, admin_auth):
+def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, contributor_filter, visible_fields, admin_auth, admin_unmask):
     # Only refresh if Browse tab is active
     if tab_value != "tab-browse" and ctx.triggered_id == "main-tabs":
         return no_update
@@ -2079,7 +2084,7 @@ def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, cont
         # Hash email addresses for privacy using installation-specific salt
         is_admin = bool(admin_auth and (admin_auth.get("email") or admin_auth.get("token")))
         for row in rows:
-            if is_admin:
+            if is_admin and admin_unmask:
                 continue
             # Hash the 'email' field if present (legacy field name)
             if 'email' in row and row['email']:
@@ -2184,6 +2189,19 @@ def populate_export_project_filter(projects):
     return [{"label": "All projects", "value": None}] + [
         {"label": p["name"], "value": p["id"]} for p in projects
     ]
+
+
+@app.callback(
+    Output("admin-unmask-store", "data"),
+    Input("admin-unmask-toggle", "value"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def set_admin_unmask(toggle_value, auth_data):
+    """Allow admins to toggle unmasked emails in Browse."""
+    if not auth_data:
+        return False
+    return bool(toggle_value)
 
 # Show project info when selected and populate DOI list (only if no batches)
 @app.callback(
@@ -4301,9 +4319,10 @@ def display_existing_batches(project_id, auth_data):
     Input("btn-export-triples", "n_clicks"),
     State("admin-auth-store", "data"),
     State("export-project-filter", "value"),
+    State("admin-unmask-toggle", "value"),
     prevent_initial_call=True,
 )
-def export_triples_callback(n_clicks, auth_data, export_project):
+def export_triples_callback(n_clicks, auth_data, export_project, unmask_toggle):
     """Handle exporting triples database as JSON"""
     if not auth_data:
         return dbc.Alert("Please login first", color="danger")

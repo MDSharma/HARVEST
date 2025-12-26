@@ -439,6 +439,7 @@ def get_layout():
             dcc.Store(id="lit-search-selected-papers", data=[]),  # Store selected papers
             dcc.Store(id="lit-search-session-papers", data=[], storage_type="session"),  # Store all papers from session
             dcc.Store(id="browse-field-config", data=None, storage_type="session"),  # Store browse field configuration
+            dcc.Store(id="admin-unmask-store", data=False, storage_type="session"),  # Admin toggle for unmasked emails
             dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
             dcc.Interval(id="pdf-download-progress-interval", interval=2000, disabled=True),  # Poll every 2 seconds
         
@@ -1635,10 +1636,6 @@ def get_layout():
                                                                                         id="email-validation",
                                                                                         className="text-muted",
                                                                                     ),
-                                                                                    html.Div(
-                                                                                        id="annotator-id-display",
-                                                                                        className="text-muted small mt-1"
-                                                                                    ),
                                                                                     # NEW: OTP Verification Section (hidden by default)
                                                                                     html.Div(
                                                                                         id="otp-verification-section",
@@ -1673,6 +1670,10 @@ def get_layout():
                                                                                             ),
                                                                                         ],
                                                                                         style={"display": "none"}  # Hidden by default
+                                                                                    ),
+                                                                                    html.Div(
+                                                                                        id="annotator-id-display",
+                                                                                        className="text-muted small mt-2"
                                                                                     ),
                                                                                 ],
                                                                                 md=12,
@@ -2207,6 +2208,12 @@ def get_layout():
                                                                 id="btn-export-triples",
                                                                 color="info",
                                                                 className="mb-3"
+                                                            ),
+                                                            dbc.Checkbox(
+                                                                id="admin-unmask-toggle",
+                                                                label="Show unmasked contributor emails in Browse (admins only)",
+                                                                value=False,
+                                                                className="mb-2",
                                                             ),
                                                             dcc.Dropdown(
                                                                 id="export-project-filter",

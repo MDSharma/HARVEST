@@ -671,13 +671,14 @@ def rows():
                 "sink_entity_name", "sink_entity_attr", "triple_contributor", "project_id"]
         out = [dict(zip(cols, row)) for row in data]
         if triple_contributor_filter:
+            needle = triple_contributor_filter.strip().lower()
             filtered = []
             for row in out:
-                contributor = row.get("triple_contributor") or ""
+                contributor = (row.get("triple_contributor") or "").strip()
                 if not contributor:
                     continue
                 hashed = hashlib.sha256((EMAIL_HASH_SALT + contributor).encode()).hexdigest()[:16]
-                if hashed == triple_contributor_filter or contributor == triple_contributor_filter:
+                if hashed.lower().startswith(needle) or contributor.lower().startswith(needle):
                     filtered.append(row)
             out = filtered
         return jsonify(out)
