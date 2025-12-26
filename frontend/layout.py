@@ -1894,6 +1894,26 @@ def get_layout():
                                         ],
                                     ),
                                     dcc.Tab(
+                                        label="🔄 Text2KG",
+                                        value="tab-text2kg",
+                                        children=[
+                                            dbc.Card(
+                                                [
+                                                    html.H5([
+                                                        html.I(className="bi bi-diagram-3-fill me-2"),
+                                                        "Text2KG: Automated Knowledge Graph Extraction"
+                                                    ], className="mb-3"),
+                                                    html.Div(
+                                                        markdown_cache.get('text2kg_pipeline.md'),
+                                                        className="text2kg-content"
+                                                    ),
+                                                ],
+                                                body=True,
+                                                className="shadow-custom-md"
+                                            )
+                                        ],
+                                    ),
+                                    dcc.Tab(
                                         label="👤 Admin",
                                         value="tab-admin",
                                         children=[
