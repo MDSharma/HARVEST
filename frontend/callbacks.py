@@ -2056,7 +2056,7 @@ def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, cont
             params.append(f"project_id={project_filter}")
         if contributor_filter:
             params.append(f"triple_contributor={contributor_filter}")
-        url = API_RECENT if not params else f\"{API_RECENT}?{'&'.join(params)}\"
+        url = API_RECENT if not params else f"{API_RECENT}?{'&'.join(params)}"
         
         r = requests.get(url, timeout=8)
         print(f"Response status: {r.status_code}")
