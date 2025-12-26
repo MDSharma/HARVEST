@@ -53,7 +53,7 @@ log_error() {
 
 # Function to check if marker-pdf is installed
 check_marker_installed() {
-    if ! command -v marker_single &> /dev/null; then
+    if ! command -v marker &> /dev/null; then
         log_error "marker-pdf is not installed or not in PATH"
         log_info "Install with: pip install marker-pdf"
         log_info "See: https://github.com/VikParuchuri/marker"
@@ -102,12 +102,12 @@ convert_pdf() {
     log_info "Converting: $relative_path"
     
     # Run marker conversion
-    # marker_single accepts input PDF and output directory
+    # marker command converts single PDF file
     local output_dir="$(dirname "$markdown_file")"
     local output_basename="$(basename "${markdown_file%.md}")"
     local temp_error_log="/tmp/marker_error_$$.log"
     
-    if marker_single "$pdf_path" "$output_dir" --output_format markdown --filename "$output_basename" > /dev/null 2>"$temp_error_log"; then
+    if marker "$pdf_path" "$output_dir" --output_format markdown --filename "$output_basename" > /dev/null 2>"$temp_error_log"; then
         log_success "Converted: $relative_path → ${relative_path%.pdf}.md"
         rm -f "$temp_error_log"
         return 0
