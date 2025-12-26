@@ -8,6 +8,7 @@ from datetime import datetime
 import json
 import hashlib
 import traceback
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -360,7 +361,7 @@ def fetch_relation_dropdown_options(db_path: str):
     return opts
 
 
-def set_app_setting(db_path: str, key: str, value: object) -> None:
+def set_app_setting(db_path: str, key: str, value: Any) -> None:
     """Store an application-wide setting (JSON-serialized)."""
     conn = get_conn(db_path)
     cur = conn.cursor()
@@ -376,7 +377,7 @@ def set_app_setting(db_path: str, key: str, value: object) -> None:
     conn.close()
 
 
-def get_app_setting(db_path: str, key: str) -> object | None:
+def get_app_setting(db_path: str, key: str) -> Any | None:
     """Retrieve an application-wide setting (JSON-deserialized)."""
     conn = get_conn(db_path)
     cur = conn.cursor()

@@ -166,6 +166,7 @@ ALLOWED_BROWSE_FIELDS = {
     "sentence",
     "triple_contributor",
 }
+MAX_BROWSE_LIMIT = 10000
 
 # Token storage for admin sessions (in-memory)
 # Format: {token: {"email": email, "expires_at": timestamp}}
@@ -631,38 +632,30 @@ def rows():
     try:
         project_id = request.args.get('project_id', type=int)
         limit = request.args.get('limit', type=int)
-        if limit and limit > 10000:
-            limit = 10000
-        limit_clause = " LIMIT ?" if limit and limit > 0 else ""
+        if limit and limit > MAX_BROWSE_LIMIT:
+            limit = MAX_BROWSE_LIMIT
         
         conn = get_conn(DB_PATH)
         cur = conn.cursor()
-        
+        query = """
+            SELECT s.id, s.text, s.literature_link, s.doi_hash,
+                   dm.doi, t.id, t.source_entity_name,
+                   t.source_entity_attr, t.relation_type, t.sink_entity_name, t.sink_entity_attr,
+                   t.contributor_email as triple_contributor, t.project_id
+            FROM sentences s
+            LEFT JOIN doi_metadata dm ON s.doi_hash = dm.doi_hash
+            LEFT JOIN triples t ON s.id = t.sentence_id
+        """
+        params = []
         if project_id:
-            cur.execute("""
-                SELECT s.id, s.text, s.literature_link, s.doi_hash,
-                       dm.doi, t.id, t.source_entity_name,
-                       t.source_entity_attr, t.relation_type, t.sink_entity_name, t.sink_entity_attr,
-                       t.contributor_email as triple_contributor, t.project_id
-                FROM sentences s
-                LEFT JOIN doi_metadata dm ON s.doi_hash = dm.doi_hash
-                LEFT JOIN triples t ON s.id = t.sentence_id
-                WHERE t.project_id = ?
-                ORDER BY s.id DESC, t.id ASC""" + limit_clause,
-                (project_id, limit) if limit and limit > 0 else (project_id,)
-            )
-        else:
-            cur.execute("""
-                SELECT s.id, s.text, s.literature_link, s.doi_hash,
-                       dm.doi, t.id, t.source_entity_name,
-                       t.source_entity_attr, t.relation_type, t.sink_entity_name, t.sink_entity_attr,
-                       t.contributor_email as triple_contributor, t.project_id
-                FROM sentences s
-                LEFT JOIN doi_metadata dm ON s.doi_hash = dm.doi_hash
-                LEFT JOIN triples t ON s.id = t.sentence_id
-                ORDER BY s.id DESC, t.id ASC""" + limit_clause,
-                (limit,) if limit and limit > 0 else ()
-            )
+            query += " WHERE t.project_id = ?"
+            params.append(project_id)
+        query += " ORDER BY s.id DESC, t.id ASC"
+        if limit and limit > 0:
+            query += " LIMIT ?"
+            params.append(limit)
+
+        cur.execute(query, tuple(params))
         
         data = cur.fetchall()
         conn.close()
