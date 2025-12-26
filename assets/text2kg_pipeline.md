@@ -15,6 +15,14 @@ The Text2KG pipeline enables automated knowledge graph creation from PDF documen
   - Table and figure detection
   - Mathematical formula conversion
   - Citation and reference handling
+  - Optional LLM integration for enhanced extraction quality
+- **LLM Services**: 
+  - Supports OpenAI, Anthropic, Google, and other providers
+  - Configurable via `--llm_provider` and `--llm_model` options
+  - Improved extraction accuracy for complex documents
+- **Usage**: 
+  - Basic: `./scripts/convert_pdfs_with_marker.sh [project_name]`
+  - With LLM: `./scripts/convert_pdfs_with_marker.sh [project_name] --llm_provider openai --llm_model gpt-4o`
 
 #### 2. Markdown Processing
 - **Input**: Markdown files from conversion stage

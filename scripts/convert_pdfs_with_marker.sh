@@ -5,17 +5,43 @@
 # https://github.com/datalab-to/marker
 #
 # Usage:
-#   ./scripts/convert_pdfs_with_marker.sh [project_name]
+#   ./scripts/convert_pdfs_with_marker.sh [project_name] [marker_options...]
 #
-# If project_name is not provided, all projects will be processed.
+# Examples:
+#   # Process all projects with default settings
+#   ./scripts/convert_pdfs_with_marker.sh
+#
+#   # Process specific project
+#   ./scripts/convert_pdfs_with_marker.sh my_project
+#
+#   # Use LLM services for better extraction (OpenAI example)
+#   ./scripts/convert_pdfs_with_marker.sh my_project --llm_provider openai --llm_model gpt-4o
+#
+#   # Use specific language for OCR
+#   ./scripts/convert_pdfs_with_marker.sh --langs English
+#
+#   # Combine multiple options
+#   ./scripts/convert_pdfs_with_marker.sh my_project --llm_provider anthropic --llm_model claude-3-5-sonnet-20241022 --langs English
+#
+# Environment Variables:
+#   MARKER_LLM_API_KEY - API key for LLM services (recommended for LLM providers)
 #
 # Prerequisites:
 #   - marker-pdf installed: pip install marker-pdf
 #   - project_pdfs directory exists with PDF files
+#   - For LLM services: Set MARKER_LLM_API_KEY environment variable
 #
 # Output:
 #   - Markdown files will be created in project_markdowns directory
 #   - Directory structure mirrors project_pdfs
+#
+# Supported Marker Options:
+#   --llm_provider <provider>    LLM provider (openai, anthropic, google, etc.)
+#   --llm_model <model>          Specific LLM model to use
+#   --langs <language>           Language(s) for OCR (e.g., English, Spanish)
+#   --batch_multiplier <num>     Process multiple PDFs in parallel
+#   --workers <num>              Number of worker processes
+#   And other marker CLI options - pass them after the project name
 #
 
 set -e  # Exit on error
@@ -26,6 +52,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 PDF_DIR="${REPO_ROOT}/project_pdfs"
 MARKDOWN_DIR="${REPO_ROOT}/project_markdowns"
+
+# Additional marker options (passed as arguments)
+MARKER_EXTRA_OPTS=""
 
 # Color output
 RED='\033[0;31m'
@@ -101,13 +130,26 @@ convert_pdf() {
     
     log_info "Converting: $relative_path"
     
-    # Run marker conversion
+    # Run marker conversion with additional options
     # marker command converts single PDF file
     local output_dir="$(dirname "$markdown_file")"
     local output_basename="$(basename "${markdown_file%.md}")"
     local temp_error_log="/tmp/marker_error_$$.log"
     
-    if marker "$pdf_path" "$output_dir" --output_format markdown --filename "$output_basename" > /dev/null 2>"$temp_error_log"; then
+    # Build marker command with extra options
+    local marker_cmd="marker \"$pdf_path\" \"$output_dir\" --output_format markdown --filename \"$output_basename\""
+    
+    # Add extra options if provided
+    if [ -n "$MARKER_EXTRA_OPTS" ]; then
+        marker_cmd="$marker_cmd $MARKER_EXTRA_OPTS"
+    fi
+    
+    # Add API key if available in environment
+    if [ -n "${MARKER_LLM_API_KEY:-}" ]; then
+        marker_cmd="$marker_cmd --llm_api_key \"$MARKER_LLM_API_KEY\""
+    fi
+    
+    if eval "$marker_cmd" > /dev/null 2>"$temp_error_log"; then
         log_success "Converted: $relative_path → ${relative_path%.pdf}.md"
         rm -f "$temp_error_log"
         return 0
@@ -183,18 +225,38 @@ main() {
     log_info "=== Marker PDF to Markdown Conversion ==="
     log_info "Repository root: $REPO_ROOT"
     
+    # Parse arguments
+    local project_name=""
+    local remaining_args=()
+    
+    # First argument might be project name (if it doesn't start with --)
+    if [ $# -gt 0 ] && [[ ! "$1" =~ ^-- ]]; then
+        project_name="$1"
+        shift
+    fi
+    
+    # Remaining arguments are marker options
+    if [ $# -gt 0 ]; then
+        MARKER_EXTRA_OPTS="$*"
+        log_info "Using additional Marker options: $MARKER_EXTRA_OPTS"
+    fi
+    
+    # Show LLM API key status
+    if [ -n "${MARKER_LLM_API_KEY:-}" ]; then
+        log_info "LLM API key detected (will be passed to Marker)"
+    fi
+    
     # Pre-flight checks
     check_marker_installed
     check_pdf_directory
     create_markdown_directory
     
     # Process PDFs
-    if [ $# -eq 0 ]; then
-        # No arguments: process all projects
+    if [ -z "$project_name" ]; then
+        # No project name: process all projects
         process_all_projects
     else
         # Process specific project
-        local project_name="$1"
         log_info "Processing specific project: $project_name"
         process_project "$project_name"
     fi
