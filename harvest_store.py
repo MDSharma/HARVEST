@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import logging
 import os
 import sqlite3
 from datetime import datetime
 import json
 import hashlib
 import traceback
+
+logger = logging.getLogger(__name__)
 
 # -----------------------------
 # Seed schema from your JSON
@@ -373,7 +376,7 @@ def set_app_setting(db_path: str, key: str, value: object) -> None:
     conn.close()
 
 
-def get_app_setting(db_path: str, key: str):
+def get_app_setting(db_path: str, key: str) -> object | None:
     """Retrieve an application-wide setting (JSON-deserialized)."""
     conn = get_conn(db_path)
     cur = conn.cursor()
@@ -384,7 +387,8 @@ def get_app_setting(db_path: str, key: str):
         return None
     try:
         return json.loads(row[0])
-    except Exception:
+    except Exception as exc:
+        logger.warning(f"Failed to parse app_setting '{key}' as JSON: {exc}")
         return row[0]
 
 

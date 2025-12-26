@@ -631,6 +631,8 @@ def rows():
     try:
         project_id = request.args.get('project_id', type=int)
         limit = request.args.get('limit', type=int)
+        if limit and limit > 10000:
+            limit = 10000
         limit_clause = " LIMIT ?" if limit and limit > 0 else ""
         
         conn = get_conn(DB_PATH)

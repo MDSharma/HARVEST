@@ -4476,7 +4476,13 @@ def save_browse_field_config(selected_fields, admin_auth):
         payload["password"] = admin_auth.get("password", "")
 
     try:
-        requests.post(API_ADMIN_BROWSE_FIELDS, json=payload, timeout=5)
+        resp = requests.post(API_ADMIN_BROWSE_FIELDS, json=payload, timeout=5)
+        if not resp.ok:
+            logger.warning(
+                "Browse fields persistence failed (status=%s): %s",
+                resp.status_code,
+                resp.text[:200] if hasattr(resp, "text") else resp,
+            )
     except Exception as exc:
         logger.warning(f"Failed to persist browse fields to backend: {exc}")
 
