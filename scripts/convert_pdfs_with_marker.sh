@@ -2,7 +2,7 @@
 # convert_pdfs_with_marker.sh
 #
 # Convert PDF files in project_pdfs directory to Markdown using Marker
-# https://github.com/VikParuchuri/marker
+# https://github.com/datalab-to/marker
 #
 # Usage:
 #   ./scripts/convert_pdfs_with_marker.sh [project_name]
@@ -56,7 +56,7 @@ check_marker_installed() {
     if ! command -v marker &> /dev/null; then
         log_error "marker-pdf is not installed or not in PATH"
         log_info "Install with: pip install marker-pdf"
-        log_info "See: https://github.com/VikParuchuri/marker"
+        log_info "See: https://github.com/datalab-to/marker"
         exit 1
     fi
     log_success "marker-pdf is installed"
