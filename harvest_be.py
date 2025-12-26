@@ -5,6 +5,7 @@ import os
 import re
 import json
 import requests
+import sqlite3
 import logging
 from typing import Dict, Any, List, Tuple
 import threading
@@ -634,7 +635,7 @@ def rows():
         limit = request.args.get('limit', type=int)
         if limit is not None and limit <= 0:
             limit = None
-        if limit and limit > MAX_BROWSE_LIMIT:
+        if limit is not None and limit > MAX_BROWSE_LIMIT:
             limit = MAX_BROWSE_LIMIT
         
         conn = get_conn(DB_PATH)
@@ -727,7 +728,7 @@ def get_browse_fields():
         if not sanitized:
             sanitized = DEFAULT_BROWSE_VISIBLE_FIELDS
         return jsonify({"fields": sanitized})
-    except Exception as exc:  # pragma: no cover - defensive default
+    except (sqlite3.Error, ValueError) as exc:  # pragma: no cover - defensive default
         logger.error(f"Failed to fetch browse fields: {exc}", exc_info=True)
         return jsonify({"fields": DEFAULT_BROWSE_VISIBLE_FIELDS})
 
@@ -758,7 +759,7 @@ def update_browse_fields():
     try:
         set_browse_visible_fields(DB_PATH, sanitized)
         return jsonify({"ok": True, "fields": sanitized, "updated_by": email})
-    except Exception as exc:
+    except sqlite3.Error as exc:
         logger.error(f"Failed to update browse fields: {exc}", exc_info=True)
         return jsonify({"error": "Failed to save browse field configuration"}), 500
 

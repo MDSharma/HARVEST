@@ -4484,7 +4484,7 @@ def save_browse_field_config(selected_fields, admin_auth):
             logger.warning(
                 "Browse fields persistence failed (status=%s): %s",
                 resp.status_code,
-                resp.text[:200] if hasattr(resp, "text") else resp,
+                resp.text[:200],
             )
     except Exception as exc:
         logger.warning(f"Failed to persist browse fields to backend: {exc}")
