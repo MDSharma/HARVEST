@@ -4472,8 +4472,11 @@ def save_browse_field_config(selected_fields, admin_auth):
 
     payload = {"fields": fields}
     if admin_auth:
-        payload["email"] = admin_auth.get("email", "")
-        payload["password"] = admin_auth.get("password", "")
+        email = admin_auth.get("email")
+        password = admin_auth.get("password")
+        if email and password:
+            payload["email"] = email
+            payload["password"] = password
 
     try:
         resp = requests.post(API_ADMIN_BROWSE_FIELDS, json=payload, timeout=5)

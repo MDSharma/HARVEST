@@ -653,7 +653,7 @@ def rows():
             query += " WHERE t.project_id = ?"
             params.append(project_id)
         query += " ORDER BY s.id DESC, t.id ASC"
-        if limit and limit > 0:
+        if limit is not None and limit > 0:
             query += " LIMIT ?"
             params.append(limit)
 
