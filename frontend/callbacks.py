@@ -25,7 +25,7 @@ from frontend import (
     app, server, markdown_cache,
     API_BASE, API_CHOICES, API_SAVE, API_RECENT,
     API_VALIDATE_DOI, API_ADMIN_AUTH, API_PROJECTS, API_ADMIN_PROJECTS,
-    API_ADMIN_TRIPLE, 
+    API_ADMIN_TRIPLE, API_BROWSE_FIELDS, API_ADMIN_BROWSE_FIELDS,
     SCHEMA_JSON, OTHER_SENTINEL, EMAIL_HASH_SALT,
     ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING, ENABLE_LITERATURE_REVIEW,
     DASH_REQUESTS_PATHNAME_PREFIX, PORT, ASREVIEW_SERVICE_URL,
@@ -69,6 +69,33 @@ if ENABLE_DEBUG_LOGGING:
     logging.basicConfig(level=logging.DEBUG)
     logger.setLevel(logging.DEBUG)
     logger.debug("DEBUG LOGGING ENABLED - This will generate verbose logs!")
+
+DEFAULT_BROWSE_FIELDS = [
+    "project_id",
+    "sentence_id",
+    "sentence",
+    "source_entity_name",
+    "source_entity_attr",
+    "relation_type",
+    "sink_entity_name",
+    "sink_entity_attr",
+    "triple_id",
+]
+ALLOWED_BROWSE_FIELDS = {
+    "sentence_id",
+    "triple_id",
+    "project_id",
+    "doi",
+    "doi_hash",
+    "literature_link",
+    "relation_type",
+    "source_entity_name",
+    "source_entity_attr",
+    "sink_entity_name",
+    "sink_entity_attr",
+    "sentence",
+    "triple_contributor",
+}
 
 # Rate limiting state for data fetches
 _last_fetch_times = {
@@ -1983,7 +2010,9 @@ def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, visi
     
     # Use default fields if none configured
     if not visible_fields:
-        visible_fields = ["project_id", "sentence_id", "sentence", "source_entity_name", "source_entity_attr", "relation_type", "sink_entity_name", "sink_entity_attr", "triple_id"]
+        visible_fields = DEFAULT_BROWSE_FIELDS
+    else:
+        visible_fields = [f for f in visible_fields if f in ALLOWED_BROWSE_FIELDS] or DEFAULT_BROWSE_FIELDS
     
     # Rate limiting: check if enough time has passed since last fetch
     # Allow manual refresh button to bypass cooldown
@@ -4432,30 +4461,50 @@ def handle_legacy_markdown_reload_request_4_v3(n, tab_value):
 
 # Callback to save browse field configuration
 @app.callback(
-    Output("browse-field-config", "data"),
+    Output("browse-field-config", "data", allow_duplicate=True),
     Input("browse-field-selector", "value"),
+    State("admin-auth-store", "data"),
     prevent_initial_call=True,
 )
-def save_browse_field_config(selected_fields):
-    """Save the selected fields to session storage"""
-    if not selected_fields:
-        # Default fields if nothing selected
-        return ["project_id", "sentence_id", "sentence", "source_entity_name", "source_entity_attr", "relation_type", "sink_entity_name", "sink_entity_attr", "triple_id"]
-    return selected_fields
+def save_browse_field_config(selected_fields, admin_auth):
+    """Persist selected browse fields globally via the backend and store locally."""
+    fields = [f for f in (selected_fields or []) if f in ALLOWED_BROWSE_FIELDS] or DEFAULT_BROWSE_FIELDS
+
+    payload = {"fields": fields}
+    if admin_auth:
+        payload["email"] = admin_auth.get("email", "")
+        payload["password"] = admin_auth.get("password", "")
+
+    try:
+        requests.post(API_ADMIN_BROWSE_FIELDS, json=payload, timeout=5)
+    except Exception as exc:
+        logger.warning(f"Failed to persist browse fields to backend: {exc}")
+
+    return fields
 
 
 # Callback to load initial browse field configuration into dropdown
 @app.callback(
     Output("browse-field-selector", "value"),
+    Output("browse-field-config", "data", allow_duplicate=True),
     Input("load-trigger", "n_intervals"),
-    State("browse-field-config", "data"),
     prevent_initial_call=False,
 )
-def load_browse_field_config(n, stored_fields):
-    """Load the stored field configuration on page load"""
-    if stored_fields:
-        return stored_fields
-    return ["project_id", "sentence_id", "sentence", "source_entity_name", "source_entity_attr", "relation_type", "sink_entity_name", "sink_entity_attr", "triple_id"]
+def load_browse_field_config(n):
+    """Load the global browse field configuration on page load."""
+    fields = DEFAULT_BROWSE_FIELDS
+    try:
+        r = requests.get(API_BROWSE_FIELDS, timeout=5)
+        if r.ok:
+            data = r.json()
+            api_fields = data.get("fields") if isinstance(data, dict) else None
+            if api_fields:
+                fields = api_fields
+    except Exception as exc:
+        logger.warning(f"Failed to load browse fields from backend: {exc}")
+
+    fields = [f for f in fields if f in ALLOWED_BROWSE_FIELDS] or DEFAULT_BROWSE_FIELDS
+    return fields, fields
 
 
 # Callback to toggle advanced per-source limits

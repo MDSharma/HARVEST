@@ -48,6 +48,8 @@ from harvest_store import (
     get_batch_dois,
     update_doi_status,
     get_doi_status_summary,
+    set_browse_visible_fields,
+    get_browse_visible_fields,
 )
 
 # Import configuration
@@ -136,6 +138,34 @@ else:
     # In internal mode, only allow localhost origins
     CORS(app, origins=["http://localhost:*", "http://127.0.0.1:*", "http://0.0.0.0:*"])
     logger.info(f"CORS enabled for internal mode (localhost only)")
+
+# Browse tab display configuration defaults/validation
+DEFAULT_BROWSE_VISIBLE_FIELDS = [
+    "project_id",
+    "sentence_id",
+    "sentence",
+    "source_entity_name",
+    "source_entity_attr",
+    "relation_type",
+    "sink_entity_name",
+    "sink_entity_attr",
+    "triple_id",
+]
+ALLOWED_BROWSE_FIELDS = {
+    "sentence_id",
+    "triple_id",
+    "project_id",
+    "doi",
+    "doi_hash",
+    "literature_link",
+    "relation_type",
+    "source_entity_name",
+    "source_entity_attr",
+    "sink_entity_name",
+    "sink_entity_attr",
+    "sentence",
+    "triple_contributor",
+}
 
 # Token storage for admin sessions (in-memory)
 # Format: {token: {"email": email, "expires_at": timestamp}}
@@ -614,8 +644,7 @@ def rows():
                 LEFT JOIN doi_metadata dm ON s.doi_hash = dm.doi_hash
                 LEFT JOIN triples t ON s.id = t.sentence_id
                 WHERE t.project_id = ?
-                ORDER BY s.id DESC, t.id ASC
-                LIMIT 200;
+                ORDER BY s.id DESC, t.id ASC;
             """, (project_id,))
         else:
             cur.execute("""
@@ -626,8 +655,7 @@ def rows():
                 FROM sentences s
                 LEFT JOIN doi_metadata dm ON s.doi_hash = dm.doi_hash
                 LEFT JOIN triples t ON s.id = t.sentence_id
-                ORDER BY s.id DESC, t.id ASC
-                LIMIT 200;
+                ORDER BY s.id DESC, t.id ASC;
             """)
         
         data = cur.fetchall()
@@ -684,6 +712,54 @@ def admin_auth():
             "authenticated": False,
             "is_admin": False
         }), 401
+
+
+@app.get("/api/browse-fields")
+def get_browse_fields():
+    """
+    Return the global browse visible fields configuration.
+    Public endpoint so all sessions load the same defaults.
+    """
+    try:
+        fields = get_browse_visible_fields(DB_PATH) or DEFAULT_BROWSE_VISIBLE_FIELDS
+        sanitized = [f for f in fields if f in ALLOWED_BROWSE_FIELDS]
+        if not sanitized:
+            sanitized = DEFAULT_BROWSE_VISIBLE_FIELDS
+        return jsonify({"fields": sanitized})
+    except Exception as exc:  # pragma: no cover - defensive default
+        logger.error(f"Failed to fetch browse fields: {exc}", exc_info=True)
+        return jsonify({"fields": DEFAULT_BROWSE_VISIBLE_FIELDS})
+
+
+@app.post("/api/admin/browse-fields")
+def update_browse_fields():
+    """
+    Update the global browse visible fields configuration (admin only).
+    Expected JSON: { "token": "...", OR "email": "...", "password": "...", "fields": [...] }
+    """
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    is_authenticated, email = verify_admin_auth(payload)
+    if not is_authenticated:
+        return jsonify({"error": "Invalid admin credentials"}), 403
+
+    fields = payload.get("fields") or payload.get("visible_fields") or []
+    if not isinstance(fields, list):
+        return jsonify({"error": "fields must be a list"}), 400
+
+    sanitized = [f for f in fields if isinstance(f, str) and f in ALLOWED_BROWSE_FIELDS]
+    if not sanitized:
+        return jsonify({"error": "At least one valid field is required"}), 400
+
+    try:
+        set_browse_visible_fields(DB_PATH, sanitized)
+        return jsonify({"ok": True, "fields": sanitized, "updated_by": email})
+    except Exception as exc:
+        logger.error(f"Failed to update browse fields: {exc}", exc_info=True)
+        return jsonify({"error": "Failed to save browse field configuration"}), 500
 
 @app.post("/api/admin/create-user")
 def admin_create_user():
