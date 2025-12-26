@@ -4497,7 +4497,7 @@ def save_browse_field_config(selected_fields, admin_auth):
     Output("browse-field-selector", "value"),
     Output("browse-field-config", "data", allow_duplicate=True),
     Input("load-trigger", "n_intervals"),
-    prevent_initial_call=False,
+    prevent_initial_call="initial_duplicate",
 )
 def load_browse_field_config(n):
     """Load the global browse field configuration on page load."""
