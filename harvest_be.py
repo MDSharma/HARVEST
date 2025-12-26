@@ -7,6 +7,7 @@ import json
 import requests
 import sqlite3
 import logging
+import hashlib
 from typing import Dict, Any, List, Tuple
 import threading
 import time
@@ -58,7 +59,7 @@ try:
     from config import (
         DB_PATH, BE_PORT as PORT, HOST, ENABLE_PDF_HIGHLIGHTING,
         DEPLOYMENT_MODE, BACKEND_PUBLIC_URL,
-        NCBI_API_KEY
+        NCBI_API_KEY, EMAIL_HASH_SALT
     )
     # Set NCBI_API_KEY as environment variable for metapub if defined
     if NCBI_API_KEY:
@@ -72,6 +73,7 @@ except ImportError:
     DEPLOYMENT_MODE = os.environ.get("HARVEST_DEPLOYMENT_MODE", "internal")
     BACKEND_PUBLIC_URL = os.environ.get("HARVEST_BACKEND_PUBLIC_URL", "")
     NCBI_API_KEY = ""
+    EMAIL_HASH_SALT = os.getenv("EMAIL_HASH_SALT", "default-insecure-salt-change-me")
 
 # Setup logging first
 logger = logging.getLogger(__name__)
@@ -632,6 +634,7 @@ def rows():
     from harvest_store import get_conn
     try:
         project_id = request.args.get('project_id', type=int)
+        triple_contributor_filter = request.args.get('triple_contributor', type=str)
         limit = request.args.get('limit', type=int)
         if limit is not None and limit <= 0:
             limit = None
@@ -667,6 +670,16 @@ def rows():
                 "source_entity_name", "source_entity_attr", "relation_type",
                 "sink_entity_name", "sink_entity_attr", "triple_contributor", "project_id"]
         out = [dict(zip(cols, row)) for row in data]
+        if triple_contributor_filter:
+            filtered = []
+            for row in out:
+                contributor = row.get("triple_contributor") or ""
+                if not contributor:
+                    continue
+                hashed = hashlib.sha256((EMAIL_HASH_SALT + contributor).encode()).hexdigest()[:16]
+                if hashed == triple_contributor_filter or contributor == triple_contributor_filter:
+                    filtered.append(row)
+            out = filtered
         return jsonify(out)
     except Exception as e:
         logger.error(f"Failed to fetch rows: {e}", exc_info=True)
@@ -2128,8 +2141,9 @@ def debug_pdf_highlighting():
 @app.post("/api/admin/export/triples")
 def export_triples_json():
     """
-    Export all triples from the database as JSON (admin only).
-    Expected JSON: { "email": "admin@example.com", "password": "secret" }
+    Export triples from the database as JSON (admin only).
+    Expected JSON: { "email": "admin@example.com", "password": "secret", "project_id": optional }
+    If project_id is provided, exports only data related to that project; otherwise exports all.
     Returns a JSON file with all triple data including sentences, metadata, and relationships.
     """
     try:
@@ -2141,8 +2155,14 @@ def export_triples_json():
     email = (payload.get("email") or "").strip()
     password = payload.get("password") or ""
     
+    project_id = payload.get("project_id")
     if not email or not password:
         return jsonify({"error": "Email and password required"}), 400
+    if project_id is not None:
+        try:
+            project_id = int(project_id)
+        except (TypeError, ValueError):
+            return jsonify({"error": "project_id must be an integer"}), 400
     
     try:
         # Verify admin status
@@ -2171,39 +2191,67 @@ def export_triples_json():
         }
         
         # Get all triples
-        cursor.execute("""
+        triple_params = []
+        triple_where = ""
+        if project_id:
+            triple_where = " WHERE project_id = ? "
+            triple_params.append(project_id)
+        
+        cursor.execute(f"""
             SELECT id, sentence_id, source_entity_name, source_entity_attr, relation_type, 
                    sink_entity_name, sink_entity_attr, contributor_email, created_at, project_id
             FROM triples
+            {triple_where}
             ORDER BY id
-        """)
-        for row in cursor.fetchall():
+        """, triple_params)
+        triples = cursor.fetchall()
+        for row in triples:
             export_data["triples"].append(dict(row))
         
-        # Get all sentences
-        cursor.execute("""
-            SELECT id, text, literature_link, doi_hash, created_at
-            FROM sentences
-            ORDER BY id
-        """)
-        for row in cursor.fetchall():
-            export_data["sentences"].append(dict(row))
+        sentence_ids = {row["sentence_id"] for row in triples}
+        project_ids = {row["project_id"] for row in triples if row["project_id"] is not None}
         
-        # Get all DOI metadata
-        cursor.execute("""
-            SELECT doi_hash, doi, created_at
-            FROM doi_metadata
-            ORDER BY doi_hash
-        """)
-        for row in cursor.fetchall():
-            export_data["doi_metadata"].append(dict(row))
+        # Get sentences referenced by exported triples
+        if sentence_ids:
+            placeholders = ",".join("?" for _ in sentence_ids)
+            cursor.execute(f"""
+                SELECT id, text, literature_link, doi_hash, created_at
+                FROM sentences
+                WHERE id IN ({placeholders})
+                ORDER BY id
+            """, tuple(sentence_ids))
+            for row in cursor.fetchall():
+                export_data["sentences"].append(dict(row))
+        else:
+            export_data["sentences"] = []
         
-        # Get all projects
-        cursor.execute("""
-            SELECT id, name, description, doi_list, created_by, created_at
-            FROM projects
-            ORDER BY id
-        """)
+        # Get DOI metadata for exported sentences
+        doi_hashes = {row["doi_hash"] for row in export_data["sentences"] if row.get("doi_hash")}
+        if doi_hashes:
+            placeholders = ",".join("?" for _ in doi_hashes)
+            cursor.execute(f"""
+                SELECT doi_hash, doi, created_at
+                FROM doi_metadata
+                WHERE doi_hash IN ({placeholders})
+                ORDER BY doi_hash
+            """, tuple(doi_hashes))
+            for row in cursor.fetchall():
+                export_data["doi_metadata"].append(dict(row))
+        
+        # Get projects (either specific or all referenced)
+        if project_id:
+            cursor.execute("""
+                SELECT id, name, description, doi_list, created_by, created_at
+                FROM projects
+                WHERE id = ?
+                ORDER BY id
+            """, (project_id,))
+        else:
+            cursor.execute("""
+                SELECT id, name, description, doi_list, created_by, created_at
+                FROM projects
+                ORDER BY id
+            """)
         for row in cursor.fetchall():
             export_data["projects"].append(dict(row))
         

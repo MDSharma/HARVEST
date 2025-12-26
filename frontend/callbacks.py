@@ -567,6 +567,19 @@ def populate_verified_email(otp_session):
 
 
 @app.callback(
+    Output("annotator-id-display", "children"),
+    Input("contributor-email", "value"),
+    prevent_initial_call=False,
+)
+def show_annotator_id(email_value):
+    """Display hashed annotator ID when email is present/verified."""
+    if not email_value:
+        return ""
+    annotator_id = hashlib.sha256((EMAIL_HASH_SALT + email_value).encode()).hexdigest()[:16]
+    return f"Annotator ID: {annotator_id}"
+
+
+@app.callback(
     Output("otp-verification-feedback", "children", allow_duplicate=True),
     Input("otp-resend-button", "n_clicks"),
     State("otp-verification-store", "data"),
@@ -2000,10 +2013,12 @@ def populate_browse_project_filter(load_trigger, refresh_click, tab_value):
     Input("load-trigger", "n_intervals"),
     Input("main-tabs", "value"),
     State("browse-project-filter", "value"),
+    State("browse-contributor-filter", "value"),
     State("browse-field-config", "data"),
+    State("admin-auth-store", "data"),
     prevent_initial_call=False,
 )
-def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, visible_fields):
+def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, contributor_filter, visible_fields, admin_auth):
     # Only refresh if Browse tab is active
     if tab_value != "tab-browse" and ctx.triggered_id == "main-tabs":
         return no_update
@@ -2035,10 +2050,13 @@ def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, visi
     
     try:
         print(f"Fetching recent data from {API_RECENT}")
-        # Add project_id filter if selected
-        url = API_RECENT
+        # Add project_id and contributor filters if selected
+        params = []
         if project_filter:
-            url = f"{API_RECENT}?project_id={project_filter}"
+            params.append(f"project_id={project_filter}")
+        if contributor_filter:
+            params.append(f"triple_contributor={contributor_filter}")
+        url = API_RECENT if not params else f\"{API_RECENT}?{'&'.join(params)}\"
         
         r = requests.get(url, timeout=8)
         print(f"Response status: {r.status_code}")
@@ -2059,7 +2077,10 @@ def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, visi
             return dbc.Alert("No records found. Try adding some data first!", color="info")
 
         # Hash email addresses for privacy using installation-specific salt
+        is_admin = bool(admin_auth and (admin_auth.get("email") or admin_auth.get("token")))
         for row in rows:
+            if is_admin:
+                continue
             # Hash the 'email' field if present (legacy field name)
             if 'email' in row and row['email']:
                 row['email'] = hashlib.sha256((EMAIL_HASH_SALT + row['email']).encode()).hexdigest()[:16] + '...'
@@ -2151,6 +2172,18 @@ def load_projects(load_trigger, create_click, tab_value):
     except Exception as e:
         print(f"Failed to load projects: {e}")
         return [], []
+
+@app.callback(
+    Output("export-project-filter", "options"),
+    Input("projects-store", "data"),
+    prevent_initial_call=False,
+)
+def populate_export_project_filter(projects):
+    if not projects:
+        return []
+    return [{"label": "All projects", "value": None}] + [
+        {"label": p["name"], "value": p["id"]} for p in projects
+    ]
 
 # Show project info when selected and populate DOI list (only if no batches)
 @app.callback(
@@ -4267,9 +4300,10 @@ def display_existing_batches(project_id, auth_data):
     Output("export-triples-message", "children"),
     Input("btn-export-triples", "n_clicks"),
     State("admin-auth-store", "data"),
+    State("export-project-filter", "value"),
     prevent_initial_call=True,
 )
-def export_triples_callback(n_clicks, auth_data):
+def export_triples_callback(n_clicks, auth_data, export_project):
     """Handle exporting triples database as JSON"""
     if not auth_data:
         return dbc.Alert("Please login first", color="danger")
@@ -4280,7 +4314,8 @@ def export_triples_callback(n_clicks, auth_data):
             f"{API_BASE}/api/admin/export/triples",
             json={
                 "email": auth_data["email"],
-                "password": auth_data["password"]
+                "password": auth_data["password"],
+                "project_id": export_project
             },
             timeout=30
         )
