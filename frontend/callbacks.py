@@ -25,7 +25,7 @@ from frontend import (
     app, server, markdown_cache,
     API_BASE, API_CHOICES, API_SAVE, API_RECENT,
     API_VALIDATE_DOI, API_ADMIN_AUTH, API_PROJECTS, API_ADMIN_PROJECTS,
-    API_ADMIN_TRIPLE, 
+    API_ADMIN_TRIPLE, API_BROWSE_FIELDS, API_ADMIN_BROWSE_FIELDS,
     SCHEMA_JSON, OTHER_SENTINEL, EMAIL_HASH_SALT,
     ENABLE_LITERATURE_SEARCH, ENABLE_PDF_HIGHLIGHTING, ENABLE_LITERATURE_REVIEW,
     DASH_REQUESTS_PATHNAME_PREFIX, PORT, ASREVIEW_SERVICE_URL,
@@ -69,6 +69,33 @@ if ENABLE_DEBUG_LOGGING:
     logging.basicConfig(level=logging.DEBUG)
     logger.setLevel(logging.DEBUG)
     logger.debug("DEBUG LOGGING ENABLED - This will generate verbose logs!")
+
+DEFAULT_BROWSE_FIELDS = [
+    "project_id",
+    "sentence_id",
+    "sentence",
+    "source_entity_name",
+    "source_entity_attr",
+    "relation_type",
+    "sink_entity_name",
+    "sink_entity_attr",
+    "triple_id",
+]
+ALLOWED_BROWSE_FIELDS = {
+    "sentence_id",
+    "triple_id",
+    "project_id",
+    "doi",
+    "doi_hash",
+    "literature_link",
+    "relation_type",
+    "source_entity_name",
+    "source_entity_attr",
+    "sink_entity_name",
+    "sink_entity_attr",
+    "sentence",
+    "triple_contributor",
+}
 
 # Rate limiting state for data fetches
 _last_fetch_times = {
@@ -537,6 +564,23 @@ def populate_verified_email(otp_session):
     
     # Not verified or session invalid - clear email and leave field editable
     return "", False
+
+
+@app.callback(
+    Output("annotator-id-display", "children"),
+    Input("otp-session-store", "data"),
+    State("contributor-email", "value"),
+    prevent_initial_call=False,
+)
+def show_annotator_id(otp_session, email_value):
+    """Display hashed annotator ID only after email verification."""
+    if not otp_session or not otp_session.get("session_id") or not otp_session.get("email"):
+        return ""
+    email = otp_session.get("email") or email_value
+    if not email:
+        return ""
+    annotator_id = hashlib.sha256((EMAIL_HASH_SALT + email).encode()).hexdigest()[:16]
+    return f"Annotator ID: {annotator_id}"
 
 
 @app.callback(
@@ -1973,17 +2017,22 @@ def populate_browse_project_filter(load_trigger, refresh_click, tab_value):
     Input("load-trigger", "n_intervals"),
     Input("main-tabs", "value"),
     State("browse-project-filter", "value"),
+    State("browse-contributor-filter", "value"),
     State("browse-field-config", "data"),
+    State("admin-auth-store", "data"),
+    State("admin-unmask-store", "data"),
     prevent_initial_call=False,
 )
-def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, visible_fields):
+def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, contributor_filter, visible_fields, admin_auth, admin_unmask):
     # Only refresh if Browse tab is active
     if tab_value != "tab-browse" and ctx.triggered_id == "main-tabs":
         return no_update
     
     # Use default fields if none configured
     if not visible_fields:
-        visible_fields = ["project_id", "sentence_id", "sentence", "source_entity_name", "source_entity_attr", "relation_type", "sink_entity_name", "sink_entity_attr", "triple_id"]
+        visible_fields = DEFAULT_BROWSE_FIELDS
+    else:
+        visible_fields = [f for f in visible_fields if f in ALLOWED_BROWSE_FIELDS] or DEFAULT_BROWSE_FIELDS
     
     # Rate limiting: check if enough time has passed since last fetch
     # Allow manual refresh button to bypass cooldown
@@ -2006,10 +2055,14 @@ def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, visi
     
     try:
         print(f"Fetching recent data from {API_RECENT}")
-        # Add project_id filter if selected
-        url = API_RECENT
+        # Add project_id and contributor filters if selected
+        params = []
         if project_filter:
-            url = f"{API_RECENT}?project_id={project_filter}"
+            params.append(f"project_id={project_filter}")
+        if contributor_filter:
+            params.append(f"triple_contributor={contributor_filter}")
+        params.append("limit=1000")
+        url = API_RECENT if not params else f"{API_RECENT}?{'&'.join(params)}"
         
         r = requests.get(url, timeout=8)
         print(f"Response status: {r.status_code}")
@@ -2030,13 +2083,15 @@ def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, visi
             return dbc.Alert("No records found. Try adding some data first!", color="info")
 
         # Hash email addresses for privacy using installation-specific salt
+        is_admin = bool(admin_auth and (admin_auth.get("email") or admin_auth.get("token")))
         for row in rows:
-            # Hash the 'email' field if present (legacy field name)
-            if 'email' in row and row['email']:
-                row['email'] = hashlib.sha256((EMAIL_HASH_SALT + row['email']).encode()).hexdigest()[:16] + '...'
-            # Hash the 'triple_contributor' field (actual field name from backend)
-            if 'triple_contributor' in row and row['triple_contributor']:
-                row['triple_contributor'] = hashlib.sha256((EMAIL_HASH_SALT + row['triple_contributor']).encode()).hexdigest()[:16] + '...'
+            if not (is_admin and admin_unmask):
+                # Hash the 'email' field if present (legacy field name)
+                if 'email' in row and row['email']:
+                    row['email'] = hashlib.sha256((EMAIL_HASH_SALT + row['email']).encode()).hexdigest()[:16] + '...'
+                # Hash the 'triple_contributor' field (actual field name from backend)
+                if 'triple_contributor' in row and row['triple_contributor']:
+                    row['triple_contributor'] = hashlib.sha256((EMAIL_HASH_SALT + row['triple_contributor']).encode()).hexdigest()[:16] + '...'
         
         # Filter columns based on admin configuration
         if rows:
@@ -2122,6 +2177,31 @@ def load_projects(load_trigger, create_click, tab_value):
     except Exception as e:
         print(f"Failed to load projects: {e}")
         return [], []
+
+@app.callback(
+    Output("export-project-filter", "options"),
+    Input("projects-store", "data"),
+    prevent_initial_call=False,
+)
+def populate_export_project_filter(projects):
+    if not projects:
+        return []
+    return [{"label": "All projects", "value": None}] + [
+        {"label": p["name"], "value": p["id"]} for p in projects
+    ]
+
+
+@app.callback(
+    Output("admin-unmask-store", "data"),
+    Input("admin-unmask-toggle", "value"),
+    State("admin-auth-store", "data"),
+    prevent_initial_call=True,
+)
+def set_admin_unmask(toggle_value, auth_data):
+    """Allow admins to toggle unmasked emails in Browse."""
+    if not auth_data:
+        return False
+    return bool(toggle_value)
 
 # Show project info when selected and populate DOI list (only if no batches)
 @app.callback(
@@ -4238,9 +4318,11 @@ def display_existing_batches(project_id, auth_data):
     Output("export-triples-message", "children"),
     Input("btn-export-triples", "n_clicks"),
     State("admin-auth-store", "data"),
+    State("export-project-filter", "value"),
+    State("admin-unmask-toggle", "value"),
     prevent_initial_call=True,
 )
-def export_triples_callback(n_clicks, auth_data):
+def export_triples_callback(n_clicks, auth_data, export_project, unmask_toggle):
     """Handle exporting triples database as JSON"""
     if not auth_data:
         return dbc.Alert("Please login first", color="danger")
@@ -4251,7 +4333,8 @@ def export_triples_callback(n_clicks, auth_data):
             f"{API_BASE}/api/admin/export/triples",
             json={
                 "email": auth_data["email"],
-                "password": auth_data["password"]
+                "password": auth_data["password"],
+                "project_id": export_project
             },
             timeout=30
         )
@@ -4432,30 +4515,59 @@ def handle_legacy_markdown_reload_request_4_v3(n, tab_value):
 
 # Callback to save browse field configuration
 @app.callback(
-    Output("browse-field-config", "data"),
+    Output("browse-field-config", "data", allow_duplicate=True),
     Input("browse-field-selector", "value"),
+    State("admin-auth-store", "data"),
     prevent_initial_call=True,
 )
-def save_browse_field_config(selected_fields):
-    """Save the selected fields to session storage"""
-    if not selected_fields:
-        # Default fields if nothing selected
-        return ["project_id", "sentence_id", "sentence", "source_entity_name", "source_entity_attr", "relation_type", "sink_entity_name", "sink_entity_attr", "triple_id"]
-    return selected_fields
+def save_browse_field_config(selected_fields, admin_auth):
+    """Persist selected browse fields globally via the backend and store locally."""
+    fields = [f for f in (selected_fields or []) if f in ALLOWED_BROWSE_FIELDS] or DEFAULT_BROWSE_FIELDS
+
+    payload = {"fields": fields}
+    if admin_auth:
+        email = admin_auth.get("email")
+        password = admin_auth.get("password")
+        if email and password:
+            payload["email"] = email
+            payload["password"] = password
+
+    try:
+        resp = requests.post(API_ADMIN_BROWSE_FIELDS, json=payload, timeout=5)
+        if not resp.ok:
+            logger.warning(
+                "Browse fields persistence failed (status=%s): %s",
+                resp.status_code,
+                resp.text[:200],
+            )
+    except Exception as exc:
+        logger.warning(f"Failed to persist browse fields to backend: {exc}")
+
+    return fields
 
 
 # Callback to load initial browse field configuration into dropdown
 @app.callback(
     Output("browse-field-selector", "value"),
+    Output("browse-field-config", "data", allow_duplicate=True),
     Input("load-trigger", "n_intervals"),
-    State("browse-field-config", "data"),
-    prevent_initial_call=False,
+    prevent_initial_call="initial_duplicate",
 )
-def load_browse_field_config(n, stored_fields):
-    """Load the stored field configuration on page load"""
-    if stored_fields:
-        return stored_fields
-    return ["project_id", "sentence_id", "sentence", "source_entity_name", "source_entity_attr", "relation_type", "sink_entity_name", "sink_entity_attr", "triple_id"]
+def load_browse_field_config(n):
+    """Load the global browse field configuration on page load."""
+    fields = DEFAULT_BROWSE_FIELDS
+    try:
+        r = requests.get(API_BROWSE_FIELDS, timeout=5)
+        if r.ok:
+            data = r.json()
+            api_fields = data.get("fields") if isinstance(data, dict) else None
+            if api_fields:
+                fields = api_fields
+    except Exception as exc:
+        logger.warning(f"Failed to load browse fields from backend: {exc}")
+
+    fields = [f for f in fields if f in ALLOWED_BROWSE_FIELDS] or DEFAULT_BROWSE_FIELDS
+    return fields, fields
 
 
 # Callback to toggle advanced per-source limits

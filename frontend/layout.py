@@ -438,7 +438,8 @@ def get_layout():
             dcc.Store(id="pdf-download-project-id", data=None),  # Store project ID for PDF download tracking
             dcc.Store(id="lit-search-selected-papers", data=[]),  # Store selected papers
             dcc.Store(id="lit-search-session-papers", data=[], storage_type="session"),  # Store all papers from session
-            dcc.Store(id="browse-field-config", data=["project_id", "sentence_id", "sentence", "source_entity_name", "source_entity_attr", "relation_type", "sink_entity_name", "sink_entity_attr", "triple_id"], storage_type="local"),  # Store browse field configuration
+            dcc.Store(id="browse-field-config", data=None, storage_type="local"),  # Store browse field configuration
+            dcc.Store(id="admin-unmask-store", data=False, storage_type="session"),  # Admin toggle for unmasked emails
             dcc.Interval(id="load-trigger", n_intervals=0, interval=200, max_intervals=1),
             dcc.Interval(id="pdf-download-progress-interval", interval=2000, disabled=True),  # Poll every 2 seconds
         
@@ -1670,6 +1671,10 @@ def get_layout():
                                                                                         ],
                                                                                         style={"display": "none"}  # Hidden by default
                                                                                     ),
+                                                                                    html.Div(
+                                                                                        id="annotator-id-display",
+                                                                                        className="text-muted small mt-2"
+                                                                                    ),
                                                                                 ],
                                                                                 md=12,
                                                                             ),
@@ -1859,14 +1864,25 @@ def get_layout():
                                                                         clearable=True,
                                                                     ),
                                                                 ],
-                                                                md=6,
+                                                                md=4,
+                                                            ),
+                                                            dbc.Col(
+                                                                [
+                                                                    dbc.Label("Filter by Annotator ID"),
+                                                                    dbc.Input(
+                                                                        id="browse-contributor-filter",
+                                                                        placeholder="Enter Annotator ID (hashed)",
+                                                                        type="text",
+                                                                    ),
+                                                                ],
+                                                                md=4,
                                                             ),
                                                             dbc.Col(
                                                                 [
                                                                     html.Br(),
                                                                     dbc.Button("Refresh", id="btn-refresh", color="secondary"),
                                                                 ],
-                                                                md=6,
+                                                                md=4,
                                                             ),
                                                         ],
                                                         className="mb-2",
@@ -2192,6 +2208,18 @@ def get_layout():
                                                                 id="btn-export-triples",
                                                                 color="info",
                                                                 className="mb-3"
+                                                            ),
+                                                            dbc.Checkbox(
+                                                                id="admin-unmask-toggle",
+                                                                label="Show unmasked contributor emails in Browse (admins only)",
+                                                                value=False,
+                                                                className="mb-2",
+                                                            ),
+                                                            dcc.Dropdown(
+                                                                id="export-project-filter",
+                                                                placeholder="Export scope (default: All projects)",
+                                                                clearable=True,
+                                                                className="mb-2",
                                                             ),
                                                             html.Div(id="export-triples-message"),
                                                         ],

@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import logging
 import os
 import sqlite3
 from datetime import datetime
 import json
 import hashlib
 import traceback
+from typing import Any, List, Optional
+
+logger = logging.getLogger(__name__)
 
 # -----------------------------
 # Seed schema from your JSON
@@ -202,6 +206,14 @@ def init_db(db_path: str) -> None:
     """)
     
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+    """)
+    
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS pdf_download_progress (
             project_id INTEGER PRIMARY KEY,
             status TEXT NOT NULL,
@@ -347,6 +359,51 @@ def fetch_relation_dropdown_options(db_path: str):
     conn.close()
     opts = [name for (name,) in rows]
     return opts
+
+
+def set_app_setting(db_path: str, key: str, value: Any) -> None:
+    """Store an application-wide setting (JSON-serialized)."""
+    conn = get_conn(db_path)
+    cur = conn.cursor()
+    now = datetime.utcnow().isoformat()
+    cur.execute(
+        """
+        INSERT OR REPLACE INTO app_settings(key, value, updated_at)
+        VALUES (?, ?, ?);
+        """,
+        (key, json.dumps(value), now),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_app_setting(db_path: str, key: str) -> Optional[Any]:
+    """Retrieve an application-wide setting (JSON-deserialized)."""
+    conn = get_conn(db_path)
+    cur = conn.cursor()
+    cur.execute("SELECT value FROM app_settings WHERE key = ?;", (key,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    try:
+        return json.loads(row[0])
+    except Exception as exc:
+        logger.warning(f"Failed to parse app_setting '{key}' as JSON: {exc}")
+        return row[0]
+
+
+def set_browse_visible_fields(db_path: str, fields: List[str]) -> None:
+    """Persist global browse visible fields configuration."""
+    set_app_setting(db_path, "browse_visible_fields", fields)
+
+
+def get_browse_visible_fields(db_path: str) -> Optional[List[str]]:
+    """Return the persisted browse visible fields configuration, if any."""
+    value = get_app_setting(db_path, "browse_visible_fields")
+    if isinstance(value, list):
+        return value
+    return None
 
 def upsert_doi_metadata(db_path: str, doi: str) -> str:
     """Store DOI and return the doi_hash."""

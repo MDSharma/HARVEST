@@ -126,6 +126,8 @@ API_ADMIN_AUTH = f"{API_BASE}/api/admin/auth"
 API_PROJECTS = f"{API_BASE}/api/projects"
 API_ADMIN_PROJECTS = f"{API_BASE}/api/admin/projects"
 API_ADMIN_TRIPLE = f"{API_BASE}/api/admin/triple"
+API_BROWSE_FIELDS = f"{API_BASE}/api/browse-fields"
+API_ADMIN_BROWSE_FIELDS = f"{API_BASE}/api/admin/browse-fields"
 
 # Local fallback schema (used if /api/choices is not reachable)
 SCHEMA_JSON = {
