@@ -3,33 +3,6 @@
 **Purpose:** Guide GitHub Copilot to generate secure, stable, and maintainable code that aligns with HARVEST’s architecture, and to **automatically review and implement** relevant **qodo-code-review** PR suggestions that improve **security** and **operational stability**.
 
 ---
-## Table of Contents
-
-- [Repository Structure](#repository-structure)
-- [Design Principles](#design-principles)
-- [Configuration & Dependency Injection](#configuration--dependency-injection)
-- [Security & Stability Enforcement](#security--stability-enforcement)
-- [Code Quality & Style](#code-quality--style)
-- [Testing Strategy (`test_scripts/`)](#testing-strategy-test_scripts)
-- [Frontend Guidelines (`frontend/`)](#frontend-guidelines-frontend)
-- [Deployment Modes & Nginx](#deployment-modes--nginx)
-- [Documentation Practices (`docs/`)](#documentation-practices-docs)
-- [qodo-code-review Integration](#qodo-code-review-integration)
-- [Copilot Behaviors & Completion Rules](#copilot-behaviors--completion-rules)
-- [Automation Directive](#automation-directive)
-- [PR Review Checklist](#pr-review-checklist)
-- [Observability & Logging](#observability--logging)
-- [Database & Migration Practices](#database--migration-practices)
-- [PDF Handling & Validation](#pdf-handling--validation)
-- [Performance & Resource Management](#performance--resource-management)
-- [Secrets Management](#secrets-management)
-- [CI/CD (Recommended)](#cicd-recommended)
-- [Examples & Patterns](#examples--patterns)
-- [Maintenance & Versioning](#maintenance--versioning)
-- [Notes for Copilot](#notes-for-copilot)
-- [Appendix: Optional Copilot Configuration Stub](#appendix-optional-copilot-configuration-stub)
-
----
 
 ## Repository Structure
 
@@ -247,8 +220,7 @@
 - [ ] **Docs**: Relevant guides updated in `docs/` (installation, deployment, schema).  
 - [ ] **Frontend**: Asset paths and API routing consistent with Nginx; no client-side secrets.  
 - [ ] **Logging**: Structured logs; sensitive data redacted; no `print` in production code.  
-- [ ] **Performance**: No unbounded memory use; streaming for large files; reasonable limits.  
-- [ions with property-based tests where appropriate.
+- [ ] **Performance**: No unbounded memory use; streaming for large files; reasonable limits.
 
 ---
 
