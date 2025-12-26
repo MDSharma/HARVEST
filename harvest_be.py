@@ -632,6 +632,8 @@ def rows():
     try:
         project_id = request.args.get('project_id', type=int)
         limit = request.args.get('limit', type=int)
+        if limit is not None and limit <= 0:
+            limit = None
         if limit and limit > MAX_BROWSE_LIMIT:
             limit = MAX_BROWSE_LIMIT
         

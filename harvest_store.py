@@ -8,7 +8,7 @@ from datetime import datetime
 import json
 import hashlib
 import traceback
-from typing import Any
+from typing import Any, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -377,7 +377,7 @@ def set_app_setting(db_path: str, key: str, value: Any) -> None:
     conn.close()
 
 
-def get_app_setting(db_path: str, key: str) -> Any | None:
+def get_app_setting(db_path: str, key: str) -> Optional[Any]:
     """Retrieve an application-wide setting (JSON-deserialized)."""
     conn = get_conn(db_path)
     cur = conn.cursor()
@@ -393,12 +393,12 @@ def get_app_setting(db_path: str, key: str) -> Any | None:
         return row[0]
 
 
-def set_browse_visible_fields(db_path: str, fields: list[str]) -> None:
+def set_browse_visible_fields(db_path: str, fields: List[str]) -> None:
     """Persist global browse visible fields configuration."""
     set_app_setting(db_path, "browse_visible_fields", fields)
 
 
-def get_browse_visible_fields(db_path: str) -> list[str] | None:
+def get_browse_visible_fields(db_path: str) -> Optional[List[str]]:
     """Return the persisted browse visible fields configuration, if any."""
     value = get_app_setting(db_path, "browse_visible_fields")
     if isinstance(value, list):
