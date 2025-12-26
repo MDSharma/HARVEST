@@ -629,7 +629,10 @@ def rows():
     """
     List recent rows with DOI information.
     Note: Article metadata (title, authors, year) are not stored and would need to be fetched on-demand from CrossRef.
-    Supports filtering by project_id via query parameter: /api/rows?project_id=1
+    Supports query parameters:
+      - project_id (int): filter by project
+      - triple_contributor (str): prefix match on hashed annotator ID (SHA256 salt-prefixed); admins may pass plain email
+      - limit (int): max records to return (capped at MAX_BROWSE_LIMIT)
     """
     from harvest_store import get_conn
     try:
@@ -678,9 +681,11 @@ def rows():
                 if not contributor:
                     continue
                 hashed = hashlib.sha256((EMAIL_HASH_SALT + contributor).encode()).hexdigest()[:16]
-                if hashed.lower().startswith(needle) or contributor.lower().startswith(needle):
+                if hashed.lower().startswith(needle):
                     filtered.append(row)
             out = filtered
+            if limit:
+                out = out[:limit]
         return jsonify(out)
     except Exception as e:
         logger.error(f"Failed to fetch rows: {e}", exc_info=True)
@@ -2187,8 +2192,8 @@ def export_triples_json():
             "sentences": [],
             "doi_metadata": [],
             "projects": [],
-            "entity_types": [],
-            "relation_types": []
+            "entity_types": [],  # Global schema (exported in full)
+            "relation_types": []  # Global schema (exported in full)
         }
         
         # Get all triples
@@ -2210,7 +2215,6 @@ def export_triples_json():
             export_data["triples"].append(dict(row))
         
         sentence_ids = {row["sentence_id"] for row in triples}
-        project_ids = {row["project_id"] for row in triples if row["project_id"] is not None}
         
         # Get sentences referenced by exported triples
         if sentence_ids:

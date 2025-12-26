@@ -2061,6 +2061,7 @@ def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, cont
             params.append(f"project_id={project_filter}")
         if contributor_filter:
             params.append(f"triple_contributor={contributor_filter}")
+        params.append("limit=1000")
         url = API_RECENT if not params else f"{API_RECENT}?{'&'.join(params)}"
         
         r = requests.get(url, timeout=8)
@@ -2084,14 +2085,13 @@ def refresh_recent(btn_clicks, interval_trigger, tab_value, project_filter, cont
         # Hash email addresses for privacy using installation-specific salt
         is_admin = bool(admin_auth and (admin_auth.get("email") or admin_auth.get("token")))
         for row in rows:
-            if is_admin and admin_unmask:
-                continue
-            # Hash the 'email' field if present (legacy field name)
-            if 'email' in row and row['email']:
-                row['email'] = hashlib.sha256((EMAIL_HASH_SALT + row['email']).encode()).hexdigest()[:16] + '...'
-            # Hash the 'triple_contributor' field (actual field name from backend)
-            if 'triple_contributor' in row and row['triple_contributor']:
-                row['triple_contributor'] = hashlib.sha256((EMAIL_HASH_SALT + row['triple_contributor']).encode()).hexdigest()[:16] + '...'
+            if not (is_admin and admin_unmask):
+                # Hash the 'email' field if present (legacy field name)
+                if 'email' in row and row['email']:
+                    row['email'] = hashlib.sha256((EMAIL_HASH_SALT + row['email']).encode()).hexdigest()[:16] + '...'
+                # Hash the 'triple_contributor' field (actual field name from backend)
+                if 'triple_contributor' in row and row['triple_contributor']:
+                    row['triple_contributor'] = hashlib.sha256((EMAIL_HASH_SALT + row['triple_contributor']).encode()).hexdigest()[:16] + '...'
         
         # Filter columns based on admin configuration
         if rows:
