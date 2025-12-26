@@ -2,7 +2,7 @@
 # convert_pdfs_with_marker.sh
 #
 # Convert PDF files in project_pdfs directory to Markdown using Marker
-# https://github.com/datalab-to/marker
+# https://github.com/VikParuchuri/marker
 #
 # Usage:
 #   ./scripts/convert_pdfs_with_marker.sh [project_name]
@@ -56,7 +56,7 @@ check_marker_installed() {
     if ! command -v marker_single &> /dev/null; then
         log_error "marker-pdf is not installed or not in PATH"
         log_info "Install with: pip install marker-pdf"
-        log_info "See: https://github.com/datalab-to/marker"
+        log_info "See: https://github.com/VikParuchuri/marker"
         exit 1
     fi
     log_success "marker-pdf is installed"
@@ -96,7 +96,7 @@ convert_pdf() {
     # Skip if markdown file already exists
     if [ -f "$markdown_file" ]; then
         log_warning "Skipping (already exists): $relative_path"
-        return 0
+        return 2  # Return special code for skipped files
     fi
     
     log_info "Converting: $relative_path"
@@ -105,12 +105,18 @@ convert_pdf() {
     # marker_single accepts input PDF and output directory
     local output_dir="$(dirname "$markdown_file")"
     local output_basename="$(basename "${markdown_file%.md}")"
+    local temp_error_log="/tmp/marker_error_$$.log"
     
-    if marker_single "$pdf_path" "$output_dir" --output_format markdown --filename "$output_basename" > /dev/null 2>&1; then
+    if marker_single "$pdf_path" "$output_dir" --output_format markdown --filename "$output_basename" > /dev/null 2>"$temp_error_log"; then
         log_success "Converted: $relative_path → ${relative_path%.pdf}.md"
+        rm -f "$temp_error_log"
         return 0
     else
         log_error "Failed to convert: $relative_path"
+        if [ -f "$temp_error_log" ]; then
+            cat "$temp_error_log" >&2
+            rm -f "$temp_error_log"
+        fi
         return 1
     fi
 }
@@ -135,14 +141,18 @@ process_project() {
     
     while IFS= read -r -d '' pdf_file; do
         ((pdf_count++))
-        if convert_pdf "$pdf_file"; then
+        convert_pdf "$pdf_file"
+        local result=$?
+        if [ $result -eq 0 ]; then
             ((success_count++))
+        elif [ $result -eq 2 ]; then
+            ((skip_count++))
         else
             ((error_count++))
         fi
     done < <(find "$project_pdf_dir" -type f -name "*.pdf" -print0)
     
-    log_info "Project $project_name: Found $pdf_count PDFs, Converted $success_count, Errors $error_count"
+    log_info "Project $project_name: Found $pdf_count PDFs, Converted $success_count, Skipped $skip_count, Errors $error_count"
 }
 
 # Function to process all projects

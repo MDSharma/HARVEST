@@ -8,7 +8,7 @@ The Text2KG pipeline enables automated knowledge graph creation from PDF documen
 
 #### 1. Marker-based PDF → Markdown Conversion
 - **Input**: PDF documents from project collection
-- **Tool**: [Marker](https://github.com/datalab-to/marker) - Advanced PDF to Markdown converter
+- **Tool**: [Marker](https://github.com/VikParuchuri/marker) - Advanced PDF to Markdown converter
 - **Output**: Structured markdown files preserving document hierarchy
 - **Benefits**: 
   - Accurate text extraction with layout preservation
