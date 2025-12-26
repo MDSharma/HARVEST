@@ -630,6 +630,8 @@ def rows():
     from harvest_store import get_conn
     try:
         project_id = request.args.get('project_id', type=int)
+        limit = request.args.get('limit', type=int)
+        limit_clause = " LIMIT ?" if limit and limit > 0 else ""
         
         conn = get_conn(DB_PATH)
         cur = conn.cursor()
@@ -644,8 +646,9 @@ def rows():
                 LEFT JOIN doi_metadata dm ON s.doi_hash = dm.doi_hash
                 LEFT JOIN triples t ON s.id = t.sentence_id
                 WHERE t.project_id = ?
-                ORDER BY s.id DESC, t.id ASC;
-            """, (project_id,))
+                ORDER BY s.id DESC, t.id ASC""" + limit_clause,
+                (project_id, limit) if limit and limit > 0 else (project_id,)
+            )
         else:
             cur.execute("""
                 SELECT s.id, s.text, s.literature_link, s.doi_hash,
@@ -655,8 +658,9 @@ def rows():
                 FROM sentences s
                 LEFT JOIN doi_metadata dm ON s.doi_hash = dm.doi_hash
                 LEFT JOIN triples t ON s.id = t.sentence_id
-                ORDER BY s.id DESC, t.id ASC;
-            """)
+                ORDER BY s.id DESC, t.id ASC""" + limit_clause,
+                (limit,) if limit and limit > 0 else ()
+            )
         
         data = cur.fetchall()
         conn.close()
