@@ -35,7 +35,7 @@ The Text2KG pipeline enables automated knowledge graph creation from PDF documen
   - Anthropic: `export MARKER_ANTHROPIC_API_KEY="sk-ant-..." && ./scripts/convert_pdfs_with_marker.sh my_project --llm_provider anthropic --llm_model claude-3-5-sonnet-20241022`
   - Vertex AI: `export MARKER_VERTEX_PROJECT_ID="my-project" && ./scripts/convert_pdfs_with_marker.sh --llm_provider google`
 
-#### 2. Markdown Processing
+#### 2. Markdown Processing (in development)
 - **Input**: Markdown files from conversion stage
 - **Process**: Text preprocessing and structuring
 - **Output**: Clean, structured text ready for NLP analysis
