@@ -33,7 +33,7 @@ The Text2KG pipeline enables automated knowledge graph creation from PDF documen
   - Metadata extraction
   - Text normalization
 
-#### 3. NLP Model Selection
+#### 3. NLP Model Selection (in development)
 - **Available Models**:
   - **BioBERT**: Biomedical entity recognition
   - **SciBERT**: Scientific text understanding
@@ -42,13 +42,13 @@ The Text2KG pipeline enables automated knowledge graph creation from PDF documen
   - **Custom Models**: Domain-specific trained models
 - **Purpose**: Select appropriate model for your domain and task
 
-#### 4. Prompt Configuration
+#### 4. Prompt Configuration (in development)
 - **Entity Types**: Define biological entities to extract (genes, proteins, diseases, etc.)
 - **Relationship Types**: Specify relationships to identify (regulates, interacts_with, etc.)
 - **Context Settings**: Configure extraction parameters
 - **Template Design**: Customize prompts for optimal extraction
 
-#### 5. Trait Extraction
+#### 5. Trait Extraction (in development)
 - **Process**: Apply NLP model with configured prompts
 - **Output**: Structured entity-relationship triples
 - **Validation**: Confidence scoring and filtering
