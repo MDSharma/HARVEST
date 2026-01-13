@@ -24,59 +24,70 @@
 #   ./scripts/convert_pdfs_with_marker.sh my_project --llm_provider anthropic --llm_model claude-3-5-sonnet-20241022 --langs English
 #
 # Environment Variables for LLM API Keys:
-#   The script supports provider-specific environment variables that are automatically
-#   mapped to the corresponding Marker CLI options:
+#   The script supports provider-specific environment variables that are securely
+#   passed to Marker via environment (not command-line arguments) to avoid exposure
+#   in process listings and logs:
 #
 #   OpenAI:
-#     MARKER_OPENAI_API_KEY        → --openai_api_key
+#     MARKER_OPENAI_API_KEY        → exported as OPENAI_API_KEY
 #
 #   Anthropic:
-#     MARKER_ANTHROPIC_API_KEY     → --anthropic_api_key
+#     MARKER_ANTHROPIC_API_KEY     → exported as ANTHROPIC_API_KEY
 #
 #   Google Gemini:
-#     MARKER_GEMINI_API_KEY        → --gemini_api_key
+#     MARKER_GEMINI_API_KEY        → exported as GEMINI_API_KEY
 #
 #   Google Vertex AI:
-#     MARKER_VERTEX_PROJECT_ID     → --vertex_project_id
-#     MARKER_VERTEX_LOCATION       → --vertex_location
-#     MARKER_VERTEX_MODEL          → --vertex_model
+#     MARKER_VERTEX_PROJECT_ID     → exported as VERTEX_PROJECT_ID
+#     MARKER_VERTEX_LOCATION       → exported as VERTEX_LOCATION
+#     MARKER_VERTEX_MODEL          → exported as VERTEX_MODEL
 #
 #   Ollama:
-#     MARKER_OLLAMA_BASE_URL       → --ollama_base_url
+#     MARKER_OLLAMA_BASE_URL       → exported as OLLAMA_BASE_URL
 #
 #   Generic (backwards compatible):
-#     MARKER_LLM_API_KEY           → --llm_api_key (for providers that support it)
+#     MARKER_LLM_API_KEY           → exported as LLM_API_KEY
 #
-#   Note: You can also pass these options directly as command-line arguments
-#         instead of using environment variables.
+#   Security Note: API keys are passed via environment variables (not CLI arguments)
+#   to prevent exposure in process listings. The script validates path inputs and
+#   redacts sensitive data from error logs.
 #
 # Prerequisites:
 #   - marker-pdf installed: pip install marker-pdf
 #   - project_pdfs directory exists with PDF files
-#   - For LLM services: Set appropriate environment variables or pass as CLI options
+#   - For LLM services: Set appropriate MARKER_* environment variables
 #
 # Output:
 #   - Markdown files will be created in project_markdowns directory
 #   - Directory structure mirrors project_pdfs
 #
-# Supported Marker Options:
+# Supported Marker Options (pass as CLI arguments):
 #   --llm_provider <provider>    LLM provider (openai, anthropic, google, etc.)
 #   --llm_model <model>          Specific LLM model to use
-#   --openai_api_key <key>       OpenAI API key
-#   --anthropic_api_key <key>    Anthropic API key
-#   --gemini_api_key <key>       Google Gemini API key
-#   --vertex_project_id <id>     Google Vertex AI project ID
-#   --vertex_location <loc>      Google Vertex AI location
-#   --vertex_model <model>       Google Vertex AI model
-#   --ollama_base_url <url>      Ollama base URL
 #   --langs <language>           Language(s) for OCR (e.g., English, Spanish)
 #   --batch_multiplier <num>     Process multiple PDFs in parallel
 #   --workers <num>              Number of worker processes
 #   And other marker CLI options - pass them after the project name
 #
+#   Note: For security, API keys should be set via MARKER_* environment variables
+#   rather than passed as CLI arguments.
+#
 
 set -e  # Exit on error
 set -u  # Exit on undefined variable
+
+# Global variable for temp file (used in trap)
+TEMP_ERROR_LOG=""
+
+# Cleanup function for temporary files
+cleanup_temp_files() {
+    if [ -n "${TEMP_ERROR_LOG}" ] && [ -f "${TEMP_ERROR_LOG}" ]; then
+        rm -f "${TEMP_ERROR_LOG}"
+    fi
+}
+
+# Set up trap to cleanup on exit or interruption
+trap cleanup_temp_files EXIT INT TERM
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -111,48 +122,46 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Function to build API key options from environment variables
-# This provides a clean mapping of environment variables to Marker CLI options
-build_env_options() {
-    local env_opts=""
-    
+# Function to export environment variables for Marker
+# This avoids exposing API keys in process listings and logs
+# Instead of passing --api_key "secret" on command line, we export env vars
+# that Marker CLI will read directly
+setup_marker_environment() {
     # OpenAI
     if [ -n "${MARKER_OPENAI_API_KEY:-}" ]; then
-        env_opts="$env_opts --openai_api_key \"${MARKER_OPENAI_API_KEY}\""
+        export OPENAI_API_KEY="${MARKER_OPENAI_API_KEY}"
     fi
     
     # Anthropic
     if [ -n "${MARKER_ANTHROPIC_API_KEY:-}" ]; then
-        env_opts="$env_opts --anthropic_api_key \"${MARKER_ANTHROPIC_API_KEY}\""
+        export ANTHROPIC_API_KEY="${MARKER_ANTHROPIC_API_KEY}"
     fi
     
     # Google Gemini
     if [ -n "${MARKER_GEMINI_API_KEY:-}" ]; then
-        env_opts="$env_opts --gemini_api_key \"${MARKER_GEMINI_API_KEY}\""
+        export GEMINI_API_KEY="${MARKER_GEMINI_API_KEY}"
     fi
     
     # Google Vertex AI
     if [ -n "${MARKER_VERTEX_PROJECT_ID:-}" ]; then
-        env_opts="$env_opts --vertex_project_id \"${MARKER_VERTEX_PROJECT_ID}\""
+        export VERTEX_PROJECT_ID="${MARKER_VERTEX_PROJECT_ID}"
     fi
     if [ -n "${MARKER_VERTEX_LOCATION:-}" ]; then
-        env_opts="$env_opts --vertex_location \"${MARKER_VERTEX_LOCATION}\""
+        export VERTEX_LOCATION="${MARKER_VERTEX_LOCATION}"
     fi
     if [ -n "${MARKER_VERTEX_MODEL:-}" ]; then
-        env_opts="$env_opts --vertex_model \"${MARKER_VERTEX_MODEL}\""
+        export VERTEX_MODEL="${MARKER_VERTEX_MODEL}"
     fi
     
     # Ollama
     if [ -n "${MARKER_OLLAMA_BASE_URL:-}" ]; then
-        env_opts="$env_opts --ollama_base_url \"${MARKER_OLLAMA_BASE_URL}\""
+        export OLLAMA_BASE_URL="${MARKER_OLLAMA_BASE_URL}"
     fi
     
     # Generic LLM API key (backwards compatible)
     if [ -n "${MARKER_LLM_API_KEY:-}" ]; then
-        env_opts="$env_opts --llm_api_key \"${MARKER_LLM_API_KEY}\""
+        export LLM_API_KEY="${MARKER_LLM_API_KEY}"
     fi
-    
-    echo "$env_opts"
 }
 
 # Function to check if marker-pdf is installed
@@ -188,6 +197,18 @@ create_markdown_directory() {
 # Function to convert a single PDF to Markdown
 convert_pdf() {
     local pdf_path="$1"
+    
+    # Validate that pdf_path is within PDF_DIR to prevent path traversal
+    local pdf_realpath
+    pdf_realpath=$(realpath "$pdf_path" 2>/dev/null || echo "$pdf_path")
+    local pdf_dir_realpath
+    pdf_dir_realpath=$(realpath "$PDF_DIR" 2>/dev/null || echo "$PDF_DIR")
+    
+    if [[ ! "$pdf_realpath" =~ ^"$pdf_dir_realpath" ]]; then
+        log_error "Security: PDF path is outside expected directory: $pdf_path"
+        return 1
+    fi
+    
     local relative_path="${pdf_path#$PDF_DIR/}"
     local markdown_file="${MARKDOWN_DIR}/${relative_path%.pdf}.md"
     local markdown_subdir="$(dirname "$markdown_file")"
@@ -205,35 +226,47 @@ convert_pdf() {
     
     log_info "Converting: $relative_path"
     
-    # Run marker conversion with additional options
-    # marker command converts single PDF file
-    local output_dir="$(dirname "$markdown_file")"
-    local output_basename="$(basename "${markdown_file%.md}")"
-    local temp_error_log="/tmp/marker_error_$$.log"
+    # Create secure temporary error log file
+    TEMP_ERROR_LOG=$(mktemp -t marker_error.XXXXXX) || {
+        log_error "Failed to create temporary error log file"
+        return 1
+    }
     
-    # Build marker command with extra options
-    local marker_cmd="marker \"$pdf_path\" \"$output_dir\" --output_format markdown --filename \"$output_basename\""
+    # Run marker conversion with additional options using arrays (no eval)
+    local output_dir
+    output_dir="$(dirname "$markdown_file")"
+    local output_basename
+    output_basename="$(basename "${markdown_file%.md}")"
     
-    # Add extra options if provided
+    # Build marker command using array to avoid eval and command injection
+    local marker_cmd=(marker "$pdf_path" "$output_dir" --output_format markdown --filename "$output_basename")
+    
+    # Add extra options if provided (split safely into array)
     if [ -n "$MARKER_EXTRA_OPTS" ]; then
-        marker_cmd="$marker_cmd $MARKER_EXTRA_OPTS"
+        # Read MARKER_EXTRA_OPTS into an array without using eval
+        local extra_opts_array=()
+        read -r -a extra_opts_array <<< "$MARKER_EXTRA_OPTS"
+        marker_cmd+=("${extra_opts_array[@]}")
     fi
     
-    # Add environment-based API key options
-    local env_opts=$(build_env_options)
-    if [ -n "$env_opts" ]; then
-        marker_cmd="$marker_cmd $env_opts"
-    fi
-    
-    if eval "$marker_cmd" > /dev/null 2>"$temp_error_log"; then
+    # Execute marker command (environment variables are already exported)
+    if "${marker_cmd[@]}" > /dev/null 2>"$TEMP_ERROR_LOG"; then
         log_success "Converted: $relative_path → ${relative_path%.pdf}.md"
-        rm -f "$temp_error_log"
+        rm -f "$TEMP_ERROR_LOG"
+        TEMP_ERROR_LOG=""
         return 0
     else
         log_error "Failed to convert: $relative_path"
-        if [ -f "$temp_error_log" ]; then
-            cat "$temp_error_log" >&2
-            rm -f "$temp_error_log"
+        if [ -f "$TEMP_ERROR_LOG" ]; then
+            # Redact potential API keys from error output before displaying
+            if command -v sed >/dev/null 2>&1; then
+                # Redact common API key patterns
+                sed -E 's/(sk-[A-Za-z0-9]{20,})/[REDACTED_API_KEY]/g; s/(sk-ant-[A-Za-z0-9_-]{20,})/[REDACTED_API_KEY]/g; s/(AIza[A-Za-z0-9_-]{20,})/[REDACTED_API_KEY]/g' "$TEMP_ERROR_LOG" >&2
+            else
+                cat "$TEMP_ERROR_LOG" >&2
+            fi
+            rm -f "$TEMP_ERROR_LOG"
+            TEMP_ERROR_LOG=""
         fi
         return 1
     fi
@@ -317,17 +350,26 @@ main() {
         log_info "Using additional Marker options: $MARKER_EXTRA_OPTS"
     fi
     
-    # Show detected environment variables for LLM services
+    # Show detected environment variables for LLM services and validate them
     local env_count=0
     if [ -n "${MARKER_OPENAI_API_KEY:-}" ]; then
+        if [ ${#MARKER_OPENAI_API_KEY} -lt 10 ]; then
+            log_warning "MARKER_OPENAI_API_KEY appears too short (< 10 chars)"
+        fi
         log_info "Environment: MARKER_OPENAI_API_KEY detected"
         ((env_count++))
     fi
     if [ -n "${MARKER_ANTHROPIC_API_KEY:-}" ]; then
+        if [ ${#MARKER_ANTHROPIC_API_KEY} -lt 10 ]; then
+            log_warning "MARKER_ANTHROPIC_API_KEY appears too short (< 10 chars)"
+        fi
         log_info "Environment: MARKER_ANTHROPIC_API_KEY detected"
         ((env_count++))
     fi
     if [ -n "${MARKER_GEMINI_API_KEY:-}" ]; then
+        if [ ${#MARKER_GEMINI_API_KEY} -lt 10 ]; then
+            log_warning "MARKER_GEMINI_API_KEY appears too short (< 10 chars)"
+        fi
         log_info "Environment: MARKER_GEMINI_API_KEY detected"
         ((env_count++))
     fi
@@ -348,6 +390,9 @@ main() {
         ((env_count++))
     fi
     if [ -n "${MARKER_LLM_API_KEY:-}" ]; then
+        if [ ${#MARKER_LLM_API_KEY} -lt 10 ]; then
+            log_warning "MARKER_LLM_API_KEY appears too short (< 10 chars)"
+        fi
         log_info "Environment: MARKER_LLM_API_KEY detected (generic)"
         ((env_count++))
     fi
@@ -355,6 +400,9 @@ main() {
     if [ $env_count -eq 0 ]; then
         log_info "No LLM environment variables detected (using default Marker settings)"
     fi
+    
+    # Export environment variables for Marker (avoids exposing secrets in process listings)
+    setup_marker_environment
     
     # Pre-flight checks
     check_marker_installed

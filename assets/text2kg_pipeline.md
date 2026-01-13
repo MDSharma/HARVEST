@@ -18,17 +18,18 @@ The Text2KG pipeline enables automated knowledge graph creation from PDF documen
   - Optional LLM integration for enhanced extraction quality
 - **LLM Services**: 
   - Supports OpenAI, Anthropic, Google Gemini, Google Vertex AI, Ollama, and other providers
-  - Configurable via environment variables or CLI options
+  - Secure configuration via environment variables (API keys not exposed in process listings)
   - Improved extraction accuracy for complex documents
-- **Environment Variables** (for API authentication):
-  - `MARKER_OPENAI_API_KEY` - OpenAI API key
-  - `MARKER_ANTHROPIC_API_KEY` - Anthropic API key
-  - `MARKER_GEMINI_API_KEY` - Google Gemini API key
-  - `MARKER_VERTEX_PROJECT_ID` - Google Vertex AI project ID
-  - `MARKER_VERTEX_LOCATION` - Google Vertex AI location
-  - `MARKER_VERTEX_MODEL` - Google Vertex AI model
-  - `MARKER_OLLAMA_BASE_URL` - Ollama base URL
-  - `MARKER_LLM_API_KEY` - Generic API key (backwards compatible)
+- **Environment Variables** (for secure API authentication):
+  - `MARKER_OPENAI_API_KEY` - OpenAI API key (exported as OPENAI_API_KEY)
+  - `MARKER_ANTHROPIC_API_KEY` - Anthropic API key (exported as ANTHROPIC_API_KEY)
+  - `MARKER_GEMINI_API_KEY` - Google Gemini API key (exported as GEMINI_API_KEY)
+  - `MARKER_VERTEX_PROJECT_ID` - Google Vertex AI project ID (exported as VERTEX_PROJECT_ID)
+  - `MARKER_VERTEX_LOCATION` - Google Vertex AI location (exported as VERTEX_LOCATION)
+  - `MARKER_VERTEX_MODEL` - Google Vertex AI model (exported as VERTEX_MODEL)
+  - `MARKER_OLLAMA_BASE_URL` - Ollama base URL (exported as OLLAMA_BASE_URL)
+  - `MARKER_LLM_API_KEY` - Generic API key (backwards compatible, exported as LLM_API_KEY)
+  - **Security**: API keys passed via environment to prevent exposure in process listings
 - **Usage Examples**: 
   - Basic: `./scripts/convert_pdfs_with_marker.sh [project_name]`
   - OpenAI: `export MARKER_OPENAI_API_KEY="sk-..." && ./scripts/convert_pdfs_with_marker.sh my_project --llm_provider openai --llm_model gpt-4o`
