@@ -32,7 +32,7 @@ class MarkdownCache:
     
     def _load_all_markdown_files(self):
         """Load all markdown files from assets directory"""
-        md_files = ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md', 'participate.md']
+        md_files = ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md', 'participate.md', 'text2kg_pipeline.md']
         for filename in md_files:
             filepath = os.path.join(self.assets_dir, filename)
             if os.path.exists(filepath):
@@ -87,7 +87,7 @@ class MarkdownCache:
                 def on_modified(self, event):
                     if not event.is_directory and event.src_path.endswith('.md'):
                         filename = os.path.basename(event.src_path)
-                        if filename in ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md', 'participate.md']:
+                        if filename in ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md', 'participate.md', 'text2kg_pipeline.md']:
                             logger.info(f"Detected change in {filename}, reloading...")
                             self.cache._load_file(filename, event.src_path)
                             self.cache._update_flag.set()
@@ -95,7 +95,7 @@ class MarkdownCache:
                 def on_created(self, event):
                     if not event.is_directory and event.src_path.endswith('.md'):
                         filename = os.path.basename(event.src_path)
-                        if filename in ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md', 'participate.md']:
+                        if filename in ['annotator_guide.md', 'schema.md', 'admin_guide.md', 'db_model.md', 'participate.md', 'text2kg_pipeline.md']:
                             logger.info(f"Detected new file {filename}, loading...")
                             self.cache._load_file(filename, event.src_path)
                             self.cache._update_flag.set()
