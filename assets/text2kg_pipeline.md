@@ -17,12 +17,23 @@ The Text2KG pipeline enables automated knowledge graph creation from PDF documen
   - Citation and reference handling
   - Optional LLM integration for enhanced extraction quality
 - **LLM Services**: 
-  - Supports OpenAI, Anthropic, Google, and other providers
-  - Configurable via `--llm_provider` and `--llm_model` options
+  - Supports OpenAI, Anthropic, Google Gemini, Google Vertex AI, Ollama, and other providers
+  - Configurable via environment variables or CLI options
   - Improved extraction accuracy for complex documents
-- **Usage**: 
+- **Environment Variables** (for API authentication):
+  - `MARKER_OPENAI_API_KEY` - OpenAI API key
+  - `MARKER_ANTHROPIC_API_KEY` - Anthropic API key
+  - `MARKER_GEMINI_API_KEY` - Google Gemini API key
+  - `MARKER_VERTEX_PROJECT_ID` - Google Vertex AI project ID
+  - `MARKER_VERTEX_LOCATION` - Google Vertex AI location
+  - `MARKER_VERTEX_MODEL` - Google Vertex AI model
+  - `MARKER_OLLAMA_BASE_URL` - Ollama base URL
+  - `MARKER_LLM_API_KEY` - Generic API key (backwards compatible)
+- **Usage Examples**: 
   - Basic: `./scripts/convert_pdfs_with_marker.sh [project_name]`
-  - With LLM: `./scripts/convert_pdfs_with_marker.sh [project_name] --llm_provider openai --llm_model gpt-4o`
+  - OpenAI: `export MARKER_OPENAI_API_KEY="sk-..." && ./scripts/convert_pdfs_with_marker.sh my_project --llm_provider openai --llm_model gpt-4o`
+  - Anthropic: `export MARKER_ANTHROPIC_API_KEY="sk-ant-..." && ./scripts/convert_pdfs_with_marker.sh my_project --llm_provider anthropic --llm_model claude-3-5-sonnet-20241022`
+  - Vertex AI: `export MARKER_VERTEX_PROJECT_ID="my-project" && ./scripts/convert_pdfs_with_marker.sh --llm_provider google`
 
 #### 2. Markdown Processing
 - **Input**: Markdown files from conversion stage

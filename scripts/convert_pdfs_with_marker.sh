@@ -23,13 +23,37 @@
 #   # Combine multiple options
 #   ./scripts/convert_pdfs_with_marker.sh my_project --llm_provider anthropic --llm_model claude-3-5-sonnet-20241022 --langs English
 #
-# Environment Variables:
-#   MARKER_LLM_API_KEY - API key for LLM services (recommended for LLM providers)
+# Environment Variables for LLM API Keys:
+#   The script supports provider-specific environment variables that are automatically
+#   mapped to the corresponding Marker CLI options:
+#
+#   OpenAI:
+#     MARKER_OPENAI_API_KEY        → --openai_api_key
+#
+#   Anthropic:
+#     MARKER_ANTHROPIC_API_KEY     → --anthropic_api_key
+#
+#   Google Gemini:
+#     MARKER_GEMINI_API_KEY        → --gemini_api_key
+#
+#   Google Vertex AI:
+#     MARKER_VERTEX_PROJECT_ID     → --vertex_project_id
+#     MARKER_VERTEX_LOCATION       → --vertex_location
+#     MARKER_VERTEX_MODEL          → --vertex_model
+#
+#   Ollama:
+#     MARKER_OLLAMA_BASE_URL       → --ollama_base_url
+#
+#   Generic (backwards compatible):
+#     MARKER_LLM_API_KEY           → --llm_api_key (for providers that support it)
+#
+#   Note: You can also pass these options directly as command-line arguments
+#         instead of using environment variables.
 #
 # Prerequisites:
 #   - marker-pdf installed: pip install marker-pdf
 #   - project_pdfs directory exists with PDF files
-#   - For LLM services: Set MARKER_LLM_API_KEY environment variable
+#   - For LLM services: Set appropriate environment variables or pass as CLI options
 #
 # Output:
 #   - Markdown files will be created in project_markdowns directory
@@ -38,6 +62,13 @@
 # Supported Marker Options:
 #   --llm_provider <provider>    LLM provider (openai, anthropic, google, etc.)
 #   --llm_model <model>          Specific LLM model to use
+#   --openai_api_key <key>       OpenAI API key
+#   --anthropic_api_key <key>    Anthropic API key
+#   --gemini_api_key <key>       Google Gemini API key
+#   --vertex_project_id <id>     Google Vertex AI project ID
+#   --vertex_location <loc>      Google Vertex AI location
+#   --vertex_model <model>       Google Vertex AI model
+#   --ollama_base_url <url>      Ollama base URL
 #   --langs <language>           Language(s) for OCR (e.g., English, Spanish)
 #   --batch_multiplier <num>     Process multiple PDFs in parallel
 #   --workers <num>              Number of worker processes
@@ -78,6 +109,50 @@ log_warning() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Function to build API key options from environment variables
+# This provides a clean mapping of environment variables to Marker CLI options
+build_env_options() {
+    local env_opts=""
+    
+    # OpenAI
+    if [ -n "${MARKER_OPENAI_API_KEY:-}" ]; then
+        env_opts="$env_opts --openai_api_key \"${MARKER_OPENAI_API_KEY}\""
+    fi
+    
+    # Anthropic
+    if [ -n "${MARKER_ANTHROPIC_API_KEY:-}" ]; then
+        env_opts="$env_opts --anthropic_api_key \"${MARKER_ANTHROPIC_API_KEY}\""
+    fi
+    
+    # Google Gemini
+    if [ -n "${MARKER_GEMINI_API_KEY:-}" ]; then
+        env_opts="$env_opts --gemini_api_key \"${MARKER_GEMINI_API_KEY}\""
+    fi
+    
+    # Google Vertex AI
+    if [ -n "${MARKER_VERTEX_PROJECT_ID:-}" ]; then
+        env_opts="$env_opts --vertex_project_id \"${MARKER_VERTEX_PROJECT_ID}\""
+    fi
+    if [ -n "${MARKER_VERTEX_LOCATION:-}" ]; then
+        env_opts="$env_opts --vertex_location \"${MARKER_VERTEX_LOCATION}\""
+    fi
+    if [ -n "${MARKER_VERTEX_MODEL:-}" ]; then
+        env_opts="$env_opts --vertex_model \"${MARKER_VERTEX_MODEL}\""
+    fi
+    
+    # Ollama
+    if [ -n "${MARKER_OLLAMA_BASE_URL:-}" ]; then
+        env_opts="$env_opts --ollama_base_url \"${MARKER_OLLAMA_BASE_URL}\""
+    fi
+    
+    # Generic LLM API key (backwards compatible)
+    if [ -n "${MARKER_LLM_API_KEY:-}" ]; then
+        env_opts="$env_opts --llm_api_key \"${MARKER_LLM_API_KEY}\""
+    fi
+    
+    echo "$env_opts"
 }
 
 # Function to check if marker-pdf is installed
@@ -144,9 +219,10 @@ convert_pdf() {
         marker_cmd="$marker_cmd $MARKER_EXTRA_OPTS"
     fi
     
-    # Add API key if available in environment
-    if [ -n "${MARKER_LLM_API_KEY:-}" ]; then
-        marker_cmd="$marker_cmd --llm_api_key \"$MARKER_LLM_API_KEY\""
+    # Add environment-based API key options
+    local env_opts=$(build_env_options)
+    if [ -n "$env_opts" ]; then
+        marker_cmd="$marker_cmd $env_opts"
     fi
     
     if eval "$marker_cmd" > /dev/null 2>"$temp_error_log"; then
@@ -241,9 +317,43 @@ main() {
         log_info "Using additional Marker options: $MARKER_EXTRA_OPTS"
     fi
     
-    # Show LLM API key status
+    # Show detected environment variables for LLM services
+    local env_count=0
+    if [ -n "${MARKER_OPENAI_API_KEY:-}" ]; then
+        log_info "Environment: MARKER_OPENAI_API_KEY detected"
+        ((env_count++))
+    fi
+    if [ -n "${MARKER_ANTHROPIC_API_KEY:-}" ]; then
+        log_info "Environment: MARKER_ANTHROPIC_API_KEY detected"
+        ((env_count++))
+    fi
+    if [ -n "${MARKER_GEMINI_API_KEY:-}" ]; then
+        log_info "Environment: MARKER_GEMINI_API_KEY detected"
+        ((env_count++))
+    fi
+    if [ -n "${MARKER_VERTEX_PROJECT_ID:-}" ]; then
+        log_info "Environment: MARKER_VERTEX_PROJECT_ID detected"
+        ((env_count++))
+    fi
+    if [ -n "${MARKER_VERTEX_LOCATION:-}" ]; then
+        log_info "Environment: MARKER_VERTEX_LOCATION detected"
+        ((env_count++))
+    fi
+    if [ -n "${MARKER_VERTEX_MODEL:-}" ]; then
+        log_info "Environment: MARKER_VERTEX_MODEL detected"
+        ((env_count++))
+    fi
+    if [ -n "${MARKER_OLLAMA_BASE_URL:-}" ]; then
+        log_info "Environment: MARKER_OLLAMA_BASE_URL detected"
+        ((env_count++))
+    fi
     if [ -n "${MARKER_LLM_API_KEY:-}" ]; then
-        log_info "LLM API key detected (will be passed to Marker)"
+        log_info "Environment: MARKER_LLM_API_KEY detected (generic)"
+        ((env_count++))
+    fi
+    
+    if [ $env_count -eq 0 ]; then
+        log_info "No LLM environment variables detected (using default Marker settings)"
     fi
     
     # Pre-flight checks
